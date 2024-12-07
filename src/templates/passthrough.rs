@@ -1,80 +1,94 @@
+use std::ffi::{OsStr, OsString};
+use std::io;
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 
-use types::{FuseDirEntry, PosixError};
+use fuse_api::ReplyCb;
+use inode_path_handler::{FilesystemBackend, InodePathHandler};
+use types::FuseDirEntry;
 
 use super::fd_bridge::FileDescriptorBridge;
 use crate::types::*;
 use crate::*;
 
 pub struct PassthroughFs {
-    _repo: PathBuf,
+    path_handler: Mutex<InodePathHandler>,
+}
+
+struct BackEndFs {
+}
+
+impl FilesystemBackend for BackEndFs {
+    fn readdir(&self, parent_path: &Path) -> Result<Vec<PathBuf>, io::Error> {
+        Ok(posix_fs::readdir(parent_path)?
+            .into_iter()
+            .map(|(name, _type)| name)
+            .collect()
+        )
+    }
+
+    fn rename(&self, path: &Path, newpath: &Path, flags: RenameFlags) -> Result<(), io::Error> {
+        posix_fs::rename(path, newpath, flags)
+    }
+
+    fn unlink(&self, path: &Path) -> Result<(), io::Error> {
+        posix_fs::unlink(path)
+    }
 }
 
 impl PassthroughFs {
-    pub fn new(repo: &Path) -> Self {
-        Self { _repo: repo.into() }
+    pub fn new(repo: PathBuf) -> Self {
+        Self { path_handler: Mutex::new(
+            InodePathHandler::new(Box::new(BackEndFs { }), PathBuf::from(repo))
+        )}
     }
 }
 
 impl FileDescriptorBridge for PassthroughFs {}
 
 impl FuseAPI for PassthroughFs {
-    fn getattr(
-        &mut self,
-        _req: types::RequestInfo,
-        ino: u64,
-        file_handle: Option<types::FileHandle>,
-    ) -> Result<types::AttributeResponse, std::io::Error> {
-        if ino == 1 {
-            posix_fs::lookup(&self._repo, Some(ino))
-        } else {
-            Err(PosixError::FUNCTION_NOT_IMPLEMENTED.into())
-        }
-    }
-
     fn lookup(
-        &mut self,
-        _req: types::RequestInfo,
-        parent_inode: u64,
-        name: &std::ffi::OsStr,
-    ) -> Result<types::AttributeResponse, std::io::Error> {
-        posix_fs::lookup(&self._repo.join("file"), Some(parent_inode + 1))
+        &self,
+        _req: RequestInfo,
+        parent_ino: u64,
+        name: &OsStr,
+        callback: ReplyCb<AttributeResponse>,
+    ) {
+        callback((|| {
+            let mut path_handler = self.path_handler.lock().unwrap();
+            let inode: u64 = path_handler.lookup(parent_ino, name)?;
+            let path = path_handler.get_path(inode)?;
+            let fd = posix_fs::open(path.as_ref(), OpenFlags::new())?;
+            let result = posix_fs::getattr(&fd, Some(inode));
+            posix_fs::release(fd)?;
+            result
+        })());
     }
 
     fn readdir(
-        &mut self,
-        _req: types::RequestInfo,
+        &self,
+        _req: RequestInfo,
         ino: u64,
-        file_handle: types::FileHandle,
-    ) -> Result<Vec<types::FuseDirEntry>, std::io::Error> {
-        static mut i: u64 = 1;
-        eprintln!("REPO={:?}", &self._repo);
-        let mut response_entries = Vec::from([
-            FuseDirEntry {
-                inode: ino,
-                name: ".".into(),
-                kind: FileType::Directory,
-            },
-            FuseDirEntry {
-                inode: unsafe {
-                    i += 1;
-                    i
-                },
-                name: "..".into(),
-                kind: FileType::Directory,
-            },
-        ]);
-        response_entries.extend(posix_fs::readdir(&self._repo)?.iter().map(|(name, t)| {
-            FuseDirEntry {
-                inode: unsafe {
-                    i += 1;
-                    i
-                },
-                name: name.clone(),
-                kind: *t,
+        file_handle: FileHandle,
+        callback: ReplyCb<Vec<FuseDirEntry>>,
+    ) {
+        callback((|| {
+            let mut path_handler = self.path_handler.lock().unwrap();
+            let children = path_handler.readdir(ino)?;
+            let mut result = Vec::new();
+            result.push(FuseDirEntry{inode: ino, name: OsString::from("."), kind: FileType::Directory});
+            result.push(FuseDirEntry{inode: path_handler.lookup_parent(ino), name: OsString::from(".."), kind: FileType::Directory});
+            for (child_name, child_ino) in children {
+                result.push({
+                    let file_attr = posix_fs::lookup(path_handler.get_path(child_ino)?.as_ref(), None)?.file_attr;
+                    FuseDirEntry{
+                        inode: child_ino,
+                        name: child_name,
+                        kind: file_attr.kind,
+                    }
+                })
             }
-        }));
-        eprintln!("ENTRIES={:?}", response_entries);
-        Ok(response_entries)
+            Ok(result)
+        })());
     }
 }

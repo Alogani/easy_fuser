@@ -1,6 +1,6 @@
 pub mod fuse_api;
 mod fuser_wrapper;
-pub mod inode_path_mapper;
+pub mod inode_path_handler;
 pub mod posix_fs;
 pub mod templates;
 pub mod types;

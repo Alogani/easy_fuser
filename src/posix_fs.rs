@@ -1,7 +1,7 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
-use std::ffi::{CString, OsStr, OsString};
+use std::ffi::{CString, OsStr};
 use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::{self as unix_fs, *};
 use std::{fs, io};
@@ -380,24 +380,27 @@ pub fn fsync(fd: &FileDescriptor, datasync: bool) -> Result<(), io::Error> {
 }
 
 /// Equivalent to the fuse function of the same name
-pub fn readdir(path: &Path) -> Result<Vec<(OsString, FileType)>, io::Error> {
-    let entries = fs::read_dir(path)?;
-    let mut result = Vec::new();
-    for entry in entries {
-        let entry = entry?;
-        result.push((entry.file_name(), convert_filetype(entry.file_type()?)))
-    }
-    Ok(result)
-}
-
-/// Equivalent to the fuse function of the same name
-pub fn readdirplus_api(path: &Path) -> Result<Vec<(OsString, FileType, FileAttr)>, io::Error> {
+pub fn readdir(path: &Path) -> Result<Vec<(PathBuf, FileType)>, io::Error> {
     let entries = fs::read_dir(path)?;
     let mut result = Vec::new();
     for entry in entries {
         let entry = entry?;
         result.push((
-            entry.file_name(),
+            PathBuf::from(entry.file_name()),
+            convert_filetype(entry.file_type()?)
+        ))
+    }
+    Ok(result)
+}
+
+/// Equivalent to the fuse function of the same name
+pub fn readdirplus_api(path: &Path) -> Result<Vec<(PathBuf, FileType, FileAttr)>, io::Error> {
+    let entries = fs::read_dir(path)?;
+    let mut result = Vec::new();
+    for entry in entries {
+        let entry = entry?;
+        result.push((
+            PathBuf::from(entry.file_name()),
             convert_filetype(entry.file_type()?),
             convert_fileattr(entry.metadata()?),
         ))
@@ -778,7 +781,7 @@ mod tests {
         File::create(&file1).unwrap();
 
         let entries = readdir(&tmpdir.path()).unwrap();
-        assert!(entries.iter().any(|(name, _)| name == "file1"));
+        assert!(entries.iter().any(|(name, _)| name == Path::new("file1")));
 
         fs::remove_file(&file1).unwrap();
         drop(tmpdir);

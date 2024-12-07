@@ -22,28 +22,28 @@ pub trait FuseAPI {
         Duration::from_secs(1)
     }
 
-    fn init(&mut self, _req: RequestInfo, _config: &mut KernelConfig) -> Result<(), io::Error> {
+    fn init(&self, _req: RequestInfo, _config: &mut KernelConfig) -> Result<(), io::Error> {
         Ok(())
     }
 
     fn lookup(
-        &mut self,
+        &self,
         _req: RequestInfo,
-        parent_inode: u64,
+        parent_ino: u64,
         name: &OsStr,
         callback: ReplyCb<AttributeResponse>,
     ) {
         warn!(
-            "[Not Implemented] lookup(parent_inode: {:#x?}, name {:?})",
-            parent_inode, name
+            "[Not Implemented] lookup(parent_ino: {:#x?}, name {:?})",
+            parent_ino, name
         );
         callback(Err(PosixError::FUNCTION_NOT_IMPLEMENTED.into()));
     }
 
-    fn forget(&mut self, _req: RequestInfo, _ino: u64, _nlookup: u64) {}
+    fn forget(&self, _req: RequestInfo, _ino: u64, _nlookup: u64) {}
 
     fn getattr(
-        &mut self,
+        &self,
         _req: RequestInfo,
         ino: u64,
         file_handle: Option<FileHandle>,
@@ -57,7 +57,7 @@ pub trait FuseAPI {
     }
 
     fn setattr(
-        &mut self,
+        &self,
         _req: RequestInfo,
         ino: u64,
         attrs: SetAttrRequest,
@@ -71,7 +71,7 @@ pub trait FuseAPI {
     }
 
     fn readlink(
-        &mut self,
+        &self,
         _req: RequestInfo,
         ino: u64,
         callback: Box<dyn FnOnce(Result<Vec<u8>, io::Error>) + Send>,
@@ -81,7 +81,7 @@ pub trait FuseAPI {
     }
 
     fn mknod(
-        &mut self,
+        &self,
         _req: RequestInfo,
         parent: u64,
         name: &OsStr,
@@ -99,7 +99,7 @@ pub trait FuseAPI {
     }
 
     fn mkdir(
-        &mut self,
+        &self,
         _req: RequestInfo,
         parent: u64,
         name: &OsStr,
@@ -114,7 +114,7 @@ pub trait FuseAPI {
         callback(Err(PosixError::FUNCTION_NOT_IMPLEMENTED.into()));
     }
 
-    fn unlink(&mut self, _req: RequestInfo, parent: u64, name: &OsStr, callback: ReplyCb<()>) {
+    fn unlink(&self, _req: RequestInfo, parent: u64, name: &OsStr, callback: ReplyCb<()>) {
         debug!(
             "[Not Implemented] unlink(parent: {:#x?}, name: {:?})",
             parent, name,
@@ -122,7 +122,7 @@ pub trait FuseAPI {
         callback(Err(PosixError::FUNCTION_NOT_IMPLEMENTED.into()));
     }
 
-    fn rmdir(&mut self, _req: RequestInfo, parent: u64, name: &OsStr, callback: ReplyCb<()>) {
+    fn rmdir(&self, _req: RequestInfo, parent: u64, name: &OsStr, callback: ReplyCb<()>) {
         debug!(
             "[Not Implemented] rmdir(parent: {:#x?}, name: {:?})",
             parent, name,
@@ -131,7 +131,7 @@ pub trait FuseAPI {
     }
 
     fn symlink(
-        &mut self,
+        &self,
         _req: RequestInfo,
         parent: u64,
         link_name: &OsStr,
@@ -146,7 +146,7 @@ pub trait FuseAPI {
     }
 
     fn rename(
-        &mut self,
+        &self,
         _req: RequestInfo,
         parent: u64,
         name: &OsStr,
@@ -164,7 +164,7 @@ pub trait FuseAPI {
     }
 
     fn link(
-        &mut self,
+        &self,
         _req: RequestInfo,
         ino: u64,
         newparent: u64,
@@ -179,7 +179,7 @@ pub trait FuseAPI {
     }
 
     fn open(
-        &mut self,
+        &self,
         _req: RequestInfo,
         _ino: u64,
         _flags: FUSEOpenFlags,
@@ -193,7 +193,7 @@ pub trait FuseAPI {
     }
 
     fn read(
-        &mut self,
+        &self,
         _req: RequestInfo,
         ino: u64,
         file_handle: FileHandle,
@@ -211,9 +211,9 @@ pub trait FuseAPI {
     }
 
     fn write(
-        &mut self,
+        &self,
         _req: RequestInfo,
-        inode: u64,
+        ino: u64,
         file_handle: FileHandle,
         offset: i64,
         data: &[u8],
@@ -223,14 +223,14 @@ pub trait FuseAPI {
         callback: ReplyCb<u32>,
     ) {
         debug!(
-            "[Not Implemented] write(inode: {:#x}, file_handle: {:?}, offset: {}, data_len: {}, write_flags: {:?}, flags: {:?}, lock_owner: {:?})",
-            inode, file_handle, offset, data.len(), write_flags, flags, lock_owner
+            "[Not Implemented] write(ino: {:#x}, file_handle: {:?}, offset: {}, data_len: {}, write_flags: {:?}, flags: {:?}, lock_owner: {:?})",
+            ino, file_handle, offset, data.len(), write_flags, flags, lock_owner
         );
         callback(Err(PosixError::FUNCTION_NOT_IMPLEMENTED.into()));
     }
 
     fn flush(
-        &mut self,
+        &self,
         _req: RequestInfo,
         ino: u64,
         file_handle: FileHandle,
@@ -245,22 +245,22 @@ pub trait FuseAPI {
     }
 
     fn fsync(
-        &mut self,
+        &self,
         _req: RequestInfo,
-        inode: u64,
+        ino: u64,
         file_handle: FileHandle,
         datasync: bool,
         callback: ReplyCb<()>,
     ) {
         debug!(
-            "[Not Implemented] fsync(inode: {:#x}, file_handle: {:?}, datasync: {})",
-            inode, file_handle, datasync
+            "[Not Implemented] fsync(ino: {:#x}, file_handle: {:?}, datasync: {})",
+            ino, file_handle, datasync
         );
         callback(Err(PosixError::FUNCTION_NOT_IMPLEMENTED.into()));
     }
 
     fn opendir(
-        &mut self,
+        &self,
         _req: RequestInfo,
         _ino: u64,
         _flags: OpenFlags,
@@ -270,11 +270,11 @@ pub trait FuseAPI {
     }
 
     fn readdir(
-        &mut self,
+        &self,
         _req: RequestInfo,
         ino: u64,
         file_handle: FileHandle,
-        callback: ReplyCb<Box<dyn Iterator<Item = FuseDirEntry> + Send>>,
+        callback: ReplyCb<Vec<FuseDirEntry>>,
     ) {
         warn!(
             "[Not Implemented] readdir(ino: {:#x?}, fh: {:?})",
@@ -284,11 +284,11 @@ pub trait FuseAPI {
     }
 
     fn readdirplus(
-        &mut self,
+        &self,
         _req: RequestInfo,
         ino: u64,
         file_handle: FileHandle,
-        callback: ReplyCb<Box<dyn Iterator<Item = FuseDirEntryPlus> + Send>>,
+        callback: ReplyCb<Vec<FuseDirEntryPlus>>,
     ) {
         warn!(
             "[Not Implemented] readdirplus(ino: {:#x?}, fh: {:?})",
@@ -298,7 +298,7 @@ pub trait FuseAPI {
     }
 
     fn releasedir(
-        &mut self,
+        &self,
         _req: RequestInfo,
         _ino: u64,
         _file_handle: FileHandle,
@@ -309,7 +309,7 @@ pub trait FuseAPI {
     }
 
     fn fsyncdir(
-        &mut self,
+        &self,
         _req: RequestInfo,
         _ino: u64,
         _file_handle: FileHandle,
@@ -320,7 +320,7 @@ pub trait FuseAPI {
     }
 
     fn release(
-        &mut self,
+        &self,
         _req: RequestInfo,
         _ino: u64,
         _file_handle: FileHandle,
@@ -336,12 +336,12 @@ pub trait FuseAPI {
         callback(Err(PosixError::FUNCTION_NOT_IMPLEMENTED.into()));
     }
 
-    fn statfs(&mut self, _req: RequestInfo, _ino: u64, callback: ReplyCb<StatFs>) {
+    fn statfs(&self, _req: RequestInfo, _ino: u64, callback: ReplyCb<StatFs>) {
         callback(Ok(StatFs::default()));
     }
 
     fn setxattr(
-        &mut self,
+        &self,
         _req: RequestInfo,
         ino: u64,
         name: &OsStr,
@@ -358,7 +358,7 @@ pub trait FuseAPI {
     }
 
     fn getxattr(
-        &mut self,
+        &self,
         _req: RequestInfo,
         ino: u64,
         name: &OsStr,
@@ -372,7 +372,7 @@ pub trait FuseAPI {
         callback(Err(PosixError::FUNCTION_NOT_IMPLEMENTED.into()));
     }
 
-    fn listxattr(&mut self, _req: RequestInfo, ino: u64, size: u32, callback: ReplyCb<Vec<u8>>) {
+    fn listxattr(&self, _req: RequestInfo, ino: u64, size: u32, callback: ReplyCb<Vec<u8>>) {
         debug!(
             "[Not Implemented] listxattr(ino: {:#x?}, size: {})",
             ino, size
@@ -380,7 +380,7 @@ pub trait FuseAPI {
         callback(Err(PosixError::FUNCTION_NOT_IMPLEMENTED.into()));
     }
 
-    fn removexattr(&mut self, _req: RequestInfo, ino: u64, name: &OsStr, callback: ReplyCb<()>) {
+    fn removexattr(&self, _req: RequestInfo, ino: u64, name: &OsStr, callback: ReplyCb<()>) {
         debug!(
             "[Not Implemented] removexattr(ino: {:#x?}, name: {:?})",
             ino, name
@@ -388,7 +388,7 @@ pub trait FuseAPI {
         callback(Err(PosixError::FUNCTION_NOT_IMPLEMENTED.into()));
     }
 
-    fn access(&mut self, _req: RequestInfo, ino: u64, mask: AccessMask, callback: ReplyCb<()>) {
+    fn access(&self, _req: RequestInfo, ino: u64, mask: AccessMask, callback: ReplyCb<()>) {
         debug!(
             "[Not Implemented] access(ino: {:#x?}, mask: {:?})",
             ino, mask
@@ -397,7 +397,7 @@ pub trait FuseAPI {
     }
 
     fn getlk(
-        &mut self,
+        &self,
         _req: RequestInfo,
         ino: u64,
         file_handle: FileHandle,
@@ -413,7 +413,7 @@ pub trait FuseAPI {
     }
 
     fn setlk(
-        &mut self,
+        &self,
         _req: RequestInfo,
         ino: u64,
         file_handle: FileHandle,
@@ -430,7 +430,7 @@ pub trait FuseAPI {
     }
 
     fn bmap(
-        &mut self,
+        &self,
         _req: RequestInfo,
         ino: u64,
         blocksize: u32,
@@ -445,7 +445,7 @@ pub trait FuseAPI {
     }
 
     fn ioctl(
-        &mut self,
+        &self,
         _req: RequestInfo,
         ino: u64,
         file_handle: FileHandle,
@@ -463,7 +463,7 @@ pub trait FuseAPI {
     }
 
     fn create(
-        &mut self,
+        &self,
         _req: RequestInfo,
         parent: u64,
         name: &OsStr,
@@ -481,7 +481,7 @@ pub trait FuseAPI {
     }
 
     fn fallocate(
-        &mut self,
+        &self,
         _req: RequestInfo,
         ino: u64,
         _file_handle: FileHandle,
@@ -498,7 +498,7 @@ pub trait FuseAPI {
     }
 
     fn lseek(
-        &mut self,
+        &self,
         _req: RequestInfo,
         ino: u64,
         file_handle: FileHandle,
@@ -514,7 +514,7 @@ pub trait FuseAPI {
     }
 
     fn copy_file_range(
-        &mut self,
+        &self,
         _req: RequestInfo,
         ino_in: u64,
         file_handle_in: FileHandle,

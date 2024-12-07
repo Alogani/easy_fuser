@@ -1,9 +1,5 @@
 use std::{
-    collections::HashMap,
-    ffi::OsStr,
-    path::Path,
-    sync::{Arc, Mutex},
-    time::{Instant, SystemTime},
+    collections::HashMap, ffi::OsStr, path::Path, sync::{Arc, Mutex}, time::{Instant, SystemTime}
 };
 
 use fuser::{
@@ -471,7 +467,14 @@ impl<T: FuseAPI> fuser::Filesystem for FuseFilesystem<T> {
             // Call the high-level readdir function with the callback
             let callback = create_callback(reply, self.dirmap_iter.clone(), ino, offset);
             self.fs_impl
-                .readdir(_req.into(), ino, FileHandle::from(fh), callback);
+                .readdir(_req.into(), ino, FileHandle::from(fh), 
+                    Box::new(|result| {
+                        match result {
+                            Ok(entries) => callback(Ok(Box::new(entries.into_iter()))),
+                            Err(e) => callback(Err(e))
+                        }
+                        
+                    }));
         } else {
             // Handle continuation from a previously saved iterator
             match self.dirmap_iter.lock().unwrap().remove(&ino) {
@@ -549,7 +552,14 @@ impl<T: FuseAPI> fuser::Filesystem for FuseFilesystem<T> {
             // Call the high-level readdirplus function with the callback
             let callback = create_callback::<T>(reply, self.dirplus_iter.clone(), ino, offset);
             self.fs_impl
-                .readdirplus(_req.into(), ino, FileHandle::from(fh), callback);
+                .readdirplus(_req.into(), ino, FileHandle::from(fh), 
+                    Box::new(|result| {
+                        match result {
+                            Ok(entries) => callback(Ok(Box::new(entries.into_iter()))),
+                            Err(e) => callback(Err(e))
+                        }
+                        
+                    }));
         } else {
             // Handle continuation from a previously saved iterator
             match self.dirplus_iter.lock().unwrap().remove(&ino) {
