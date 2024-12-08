@@ -3,33 +3,22 @@ use std::ffi::{OsStr, OsString};
 use std::io;
 use std::path::{Path, PathBuf};
 
-use crate::types::RenameFlags;
+use crate::types::{PosixError, RenameFlags};
 
-/// Trait to delegate filesystem operations
-pub trait FilesystemBackend {
-    fn readdir(&self, parent_path: &Path) -> Result<Vec<PathBuf>, io::Error>;
-    fn rename(&self, path: &Path, newpath: &Path, flags: RenameFlags) -> Result<(), io::Error>;
-    fn unlink(&self, path: &Path) -> Result<(), io::Error>;
-}
 
 /// Struct representing the in-memory inode-to-path mapping.
-///
-/// The paths are cached, so change from the backend will lead to errors.
 ///
 /// Paths are retrieved and constructed lazily,
 /// so it might not be efficient for deeply nested structure,
 /// however it has a minimum memory and cpu overhead in most conditions
 pub struct InodePathHandler {
     // Map of inode -> (path, children)
-    inodes: HashMap<u64, Inode>,
+    inodes: HashMap<u64, InodeValue>,
     // Counter for assigning new inodes
     next_inode: u64,
-    // Backend for filesystem operations
-    backend: Box<dyn FilesystemBackend>,
-    root_path: PathBuf
 }
 
-struct Inode {
+struct InodeValue {
     name_ptr: *const OsStr,
     parent: u64,
     children: Option<HashMap<OsString, u64>>,
@@ -38,13 +27,15 @@ struct Inode {
 const ROOT_INODE: u64 = 1;
 
 impl InodePathHandler {
-    pub fn new(backend: Box<dyn FilesystemBackend>, root_path: PathBuf) -> Self {
+    pub fn new() -> Self {
         let mut inodes = HashMap::new();
+
+        static ROOT_PATH: &str = "/";
 
         inodes.insert(
             ROOT_INODE,
-            Inode {
-                name_ptr: root_path.as_ref() as *const OsStr,
+            InodeValue {
+                name_ptr: root_path as *const OsStr,
                 parent: ROOT_INODE,
                 children: None,
             },
@@ -53,8 +44,7 @@ impl InodePathHandler {
         Self {
             inodes,
             next_inode: 2, // Start assigning inodes from 2
-            backend,
-            root_path
+            root_path,
         }
     }
 
@@ -70,33 +60,44 @@ impl InodePathHandler {
         children
             .get(name)
             .copied()
-            .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "Child not found"))
+            .ok_or_else(|| PosixError::FILE_NOT_FOUND.into())
+    }
+
+    pub fn lookup_path(&mut self, parent_ino: u64, name: &OsStr) -> Result<PathBuf, io::Error> {
+        let child_ino = self.lookup(parent_ino, name)?;
+        self.get_path(child_ino)
     }
 
     pub fn lookup_parent(&self, ino: u64) -> u64 {
         self.inodes.get(&ino).unwrap().parent
     }
 
+    pub fn lookup_parent_path(&self, ino: u64) -> Result<PathBuf, io::Error> {
+        let parent_ino = self.inodes.get(&ino).unwrap().parent;
+        self.get_path(parent_ino)
+    }
+
     pub fn readdir(&mut self, parent_ino: u64) -> Result<Vec<(OsString, u64)>, io::Error> {
-        Ok(
-            self.get_children(parent_ino)?
+        Ok(self
+            .get_children(parent_ino)?
             .iter()
             .map(|(name, ino)| (name.clone(), *ino))
-            .collect()
-        )
+            .collect())
     }
 
     fn get_children(&mut self, parent_ino: u64) -> Result<&HashMap<OsString, u64>, io::Error> {
         if self
             .inodes
             .get(&parent_ino)
-            .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "Parent inode not found"))?
+            .ok_or_else(|| PosixError::FILE_NOT_FOUND)?
             .children
             .is_none()
         {
             let parent_path = self.get_path(parent_ino)?;
 
-            let child_list = self.backend.readdir(parent_path.as_ref())?
+            let child_list = self
+                .backend
+                .readdir(parent_path.as_ref())?
                 .into_iter()
                 .map(OsString::from);
 
@@ -115,7 +116,7 @@ impl InodePathHandler {
                 // Add the child inode to the map
                 self.inodes.insert(
                     new_inode,
-                    Inode {
+                    InodeValue {
                         name_ptr,
                         parent: parent_ino,
                         children: None,
@@ -127,7 +128,7 @@ impl InodePathHandler {
             let parent = self
                 .inodes
                 .get_mut(&parent_ino)
-                .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "Parent inode not found"))?;
+                .ok_or_else(|| PosixError::FILE_NOT_FOUND)?;
             parent.children = Some(children_map);
         }
 
@@ -156,7 +157,8 @@ impl InodePathHandler {
             path
         };
 
-        self.backend.rename(self.get_path(inode)?.as_ref(), &newpath.as_ref(), flags)?;
+        self.backend
+            .rename(self.get_path(inode)?.as_ref(), &newpath.as_ref(), flags)?;
 
         let new_name_ptr: *const OsStr = new_name.as_ref();
         let _ = self
@@ -202,14 +204,11 @@ impl InodePathHandler {
         let mut inode = inode;
         loop {
             let (parent, name) = {
-                let Inode {
+                let InodeValue {
                     name_ptr,
                     parent,
                     children: _,
-                } = self.inodes.get(&inode).ok_or(io::Error::new(
-                    io::ErrorKind::NotFound,
-                    "Parent inode not found",
-                ))?;
+                } = self.inodes.get(&inode).ok_or(PosixError::FILE_NOT_FOUND)?;
                 (*parent, (unsafe { &**name_ptr }).as_ref() as &Path)
             };
             if !result.as_os_str().is_empty() {
@@ -217,12 +216,12 @@ impl InodePathHandler {
             } else {
                 result = name.to_path_buf();
             }
-            if inode == ROOT_INODE { break }
+            if inode == ROOT_INODE {
+                break;
+            }
             inode = parent;
         }
-        println!("root={:?}", self.root_path);
         result = self.root_path.join(result);
-        println!("result={:?}", self.root_path);
 
         Ok(result)
     }
@@ -279,7 +278,12 @@ mod tests {
             Ok(result)
         }
 
-        fn rename(&self, path: &Path, newpath: &Path, _flags: RenameFlags) -> Result<(), io::Error> {
+        fn rename(
+            &self,
+            path: &Path,
+            newpath: &Path,
+            _flags: RenameFlags,
+        ) -> Result<(), io::Error> {
             let mut files = self.files.borrow_mut();
             let old_path = path.to_string_lossy().to_string();
             let newpath = newpath.to_string_lossy().to_string();
@@ -288,7 +292,7 @@ mod tests {
                 files.insert(newpath);
                 Ok(())
             } else {
-                Err(io::Error::new(io::ErrorKind::NotFound, "Path not found"))
+                Err(PosixError::FILE_NOT_FOUND.into())
             }
         }
 
@@ -298,7 +302,7 @@ mod tests {
             if files.remove(&path) {
                 Ok(())
             } else {
-                Err(io::Error::new(io::ErrorKind::NotFound, "Path not found"))
+                Err(PosixError::FILE_NOT_FOUND.into())
             }
         }
     }
@@ -330,8 +334,10 @@ mod tests {
 
     #[test]
     fn test_lookup_with_root_path() {
-        let mock_backend =
-            MockFilesystemBackend::new(vec!["/repo/folder".to_string(), "/repo/folder/subfile".to_string()]);
+        let mock_backend = MockFilesystemBackend::new(vec![
+            "/repo/folder".to_string(),
+            "/repo/folder/subfile".to_string(),
+        ]);
         let mut mapper = InodePathHandler::new(Box::new(mock_backend), PathBuf::from("/repo"));
 
         let parent_ino = 1; // root inode
@@ -401,7 +407,7 @@ mod tests {
                 OsStr::new("file1"),
                 folder_inode,
                 OsString::from("file_renamed"),
-                RenameFlags::new()
+                RenameFlags::new(),
             )
             .unwrap();
 

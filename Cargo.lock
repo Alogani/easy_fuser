@@ -92,6 +92,7 @@ dependencies = [
  "fuser",
  "libc",
  "log",
+ "num_cpus",
  "tempfile",
  "threadpool",
 ]

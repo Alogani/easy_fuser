@@ -15,7 +15,7 @@ fn mount_test() {
         .try_init();
 
     let mntpoint = TempDir::new().unwrap();
-    let fs = templates::PassthroughFs::new(&PathBuf::from("/tmp"));
+    let fs = templates::PassthroughFs::new(PathBuf::from("/tmp"));
     let fuse = new_filesystem(fs);
     println!("MOUNTPOINT={:?}", mntpoint.path());
     let r = mount2(fuse, mntpoint.path(), &[]);

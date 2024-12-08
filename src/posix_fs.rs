@@ -387,14 +387,14 @@ pub fn readdir(path: &Path) -> Result<Vec<(PathBuf, FileType)>, io::Error> {
         let entry = entry?;
         result.push((
             PathBuf::from(entry.file_name()),
-            convert_filetype(entry.file_type()?)
+            convert_filetype(entry.file_type()?),
         ))
     }
     Ok(result)
 }
 
 /// Equivalent to the fuse function of the same name
-pub fn readdirplus_api(path: &Path) -> Result<Vec<(PathBuf, FileType, FileAttr)>, io::Error> {
+pub fn readdirplus(path: &Path) -> Result<Vec<(PathBuf, FileType, FileAttr)>, io::Error> {
     let entries = fs::read_dir(path)?;
     let mut result = Vec::new();
     for entry in entries {
@@ -445,12 +445,7 @@ pub fn statfs(path: &Path) -> Result<StatFs, io::Error> {
 }
 
 /// Equivalent to the fuse function of the same name
-pub fn setxattr_api(
-    path: &Path,
-    name: &OsStr,
-    value: &[u8],
-    position: u32,
-) -> Result<(), io::Error> {
+pub fn setxattr(path: &Path, name: &OsStr, value: &[u8], position: u32) -> Result<(), io::Error> {
     let c_path = cstring_from_path(path)?;
     let c_name = CString::new(name.as_bytes()).map_err(|_| PosixError::INVALID_ARGUMENT)?;
     let ret = unsafe {
@@ -470,7 +465,7 @@ pub fn setxattr_api(
 }
 
 /// Equivalent to the fuse function of the same name
-pub fn getxattr_api(path: &Path, name: &OsStr, size: u32) -> Result<Vec<u8>, io::Error> {
+pub fn getxattr(path: &Path, name: &OsStr, size: u32) -> Result<Vec<u8>, io::Error> {
     let c_path = cstring_from_path(path)?;
     let c_name = CString::new(name.as_bytes()).map_err(|_| PosixError::INVALID_ARGUMENT)?;
 
@@ -493,7 +488,7 @@ pub fn getxattr_api(path: &Path, name: &OsStr, size: u32) -> Result<Vec<u8>, io:
 }
 
 /// Equivalent to the fuse function of the same name
-pub fn listxattr_api(path: &Path, size: u32) -> Result<Vec<u8>, io::Error> {
+pub fn listxattr(path: &Path, size: u32) -> Result<Vec<u8>, io::Error> {
     let c_path = cstring_from_path(path)?;
     let mut buf = vec![0u8; size as usize];
     let ret = unsafe { libc::listxattr(c_path.as_ptr(), buf.as_mut_ptr() as *mut i8, buf.len()) };

@@ -1,5 +1,9 @@
 use std::{
-    collections::HashMap, ffi::OsStr, path::Path, sync::{Arc, Mutex}, time::{Instant, SystemTime}
+    collections::HashMap,
+    ffi::OsStr,
+    path::Path,
+    sync::{Arc, Mutex},
+    time::{Duration, Instant, SystemTime},
 };
 
 use fuser::{
@@ -11,32 +15,50 @@ use fuser::{
 use libc::c_int;
 use log::error;
 
-use super::fuse_api::{FuseAPI, ReplyCb};
-use super::types::*;
+use crate::fuse_api::{FuseAPI, ReplyCb};
+use crate::types::*;
 
-pub fn new_filesystem<T: FuseAPI>(fuse_api: T) -> FuseFilesystem<T> {
-    FuseFilesystem {
-        fs_impl: fuse_api,
-        dirmap_iter: Arc::new(Mutex::new(HashMap::new())),
-        dirplus_iter: Arc::new(Mutex::new(HashMap::new())),
-    }
-}
+use super::inode_mapping::{IdConverter, IdType};
+
+type DirIter<T> = Box<dyn Iterator<Item = T> + Send>;
 
 fn get_random_generation() -> u64 {
     Instant::now().elapsed().as_nanos() as u64
 }
 
-type DirIter<T> = Box<dyn Iterator<Item = T> + Send>;
-
-pub struct FuseFilesystem<T: FuseAPI> {
+pub struct FuseFilesystem<T, U, C>
+where
+    T: FuseAPI<U>,
+    U: IdType,
+    C: IdConverter<Output = U>,
+{
     fs_impl: T,
     dirmap_iter: Arc<Mutex<HashMap<u64, DirIter<FuseDirEntry>>>>,
     dirplus_iter: Arc<Mutex<HashMap<u64, DirIter<FuseDirEntryPlus>>>>,
+    converter: Arc<Mutex<C>>,
 }
 
-impl<T: FuseAPI> FuseFilesystem<T> {}
 
-impl<T: FuseAPI> fuser::Filesystem for FuseFilesystem<T> {
+pub fn new_filesystem<T, U, C>(fuse_api: T) -> FuseFilesystem<T, U, C>
+where
+    T: FuseAPI<U>,
+    U: IdType,
+    C: IdConverter<Output = U>,
+{
+    FuseFilesystem {
+        fs_impl: fuse_api,
+        dirmap_iter: Arc::new(Mutex::new(HashMap::new())),
+        dirplus_iter: Arc::new(Mutex::new(HashMap::new())),
+        converter: Arc::new(Mutex::new(C::new())),
+    }
+}
+
+impl<T, U, C> fuser::Filesystem for FuseFilesystem<T, U, C>
+where
+    T: FuseAPI<U>,
+    U: IdType,
+    C: IdConverter<Output = U>,
+{
     fn init(&mut self, req: &Request, _config: &mut KernelConfig) -> Result<(), c_int> {
         match FuseAPI::init(&mut self.fs_impl, req.into(), _config) {
             Ok(()) => Ok(()),
@@ -44,40 +66,52 @@ impl<T: FuseAPI> fuser::Filesystem for FuseFilesystem<T> {
         }
     }
 
-    fn lookup(&mut self, _req: &Request, parent: u64, name: &OsStr, reply: ReplyEntry) {
-        let callback: ReplyCb<AttributeResponse> = Box::new(move |result| match result {
-            Ok(attr_response) => {
+    fn lookup(&mut self, req: &Request, parent: u64, name: &OsStr, reply: ReplyEntry) {
+        let default_ttl = self.fs_impl.get_default_ttl();
+        let callback: ReplyCb<FileAttribute> = Box::new(move |result| match result {
+            Ok(file_attr) => {
+                self.converter.lock().unwrap().map_inode(parent, Some(name), &mut file_attr);
                 reply.entry(
-                    &attr_response.ttl.unwrap_or(T::get_default_ttl()),
-                    &attr_response.file_attr,
-                    attr_response.generation.unwrap_or(get_random_generation()),
+                    &file_attr.ttl.unwrap_or(default_ttl),
+                    &file_attr.to_fuse(),
+                    file_attr.generation.unwrap_or(get_random_generation()),
                 );
             }
             Err(e) => {
                 reply.error(e.raw_os_error().unwrap());
             }
         });
-        FuseAPI::lookup(&mut self.fs_impl, _req.into(), parent, name, callback);
+        FuseAPI::lookup(
+            &mut self.fs_impl,
+            req.into(),
+            self.converter.lock().unwrap().to_id(parent),
+            name,
+            callback,
+        );
     }
 
-    fn forget(&mut self, req: &Request, _ino: u64, _nlookup: u64) {
-        FuseAPI::forget(&mut self.fs_impl, req.into(), _ino, _nlookup);
+    fn forget(&mut self, req: &Request, ino: u64, _nlookup: u64) {
+        FuseAPI::forget(
+            &mut self.fs_impl,
+            req.into(),
+            self.converter.lock().unwrap().to_id(ino),
+            _nlookup,
+        );
     }
 
     fn getattr(&mut self, req: &Request, ino: u64, fh: Option<u64>, reply: ReplyAttr) {
-        let callback: ReplyCb<AttributeResponse> = Box::new(move |result| match result {
-            Ok(attr_response) => {
-                reply.attr(
-                    &attr_response.ttl.unwrap_or(T::get_default_ttl()),
-                    &attr_response.file_attr,
-                );
+        let default_ttl = self.fs_impl.get_default_ttl();
+        let callback: ReplyCb<FileAttribute> = Box::new(move |result| match result {
+            Ok(file_attr) => {
+                self.converter.lock().unwrap().map_inode(ino, None, &mut file_attr);
+                reply.attr(&file_attr.ttl.unwrap_or(default_ttl), &file_attr.to_fuse());
             }
             Err(e) => reply.error(e.raw_os_error().unwrap()),
         });
         FuseAPI::getattr(
             &mut self.fs_impl,
             req.into(),
-            ino,
+            self.converter.lock().unwrap().to_id(ino),
             fh.map(FileHandle::from),
             callback,
         );
@@ -85,7 +119,7 @@ impl<T: FuseAPI> fuser::Filesystem for FuseFilesystem<T> {
 
     fn setattr(
         &mut self,
-        _req: &Request,
+        req: &Request,
         ino: u64,
         mode: Option<u32>,
         uid: Option<u32>,
@@ -116,29 +150,39 @@ impl<T: FuseAPI> fuser::Filesystem for FuseFilesystem<T> {
             flags: None,
             file_handle: fh.map(FileHandle::from),
         };
-        let callback: ReplyCb<AttributeResponse> = Box::new(move |result| match result {
-            Ok(attr_response) => {
-                reply.attr(
-                    &attr_response.ttl.unwrap_or(T::get_default_ttl()),
-                    &attr_response.file_attr,
-                );
+        let default_ttl = self.fs_impl.get_default_ttl();
+        let callback: ReplyCb<FileAttribute> = Box::new(move |result| match result {
+            Ok(file_attr) => {
+                self.converter.lock().unwrap().map_inode(ino, None, &mut file_attr);
+                reply.attr(&file_attr.ttl.unwrap_or(default_ttl), &file_attr.to_fuse());
             }
             Err(e) => reply.error(e.raw_os_error().unwrap()),
         });
-        FuseAPI::setattr(&mut self.fs_impl, _req.into(), ino, attrs, callback);
+        FuseAPI::setattr(
+            &mut self.fs_impl,
+            req.into(),
+            self.converter.lock().unwrap().to_id(ino),
+            attrs,
+            callback,
+        );
     }
 
-    fn readlink(&mut self, _req: &Request, ino: u64, reply: ReplyData) {
+    fn readlink(&mut self, req: &Request, ino: u64, reply: ReplyData) {
         let callback: ReplyCb<Vec<u8>> = Box::new(move |result| match result {
             Ok(link) => reply.data(&link),
             Err(e) => reply.error(e.raw_os_error().unwrap()),
         });
-        FuseAPI::readlink(&mut self.fs_impl, _req.into(), ino, callback);
+        FuseAPI::readlink(
+            &mut self.fs_impl,
+            req.into(),
+            self.converter.lock().unwrap().to_id(ino),
+            callback,
+        );
     }
 
     fn mknod(
         &mut self,
-        _req: &Request,
+        req: &Request,
         parent: u64,
         name: &OsStr,
         mode: u32,
@@ -146,20 +190,22 @@ impl<T: FuseAPI> fuser::Filesystem for FuseFilesystem<T> {
         rdev: u32,
         reply: ReplyEntry,
     ) {
-        let callback: ReplyCb<AttributeResponse> = Box::new(move |result| match result {
-            Ok(attr_response) => {
+        let default_ttl = self.fs_impl.get_default_ttl();
+        let callback: ReplyCb<FileAttribute> = Box::new(move |result| match result {
+            Ok(file_attr) => {
+                self.converter.lock().unwrap().map_inode(parent, Some(name), &mut file_attr);
                 reply.entry(
-                    &attr_response.ttl.unwrap_or(T::get_default_ttl()),
-                    &attr_response.file_attr,
-                    attr_response.generation.unwrap_or(get_random_generation()),
+                    &file_attr.ttl.unwrap_or(default_ttl),
+                    &file_attr.to_fuse(),
+                    file_attr.generation.unwrap_or(get_random_generation()),
                 );
             }
             Err(e) => reply.error(e.raw_os_error().unwrap()),
         });
         FuseAPI::mknod(
             &mut self.fs_impl,
-            _req.into(),
-            parent,
+            req.into(),
+            self.converter.lock().unwrap().to_id(parent),
             name,
             mode,
             umask,
@@ -170,27 +216,29 @@ impl<T: FuseAPI> fuser::Filesystem for FuseFilesystem<T> {
 
     fn mkdir(
         &mut self,
-        _req: &Request,
+        req: &Request,
         parent: u64,
         name: &OsStr,
         mode: u32,
         umask: u32,
         reply: ReplyEntry,
     ) {
-        let callback: ReplyCb<AttributeResponse> = Box::new(move |result| match result {
-            Ok(attr_response) => {
+        let default_ttl = self.fs_impl.get_default_ttl();
+        let callback: ReplyCb<FileAttribute> = Box::new(move |result| match result {
+            Ok(file_attr) => {
+                self.converter.lock().unwrap().map_inode(parent, Some(name), &mut file_attr);
                 reply.entry(
-                    &attr_response.ttl.unwrap_or(T::get_default_ttl()),
-                    &attr_response.file_attr,
-                    attr_response.generation.unwrap_or(get_random_generation()),
+                    &file_attr.ttl.unwrap_or(default_ttl),
+                    &file_attr.to_fuse(),
+                    file_attr.generation.unwrap_or(get_random_generation()),
                 );
             }
             Err(e) => reply.error(e.raw_os_error().unwrap()),
         });
         FuseAPI::mkdir(
             &mut self.fs_impl,
-            _req.into(),
-            parent,
+            req.into(),
+            self.converter.lock().unwrap().to_id(parent),
             name,
             mode,
             umask,
@@ -198,46 +246,73 @@ impl<T: FuseAPI> fuser::Filesystem for FuseFilesystem<T> {
         );
     }
 
-    fn unlink(&mut self, _req: &Request, parent: u64, name: &OsStr, reply: ReplyEmpty) {
-        let request_info: RequestInfo = _req.into();
+    fn unlink(&mut self, req: &Request, parent: u64, name: &OsStr, reply: ReplyEmpty) {
+        let request_info: RequestInfo = req.into();
+        let converter = Arc::clone(&self.converter);
+        let name_cb = name.to_os_string();
         let callback: ReplyCb<()> = Box::new(move |result| match result {
-            Ok(()) => reply.ok(),
+            Ok(()) => {
+                converter.lock().unwrap().remove(parent, &name_cb);
+                reply.ok()
+            }
             Err(e) => reply.error(e.raw_os_error().unwrap()),
         });
-        FuseAPI::unlink(&mut self.fs_impl, request_info, parent, name, callback);
+        FuseAPI::unlink(
+            &mut self.fs_impl,
+            request_info,
+            self.converter.lock().unwrap().to_id(parent),
+            &name,
+            callback,
+        );
     }
 
-    fn rmdir(&mut self, _req: &Request, parent: u64, name: &OsStr, reply: ReplyEmpty) {
-        let request_info: RequestInfo = _req.into();
+    fn rmdir(&mut self, req: &Request, parent: u64, name: &OsStr, reply: ReplyEmpty) {
+        let request_info: RequestInfo = req.into();
+        let converter = self.converter.clone();
+        let name_cb = name.to_os_string();
         let callback: ReplyCb<()> = Box::new(move |result| match result {
-            Ok(()) => reply.ok(),
+            Ok(()) => {
+                converter.lock().unwrap().remove(parent, &name_cb);
+                reply.ok()
+            }
             Err(e) => reply.error(e.raw_os_error().unwrap()),
         });
-        FuseAPI::rmdir(&mut self.fs_impl, request_info, parent, name, callback);
+        FuseAPI::rmdir(
+            &mut self.fs_impl,
+            request_info,
+            self.converter.lock().unwrap().to_id(parent),
+            name,
+            callback,
+        );
     }
 
     fn symlink(
         &mut self,
-        _req: &Request,
+        req: &Request,
         parent: u64,
         link_name: &OsStr,
         target: &Path,
         reply: ReplyEntry,
     ) {
-        let callback: ReplyCb<AttributeResponse> = Box::new(move |result| match result {
-            Ok(attr_response) => {
+        let default_ttl = self.fs_impl.get_default_ttl();
+        let converter = self.converter.clone();
+        let link_name_cb = link_name.to_os_string();
+        let callback: ReplyCb<FileAttribute> = Box::new(move |result| match result {
+            Ok(file_attr) => {
+                converter.lock().unwrap()
+                    .map_inode(parent, Some(&link_name_cb), &mut file_attr);
                 reply.entry(
-                    &attr_response.ttl.unwrap_or(T::get_default_ttl()),
-                    &attr_response.file_attr,
-                    attr_response.generation.unwrap_or(get_random_generation()),
+                    &file_attr.ttl.unwrap_or(default_ttl),
+                    &file_attr.to_fuse(),
+                    file_attr.generation.unwrap_or(get_random_generation()),
                 );
             }
             Err(e) => reply.error(e.raw_os_error().unwrap()),
         });
         FuseAPI::symlink(
             &mut self.fs_impl,
-            _req.into(),
-            parent,
+            req.into(),
+            self.converter.lock().unwrap().to_id(parent),
             link_name,
             target,
             callback,
@@ -246,7 +321,7 @@ impl<T: FuseAPI> fuser::Filesystem for FuseFilesystem<T> {
 
     fn rename(
         &mut self,
-        _req: &Request,
+        req: &Request,
         parent: u64,
         name: &OsStr,
         newparent: u64,
@@ -254,16 +329,22 @@ impl<T: FuseAPI> fuser::Filesystem for FuseFilesystem<T> {
         flags: u32,
         reply: ReplyEmpty,
     ) {
+        let converter = self.converter.clone();
+        let name_cb = name.to_os_string();
+        let newname_cb = newname.to_os_string();
         let callback: ReplyCb<()> = Box::new(move |result| match result {
-            Ok(()) => reply.ok(),
+            Ok(()) => {
+                converter.lock().unwrap().rename(parent, &name_cb, newparent, newname_cb);
+                reply.ok()
+            }
             Err(e) => reply.error(e.raw_os_error().unwrap()),
         });
         FuseAPI::rename(
             &mut self.fs_impl,
-            _req.into(),
-            parent,
+            req.into(),
+            self.converter.lock().unwrap().to_id(parent),
             name,
-            newparent,
+            self.converter.lock().unwrap().to_id(newparent),
             newname,
             RenameFlags::from(flags),
             callback,
@@ -272,33 +353,36 @@ impl<T: FuseAPI> fuser::Filesystem for FuseFilesystem<T> {
 
     fn link(
         &mut self,
-        _req: &Request,
+        req: &Request,
         ino: u64,
         newparent: u64,
         newname: &OsStr,
         reply: ReplyEntry,
     ) {
-        let callback: ReplyCb<AttributeResponse> = Box::new(move |result| match result {
-            Ok(attr_response) => {
+        let default_ttl = self.fs_impl.get_default_ttl();
+        let callback: ReplyCb<FileAttribute> = Box::new(move |result| match result {
+            Ok(file_attr) => {
+                self.converter.lock().unwrap()
+                    .map_inode(newparent, Some(newname), &mut file_attr);
                 reply.entry(
-                    &attr_response.ttl.unwrap_or(T::get_default_ttl()),
-                    &attr_response.file_attr,
-                    attr_response.generation.unwrap_or(get_random_generation()),
+                    &file_attr.ttl.unwrap_or(default_ttl),
+                    &file_attr.to_fuse(),
+                    file_attr.generation.unwrap_or(get_random_generation()),
                 );
             }
             Err(e) => reply.error(e.raw_os_error().unwrap()),
         });
         FuseAPI::link(
             &mut self.fs_impl,
-            _req.into(),
-            ino,
-            newparent,
+            req.into(),
+            self.converter.lock().unwrap().to_id(ino),
+            self.converter.lock().unwrap().to_id(newparent),
             newname,
             callback,
         );
     }
 
-    fn open(&mut self, _req: &Request, _ino: u64, _flags: i32, reply: ReplyOpen) {
+    fn open(&mut self, req: &Request, ino: u64, _flags: i32, reply: ReplyOpen) {
         let callback: ReplyCb<(FileHandle, FUSEOpenResponseFlags)> =
             Box::new(move |result| match result {
                 Ok((file_handle, response_flags)) => {
@@ -308,16 +392,16 @@ impl<T: FuseAPI> fuser::Filesystem for FuseFilesystem<T> {
             });
         FuseAPI::open(
             &mut self.fs_impl,
-            _req.into(),
-            _ino,
-            FUSEOpenFlags::from(_flags),
+            req.into(),
+            self.converter.lock().unwrap().to_id(ino),
+            OpenFlags::from(_flags),
             callback,
         );
     }
 
     fn read(
         &mut self,
-        _req: &Request,
+        req: &Request,
         ino: u64,
         fh: u64,
         offset: i64,
@@ -332,8 +416,8 @@ impl<T: FuseAPI> fuser::Filesystem for FuseFilesystem<T> {
         });
         FuseAPI::read(
             &mut self.fs_impl,
-            _req.into(),
-            ino,
+            req.into(),
+            self.converter.lock().unwrap().to_id(ino),
             fh.into(),
             offset,
             size,
@@ -345,7 +429,7 @@ impl<T: FuseAPI> fuser::Filesystem for FuseFilesystem<T> {
 
     fn write(
         &mut self,
-        _req: &Request,
+        req: &Request,
         ino: u64,
         fh: u64,
         offset: i64,
@@ -361,8 +445,8 @@ impl<T: FuseAPI> fuser::Filesystem for FuseFilesystem<T> {
         });
         FuseAPI::write(
             &mut self.fs_impl,
-            _req.into(),
-            ino,
+            req.into(),
+            self.converter.lock().unwrap().to_id(ino),
             FileHandle::from(fh),
             offset,
             data,
@@ -373,37 +457,37 @@ impl<T: FuseAPI> fuser::Filesystem for FuseFilesystem<T> {
         );
     }
 
-    fn flush(&mut self, _req: &Request, ino: u64, fh: u64, lock_owner: u64, reply: ReplyEmpty) {
+    fn flush(&mut self, req: &Request, ino: u64, fh: u64, lock_owner: u64, reply: ReplyEmpty) {
         let callback: ReplyCb<()> = Box::new(move |result| match result {
             Ok(()) => reply.ok(),
             Err(e) => reply.error(e.raw_os_error().unwrap()),
         });
         FuseAPI::flush(
             &mut self.fs_impl,
-            _req.into(),
-            ino,
+            req.into(),
+            self.converter.lock().unwrap().to_id(ino),
             FileHandle::from(fh),
             lock_owner,
             callback,
         );
     }
 
-    fn fsync(&mut self, _req: &Request, _ino: u64, _fh: u64, datasync: bool, reply: ReplyEmpty) {
+    fn fsync(&mut self, req: &Request, ino: u64, fh: u64, datasync: bool, reply: ReplyEmpty) {
         let callback: ReplyCb<()> = Box::new(move |result| match result {
             Ok(()) => reply.ok(),
             Err(e) => reply.error(e.raw_os_error().unwrap()),
         });
         FuseAPI::fsync(
             &mut self.fs_impl,
-            _req.into(),
-            _ino,
-            FileHandle::from(_fh),
+            req.into(),
+            self.converter.lock().unwrap().to_id(ino),
+            FileHandle::from(fh),
             datasync,
             callback,
         );
     }
 
-    fn opendir(&mut self, _req: &Request, _ino: u64, _flags: i32, reply: ReplyOpen) {
+    fn opendir(&mut self, req: &Request, ino: u64, _flags: i32, reply: ReplyOpen) {
         let callback: ReplyCb<(FileHandle, FUSEOpenResponseFlags)> =
             Box::new(move |result| match result {
                 Ok((file_handle, response_flags)) => {
@@ -413,19 +497,20 @@ impl<T: FuseAPI> fuser::Filesystem for FuseFilesystem<T> {
             });
         FuseAPI::opendir(
             &mut self.fs_impl,
-            _req.into(),
-            _ino,
+            req.into(),
+            self.converter.lock().unwrap().to_id(ino),
             OpenFlags::from(_flags),
             callback,
         );
     }
 
-    fn readdir(&mut self, _req: &Request, ino: u64, fh: u64, offset: i64, reply: ReplyDirectory) {
+    fn readdir(&mut self, req: &Request, ino: u64, fh: u64, offset: i64, reply: ReplyDirectory) {
         if offset < 0 {
             error!("readdir called with a negative offset");
             reply.error(PosixError::INVALID_ARGUMENT.into());
             return;
         }
+        let converter = self.converter.clone();
 
         // Helper function to create the callback
         fn create_callback(
@@ -466,15 +551,15 @@ impl<T: FuseAPI> fuser::Filesystem for FuseFilesystem<T> {
         if offset == 0 {
             // Call the high-level readdir function with the callback
             let callback = create_callback(reply, self.dirmap_iter.clone(), ino, offset);
-            self.fs_impl
-                .readdir(_req.into(), ino, FileHandle::from(fh), 
-                    Box::new(|result| {
-                        match result {
-                            Ok(entries) => callback(Ok(Box::new(entries.into_iter()))),
-                            Err(e) => callback(Err(e))
-                        }
-                        
-                    }));
+            self.fs_impl.readdir(
+                req.into(),
+                self.converter.lock().unwrap().to_id(ino),
+                FileHandle::from(fh),
+                Box::new(|result| match result {
+                    Ok(entries) => callback(Ok(Box::new(entries.into_iter()))),
+                    Err(e) => callback(Err(e)),
+                }),
+            );
         } else {
             // Handle continuation from a previously saved iterator
             match self.dirmap_iter.lock().unwrap().remove(&ino) {
@@ -491,36 +576,38 @@ impl<T: FuseAPI> fuser::Filesystem for FuseFilesystem<T> {
 
     fn readdirplus(
         &mut self,
-        _req: &Request,
+        req: &Request,
         ino: u64,
         fh: u64,
         offset: i64,
         reply: ReplyDirectoryPlus,
     ) {
+        let converter = self.converter.clone();
         if offset < 0 {
             error!("readdirplus called with a negative offset");
             reply.error(PosixError::INVALID_ARGUMENT.into());
             return;
         }
 
-        fn create_callback<T: FuseAPI>(
+        fn create_callback(
             mut reply: ReplyDirectoryPlus,
             dirplus_iter_map: Arc<Mutex<HashMap<u64, DirIter<FuseDirEntryPlus>>>>,
             ino: u64,
             offset: i64,
+            default_ttl: Duration,
         ) -> ReplyCb<DirIter<FuseDirEntryPlus>> {
             Box::new(move |result| {
                 match result {
                     Ok(mut dirplus_iter) => {
                         let mut i = 0;
                         while let Some(entry) = dirplus_iter.next() {
-                            let (ttl, file_attr, generation) = (
-                                entry.attr_response.ttl.unwrap_or_else(T::get_default_ttl),
-                                entry.attr_response.file_attr,
+                            let (ttl, generation, file_attr) = (
+                                entry.attr.ttl.unwrap_or(default_ttl),
                                 entry
-                                    .attr_response
+                                    .attr
                                     .generation
                                     .unwrap_or_else(get_random_generation),
+                                entry.attr.to_fuse(),
                             );
                             if reply.add(
                                 entry.inode,
@@ -550,22 +637,33 @@ impl<T: FuseAPI> fuser::Filesystem for FuseFilesystem<T> {
 
         if offset == 0 {
             // Call the high-level readdirplus function with the callback
-            let callback = create_callback::<T>(reply, self.dirplus_iter.clone(), ino, offset);
-            self.fs_impl
-                .readdirplus(_req.into(), ino, FileHandle::from(fh), 
-                    Box::new(|result| {
-                        match result {
-                            Ok(entries) => callback(Ok(Box::new(entries.into_iter()))),
-                            Err(e) => callback(Err(e))
-                        }
-                        
-                    }));
+            let callback = create_callback(
+                reply,
+                self.dirplus_iter.clone(),
+                ino,
+                offset,
+                self.fs_impl.get_default_ttl(),
+            );
+            self.fs_impl.readdirplus(
+                req.into(),
+                self.converter.lock().unwrap().to_id(ino),
+                FileHandle::from(fh),
+                Box::new(|result| match result {
+                    Ok(entries) => callback(Ok(Box::new(entries.into_iter()))),
+                    Err(e) => callback(Err(e)),
+                }),
+            );
         } else {
             // Handle continuation from a previously saved iterator
             match self.dirplus_iter.lock().unwrap().remove(&ino) {
                 Some(entries) => {
-                    let callback =
-                        create_callback::<T>(reply, self.dirplus_iter.clone(), ino, offset);
+                    let callback = create_callback(
+                        reply,
+                        self.dirplus_iter.clone(),
+                        ino,
+                        offset,
+                        self.fs_impl.get_default_ttl(),
+                    );
                     callback(Ok(entries));
                 }
                 None => {
@@ -575,30 +673,30 @@ impl<T: FuseAPI> fuser::Filesystem for FuseFilesystem<T> {
         }
     }
 
-    fn releasedir(&mut self, _req: &Request, _ino: u64, _fh: u64, _flags: i32, reply: ReplyEmpty) {
+    fn releasedir(&mut self, req: &Request, ino: u64, _fh: u64, _flags: i32, reply: ReplyEmpty) {
         let callback: ReplyCb<()> = Box::new(move |result| match result {
             Ok(()) => reply.ok(),
             Err(e) => reply.error(e.raw_os_error().unwrap()),
         });
         FuseAPI::releasedir(
             &mut self.fs_impl,
-            _req.into(),
-            _ino,
+            req.into(),
+            self.converter.lock().unwrap().to_id(ino),
             FileHandle::from(_fh),
             OpenFlags::from(_flags),
             callback,
         );
     }
 
-    fn fsyncdir(&mut self, _req: &Request, ino: u64, fh: u64, datasync: bool, reply: ReplyEmpty) {
+    fn fsyncdir(&mut self, req: &Request, ino: u64, fh: u64, datasync: bool, reply: ReplyEmpty) {
         let callback: ReplyCb<()> = Box::new(move |result| match result {
             Ok(()) => reply.ok(),
             Err(e) => reply.error(e.raw_os_error().unwrap()),
         });
         FuseAPI::fsyncdir(
             &mut self.fs_impl,
-            _req.into(),
-            ino,
+            req.into(),
+            self.converter.lock().unwrap().to_id(ino),
             FileHandle::from(fh),
             datasync,
             callback,
@@ -607,8 +705,8 @@ impl<T: FuseAPI> fuser::Filesystem for FuseFilesystem<T> {
 
     fn release(
         &mut self,
-        _req: &Request,
-        _ino: u64,
+        req: &Request,
+        ino: u64,
         _fh: u64,
         _flags: i32,
         _lock_owner: Option<u64>,
@@ -621,8 +719,8 @@ impl<T: FuseAPI> fuser::Filesystem for FuseFilesystem<T> {
         });
         FuseAPI::release(
             &mut self.fs_impl,
-            _req.into(),
-            _ino,
+            req.into(),
+            self.converter.lock().unwrap().to_id(ino),
             _fh.into(),
             OpenFlags::from(_flags),
             _lock_owner,
@@ -631,7 +729,7 @@ impl<T: FuseAPI> fuser::Filesystem for FuseFilesystem<T> {
         );
     }
 
-    fn statfs(&mut self, _req: &Request, _ino: u64, reply: ReplyStatfs) {
+    fn statfs(&mut self, req: &Request, ino: u64, reply: ReplyStatfs) {
         let callback: ReplyCb<StatFs> = Box::new(move |result| match result {
             Ok(statfs) => {
                 reply.statfs(
@@ -647,12 +745,17 @@ impl<T: FuseAPI> fuser::Filesystem for FuseFilesystem<T> {
             }
             Err(e) => reply.error(e.raw_os_error().unwrap()),
         });
-        FuseAPI::statfs(&mut self.fs_impl, _req.into(), _ino, callback);
+        FuseAPI::statfs(
+            &mut self.fs_impl,
+            req.into(),
+            self.converter.lock().unwrap().to_id(ino),
+            callback,
+        );
     }
 
     fn setxattr(
         &mut self,
-        _req: &Request,
+        req: &Request,
         ino: u64,
         name: &OsStr,
         _value: &[u8],
@@ -666,8 +769,8 @@ impl<T: FuseAPI> fuser::Filesystem for FuseFilesystem<T> {
         });
         FuseAPI::setxattr(
             &mut self.fs_impl,
-            _req.into(),
-            ino,
+            req.into(),
+            self.converter.lock().unwrap().to_id(ino),
             name,
             _value,
             FUSESetXAttrFlags::from(flags),
@@ -676,7 +779,7 @@ impl<T: FuseAPI> fuser::Filesystem for FuseFilesystem<T> {
         )
     }
 
-    fn getxattr(&mut self, _req: &Request, ino: u64, name: &OsStr, size: u32, reply: ReplyXattr) {
+    fn getxattr(&mut self, req: &Request, ino: u64, name: &OsStr, size: u32, reply: ReplyXattr) {
         let callback: ReplyCb<Vec<u8>> = Box::new(move |result| match result {
             Ok(xattr_data) => {
                 if size == 0 {
@@ -689,10 +792,17 @@ impl<T: FuseAPI> fuser::Filesystem for FuseFilesystem<T> {
             }
             Err(e) => reply.error(e.raw_os_error().unwrap()),
         });
-        FuseAPI::getxattr(&mut self.fs_impl, _req.into(), ino, name, size, callback);
+        FuseAPI::getxattr(
+            &mut self.fs_impl,
+            req.into(),
+            self.converter.lock().unwrap().to_id(ino),
+            name,
+            size,
+            callback,
+        );
     }
 
-    fn listxattr(&mut self, _req: &Request, ino: u64, size: u32, reply: ReplyXattr) {
+    fn listxattr(&mut self, req: &Request, ino: u64, size: u32, reply: ReplyXattr) {
         let callback: ReplyCb<Vec<u8>> = Box::new(move |result| match result {
             Ok(xattr_data) => {
                 if size == 0 {
@@ -705,26 +815,38 @@ impl<T: FuseAPI> fuser::Filesystem for FuseFilesystem<T> {
             }
             Err(e) => reply.error(e.raw_os_error().unwrap()),
         });
-        FuseAPI::listxattr(&mut self.fs_impl, _req.into(), ino, size, callback);
+        FuseAPI::listxattr(
+            &mut self.fs_impl,
+            req.into(),
+            self.converter.lock().unwrap().to_id(ino),
+            size,
+            callback,
+        );
     }
 
-    fn removexattr(&mut self, _req: &Request, ino: u64, name: &OsStr, reply: ReplyEmpty) {
+    fn removexattr(&mut self, req: &Request, ino: u64, name: &OsStr, reply: ReplyEmpty) {
         let callback: ReplyCb<()> = Box::new(move |result| match result {
             Ok(()) => reply.ok(),
             Err(e) => reply.error(e.raw_os_error().unwrap()),
         });
-        FuseAPI::removexattr(&mut self.fs_impl, _req.into(), ino, name, callback);
+        FuseAPI::removexattr(
+            &mut self.fs_impl,
+            req.into(),
+            self.converter.lock().unwrap().to_id(ino),
+            name,
+            callback,
+        );
     }
 
-    fn access(&mut self, _req: &Request, ino: u64, mask: i32, reply: ReplyEmpty) {
+    fn access(&mut self, req: &Request, ino: u64, mask: i32, reply: ReplyEmpty) {
         let callback: ReplyCb<()> = Box::new(move |result| match result {
             Ok(()) => reply.ok(),
             Err(e) => reply.error(e.raw_os_error().unwrap()),
         });
         FuseAPI::access(
             &mut self.fs_impl,
-            _req.into(),
-            ino,
+            req.into(),
+            self.converter.lock().unwrap().to_id(ino),
             AccessMask::from(mask),
             callback,
         );
@@ -732,7 +854,7 @@ impl<T: FuseAPI> fuser::Filesystem for FuseFilesystem<T> {
 
     fn create(
         &mut self,
-        _req: &Request,
+        req: &Request,
         parent: u64,
         name: &OsStr,
         mode: u32,
@@ -740,12 +862,13 @@ impl<T: FuseAPI> fuser::Filesystem for FuseFilesystem<T> {
         flags: i32,
         reply: ReplyCreate,
     ) {
-        let callback: ReplyCb<(FileHandle, AttributeResponse, FUSEOpenResponseFlags)> =
+        let default_ttl = self.fs_impl.get_default_ttl();
+        let callback: ReplyCb<(FileHandle, FileAttribute, FUSEOpenResponseFlags)> =
             Box::new(move |result| match result {
-                Ok((file_handle, attr_response, response_flags)) => reply.created(
-                    &attr_response.ttl.unwrap_or(T::get_default_ttl()),
-                    &attr_response.file_attr,
-                    attr_response.generation.unwrap_or(get_random_generation()),
+                Ok((file_handle, file_attr, response_flags)) => reply.created(
+                    &file_attr.ttl.unwrap_or(default_ttl),
+                    &file_attr.to_fuse(),
+                    file_attr.generation.unwrap_or(get_random_generation()),
                     file_handle.into(),
                     response_flags.as_raw(),
                 ),
@@ -753,8 +876,8 @@ impl<T: FuseAPI> fuser::Filesystem for FuseFilesystem<T> {
             });
         FuseAPI::create(
             &mut self.fs_impl,
-            _req.into(),
-            parent,
+            req.into(),
+            self.converter.lock().unwrap().to_id(parent),
             name,
             mode,
             umask,
@@ -765,7 +888,7 @@ impl<T: FuseAPI> fuser::Filesystem for FuseFilesystem<T> {
 
     fn getlk(
         &mut self,
-        _req: &Request<'_>,
+        req: &Request<'_>,
         ino: u64,
         fh: u64,
         lock_owner: u64,
@@ -798,8 +921,8 @@ impl<T: FuseAPI> fuser::Filesystem for FuseFilesystem<T> {
         });
         FuseAPI::getlk(
             &mut self.fs_impl,
-            _req.into(),
-            ino,
+            req.into(),
+            self.converter.lock().unwrap().to_id(ino),
             FileHandle::from(fh),
             lock_owner,
             lock_info,
@@ -809,7 +932,7 @@ impl<T: FuseAPI> fuser::Filesystem for FuseFilesystem<T> {
 
     fn setlk(
         &mut self,
-        _req: &Request<'_>,
+        req: &Request<'_>,
         ino: u64,
         fh: u64,
         lock_owner: u64,
@@ -835,8 +958,8 @@ impl<T: FuseAPI> fuser::Filesystem for FuseFilesystem<T> {
         });
         FuseAPI::setlk(
             &mut self.fs_impl,
-            _req.into(),
-            ino,
+            req.into(),
+            self.converter.lock().unwrap().to_id(ino),
             FileHandle::from(fh),
             lock_owner,
             lock_info,
@@ -845,7 +968,7 @@ impl<T: FuseAPI> fuser::Filesystem for FuseFilesystem<T> {
         );
     }
 
-    fn bmap(&mut self, _req: &Request<'_>, ino: u64, blocksize: u32, idx: u64, reply: ReplyBmap) {
+    fn bmap(&mut self, req: &Request<'_>, ino: u64, blocksize: u32, idx: u64, reply: ReplyBmap) {
         // Call the high-level function in FuseAPI
         let callback: ReplyCb<u64> = Box::new(move |result| match result {
             Ok(block) => reply.bmap(block),
@@ -853,8 +976,8 @@ impl<T: FuseAPI> fuser::Filesystem for FuseFilesystem<T> {
         });
         FuseAPI::bmap(
             &mut self.fs_impl,
-            _req.into(),
-            ino,
+            req.into(),
+            self.converter.lock().unwrap().to_id(ino),
             blocksize,
             idx,
             callback,
@@ -863,7 +986,7 @@ impl<T: FuseAPI> fuser::Filesystem for FuseFilesystem<T> {
 
     fn ioctl(
         &mut self,
-        _req: &Request<'_>,
+        req: &Request<'_>,
         ino: u64,
         fh: u64,
         flags: u32,
@@ -879,8 +1002,8 @@ impl<T: FuseAPI> fuser::Filesystem for FuseFilesystem<T> {
         });
         FuseAPI::ioctl(
             &mut self.fs_impl,
-            _req.into(),
-            ino,
+            req.into(),
+            self.converter.lock().unwrap().to_id(ino),
             FileHandle::from(fh),
             IOCtlFlags::from(flags),
             cmd,
@@ -892,7 +1015,7 @@ impl<T: FuseAPI> fuser::Filesystem for FuseFilesystem<T> {
 
     fn fallocate(
         &mut self,
-        _req: &Request,
+        req: &Request,
         ino: u64,
         fh: u64,
         offset: i64,
@@ -906,8 +1029,8 @@ impl<T: FuseAPI> fuser::Filesystem for FuseFilesystem<T> {
         });
         FuseAPI::fallocate(
             &mut self.fs_impl,
-            _req.into(),
-            ino,
+            req.into(),
+            self.converter.lock().unwrap().to_id(ino),
             FileHandle::from(fh),
             offset,
             length,
@@ -918,7 +1041,7 @@ impl<T: FuseAPI> fuser::Filesystem for FuseFilesystem<T> {
 
     fn lseek(
         &mut self,
-        _req: &Request,
+        req: &Request,
         ino: u64,
         fh: u64,
         offset: i64,
@@ -931,8 +1054,8 @@ impl<T: FuseAPI> fuser::Filesystem for FuseFilesystem<T> {
         });
         FuseAPI::lseek(
             &mut self.fs_impl,
-            _req.into(),
-            ino,
+            req.into(),
+            self.converter.lock().unwrap().to_id(ino),
             FileHandle::from(fh),
             offset,
             whence.into(),
@@ -942,7 +1065,7 @@ impl<T: FuseAPI> fuser::Filesystem for FuseFilesystem<T> {
 
     fn copy_file_range(
         &mut self,
-        _req: &Request,
+        req: &Request,
         ino_in: u64,
         fh_in: u64,
         offset_in: i64,
@@ -959,11 +1082,11 @@ impl<T: FuseAPI> fuser::Filesystem for FuseFilesystem<T> {
         });
         FuseAPI::copy_file_range(
             &mut self.fs_impl,
-            _req.into(),
-            ino_in,
+            req.into(),
+            self.converter.lock().unwrap().to_id(ino_in),
             FileHandle::from(fh_in),
             offset_in,
-            ino_out,
+            self.converter.lock().unwrap().to_id(ino_out),
             FileHandle::from(fh_out),
             offset_out,
             len,

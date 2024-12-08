@@ -5,13 +5,14 @@ edition = "2021"
 
 [features]
 default = ["threadpool"] # For developement
-threadpool = ["dep:threadpool"]
+threadpool = ["dep:threadpool", "dep:num_cpus"]
 
 [dependencies]
 log = "0.4"
 libc = "0.2"
 fuser = "0.15"
 threadpool = { version = "1.8", optional = true }
+num_cpus = { version = "1.0", optional = true }
 
 [dev-dependencies]
 tempfile = "3.14"

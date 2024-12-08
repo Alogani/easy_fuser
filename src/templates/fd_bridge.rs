@@ -2,13 +2,30 @@ use crate::types::*;
 use crate::*;
 
 use fuse_api::ReplyCb;
+use templates::BaseFuse;
+
 
 /// Implement all functions that rely on file handle to be done by assuming a file handle represents a file descriptor on the filesystem.
 ///
 /// This consideration should be taken into account when deriving this trait in the implementation of the following functions:
 /// - `open`
 /// - `create`
-pub trait FileDescriptorBridge: FuseAPI {
+
+pub struct FileDescriptorBridge {
+    sublayer: BaseFuse
+}
+
+impl FileDescriptorBridge {
+    pub fn new() -> Self {
+        Self { sublayer: BaseFuse::new() }
+    }
+}
+
+impl FuseAPI for FileDescriptorBridge {
+    fn get_sublayer(&self) -> &impl FuseAPI {
+        &self.sublayer
+    }
+
     fn getattr(
         &self,
         _req: RequestInfo,
@@ -152,14 +169,14 @@ pub trait FileDescriptorBridge: FuseAPI {
         _flags: u32, // Not implemented yet in standard
         callback: ReplyCb<u32>,
     ) {
-        #![allow(unused_variables)]    
+        #![allow(unused_variables)]
         match (
             FileDescriptor::try_from(file_handle_in),
             FileDescriptor::try_from(file_handle_out),
         ) {
-            (Ok(fd_in), Ok(fd_out)) => {
-                callback(posix_fs::copy_file_range(&fd_in, offset_in, &fd_out, offset_out, len))
-            }
+            (Ok(fd_in), Ok(fd_out)) => callback(posix_fs::copy_file_range(
+                &fd_in, offset_in, &fd_out, offset_out, len,
+            )),
             (Err(e), _) | (_, Err(e)) => callback(Err(e.into())),
         }
     }
