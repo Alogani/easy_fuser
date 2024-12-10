@@ -247,14 +247,14 @@ impl FileAttribute {
 
 #[derive(Debug)]
 pub struct FuseDirEntry {
-    pub inode: u64,
+    pub inode: Inode,
     pub name: OsString,
     pub kind: FileType,
 }
 
 #[derive(Debug)]
 pub struct FuseDirEntryPlus {
-    pub inode: u64,
+    pub inode: Inode,
     pub name: OsString,
     pub attr: FileAttribute,
 }

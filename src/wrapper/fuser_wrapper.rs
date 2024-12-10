@@ -6,19 +6,18 @@ use std::{
     time::{Duration, Instant, SystemTime},
 };
 
+use libc::c_int;
+use log::error;
+
 use fuser::{
     self, KernelConfig, ReplyAttr, ReplyBmap, ReplyCreate, ReplyData, ReplyDirectory,
     ReplyDirectoryPlus, ReplyEmpty, ReplyEntry, ReplyIoctl, ReplyLock, ReplyLseek, ReplyOpen,
     ReplyStatfs, ReplyWrite, ReplyXattr, Request, TimeOrNow,
 };
 
-use libc::c_int;
-use log::error;
-
-use crate::fuse_api::{FuseAPI, ReplyCb};
-use crate::types::*;
-
+use super::fuse_callback_api::{FuseCallbackAPI, ReplyCb};
 use super::inode_mapping::{IdConverter, IdType};
+use crate::types::*;
 
 type DirIter<T> = Box<dyn Iterator<Item = T> + Send>;
 
@@ -28,61 +27,69 @@ fn get_random_generation() -> u64 {
 
 pub struct FuseFilesystem<T, U, C>
 where
-    T: FuseAPI<U>,
+    T: FuseCallbackAPI<U>,
     U: IdType,
     C: IdConverter<Output = U>,
 {
-    fs_impl: T,
+    fuse_impl: T,
+    converter: Arc<Mutex<C>>,
     dirmap_iter: Arc<Mutex<HashMap<u64, DirIter<FuseDirEntry>>>>,
     dirplus_iter: Arc<Mutex<HashMap<u64, DirIter<FuseDirEntryPlus>>>>,
-    converter: Arc<Mutex<C>>,
 }
 
-
-pub fn new_filesystem<T, U, C>(fuse_api: T) -> FuseFilesystem<T, U, C>
+impl<T, U, C> FuseFilesystem<T, U, C>
 where
-    T: FuseAPI<U>,
+    T: FuseCallbackAPI<U>,
     U: IdType,
     C: IdConverter<Output = U>,
 {
-    FuseFilesystem {
-        fs_impl: fuse_api,
-        dirmap_iter: Arc::new(Mutex::new(HashMap::new())),
-        dirplus_iter: Arc::new(Mutex::new(HashMap::new())),
-        converter: Arc::new(Mutex::new(C::new())),
+    pub fn new(fuse_cb_api: T) -> FuseFilesystem<T, U, C> {
+        FuseFilesystem {
+            fuse_impl: fuse_cb_api,
+            converter: Arc::new(Mutex::new(C::new())),
+            dirmap_iter: Arc::new(Mutex::new(HashMap::new())),
+            dirplus_iter: Arc::new(Mutex::new(HashMap::new())),
+        }
     }
 }
 
 impl<T, U, C> fuser::Filesystem for FuseFilesystem<T, U, C>
 where
-    T: FuseAPI<U>,
+    T: FuseCallbackAPI<U>,
     U: IdType,
     C: IdConverter<Output = U>,
 {
     fn init(&mut self, req: &Request, _config: &mut KernelConfig) -> Result<(), c_int> {
-        match FuseAPI::init(&mut self.fs_impl, req.into(), _config) {
+        match FuseCallbackAPI::init(&mut self.fuse_impl, req.into(), _config) {
             Ok(()) => Ok(()),
             Err(e) => Err(e.raw_os_error().unwrap()), // Convert io::Error to c_int
         }
     }
 
     fn lookup(&mut self, req: &Request, parent: u64, name: &OsStr, reply: ReplyEntry) {
-        let default_ttl = self.fs_impl.get_default_ttl();
+        let default_ttl = T::get_default_ttl();
+        let converter = Arc::clone(&self.converter);
+        let name_owned = name.to_owned();
         let callback: ReplyCb<FileAttribute> = Box::new(move |result| match result {
-            Ok(file_attr) => {
-                self.converter.lock().unwrap().map_inode(parent, Some(name), &mut file_attr);
+            Ok(mut file_attr) => {
+                converter.lock().unwrap().map_inode(
+                    parent,
+                    Some(&name_owned),
+                    &mut file_attr.inode,
+                );
+                let generation = file_attr.generation.unwrap_or(get_random_generation());
                 reply.entry(
                     &file_attr.ttl.unwrap_or(default_ttl),
                     &file_attr.to_fuse(),
-                    file_attr.generation.unwrap_or(get_random_generation()),
+                    generation,
                 );
             }
             Err(e) => {
                 reply.error(e.raw_os_error().unwrap());
             }
         });
-        FuseAPI::lookup(
-            &mut self.fs_impl,
+        FuseCallbackAPI::lookup(
+            &mut self.fuse_impl,
             req.into(),
             self.converter.lock().unwrap().to_id(parent),
             name,
@@ -91,8 +98,8 @@ where
     }
 
     fn forget(&mut self, req: &Request, ino: u64, _nlookup: u64) {
-        FuseAPI::forget(
-            &mut self.fs_impl,
+        FuseCallbackAPI::forget(
+            &mut self.fuse_impl,
             req.into(),
             self.converter.lock().unwrap().to_id(ino),
             _nlookup,
@@ -100,16 +107,20 @@ where
     }
 
     fn getattr(&mut self, req: &Request, ino: u64, fh: Option<u64>, reply: ReplyAttr) {
-        let default_ttl = self.fs_impl.get_default_ttl();
+        let default_ttl = T::get_default_ttl();
+        let converter = Arc::clone(&self.converter);
         let callback: ReplyCb<FileAttribute> = Box::new(move |result| match result {
-            Ok(file_attr) => {
-                self.converter.lock().unwrap().map_inode(ino, None, &mut file_attr);
+            Ok(mut file_attr) => {
+                converter
+                    .lock()
+                    .unwrap()
+                    .map_inode(ino, None, &mut file_attr.inode);
                 reply.attr(&file_attr.ttl.unwrap_or(default_ttl), &file_attr.to_fuse());
             }
             Err(e) => reply.error(e.raw_os_error().unwrap()),
         });
-        FuseAPI::getattr(
-            &mut self.fs_impl,
+        FuseCallbackAPI::getattr(
+            &mut self.fuse_impl,
             req.into(),
             self.converter.lock().unwrap().to_id(ino),
             fh.map(FileHandle::from),
@@ -150,16 +161,20 @@ where
             flags: None,
             file_handle: fh.map(FileHandle::from),
         };
-        let default_ttl = self.fs_impl.get_default_ttl();
+        let default_ttl = T::get_default_ttl();
+        let converter = Arc::clone(&self.converter);
         let callback: ReplyCb<FileAttribute> = Box::new(move |result| match result {
-            Ok(file_attr) => {
-                self.converter.lock().unwrap().map_inode(ino, None, &mut file_attr);
+            Ok(mut file_attr) => {
+                converter
+                    .lock()
+                    .unwrap()
+                    .map_inode(ino, None, &mut file_attr.inode);
                 reply.attr(&file_attr.ttl.unwrap_or(default_ttl), &file_attr.to_fuse());
             }
             Err(e) => reply.error(e.raw_os_error().unwrap()),
         });
-        FuseAPI::setattr(
-            &mut self.fs_impl,
+        FuseCallbackAPI::setattr(
+            &mut self.fuse_impl,
             req.into(),
             self.converter.lock().unwrap().to_id(ino),
             attrs,
@@ -172,8 +187,8 @@ where
             Ok(link) => reply.data(&link),
             Err(e) => reply.error(e.raw_os_error().unwrap()),
         });
-        FuseAPI::readlink(
-            &mut self.fs_impl,
+        FuseCallbackAPI::readlink(
+            &mut self.fuse_impl,
             req.into(),
             self.converter.lock().unwrap().to_id(ino),
             callback,
@@ -190,20 +205,27 @@ where
         rdev: u32,
         reply: ReplyEntry,
     ) {
-        let default_ttl = self.fs_impl.get_default_ttl();
+        let default_ttl = T::get_default_ttl();
+        let converter = Arc::clone(&self.converter);
+        let owned_name = name.to_owned();
         let callback: ReplyCb<FileAttribute> = Box::new(move |result| match result {
-            Ok(file_attr) => {
-                self.converter.lock().unwrap().map_inode(parent, Some(name), &mut file_attr);
+            Ok(mut file_attr) => {
+                converter.lock().unwrap().map_inode(
+                    parent,
+                    Some(&owned_name),
+                    &mut file_attr.inode,
+                );
+                let generation = file_attr.generation.unwrap_or(get_random_generation());
                 reply.entry(
                     &file_attr.ttl.unwrap_or(default_ttl),
                     &file_attr.to_fuse(),
-                    file_attr.generation.unwrap_or(get_random_generation()),
+                    generation,
                 );
             }
             Err(e) => reply.error(e.raw_os_error().unwrap()),
         });
-        FuseAPI::mknod(
-            &mut self.fs_impl,
+        FuseCallbackAPI::mknod(
+            &mut self.fuse_impl,
             req.into(),
             self.converter.lock().unwrap().to_id(parent),
             name,
@@ -223,20 +245,27 @@ where
         umask: u32,
         reply: ReplyEntry,
     ) {
-        let default_ttl = self.fs_impl.get_default_ttl();
+        let default_ttl = T::get_default_ttl();
+        let converter = Arc::clone(&self.converter);
+        let owned_name = name.to_owned();
         let callback: ReplyCb<FileAttribute> = Box::new(move |result| match result {
-            Ok(file_attr) => {
-                self.converter.lock().unwrap().map_inode(parent, Some(name), &mut file_attr);
+            Ok(mut file_attr) => {
+                converter.lock().unwrap().map_inode(
+                    parent,
+                    Some(&owned_name),
+                    &mut file_attr.inode,
+                );
+                let generation = file_attr.generation.unwrap_or(get_random_generation());
                 reply.entry(
                     &file_attr.ttl.unwrap_or(default_ttl),
                     &file_attr.to_fuse(),
-                    file_attr.generation.unwrap_or(get_random_generation()),
+                    generation,
                 );
             }
             Err(e) => reply.error(e.raw_os_error().unwrap()),
         });
-        FuseAPI::mkdir(
-            &mut self.fs_impl,
+        FuseCallbackAPI::mkdir(
+            &mut self.fuse_impl,
             req.into(),
             self.converter.lock().unwrap().to_id(parent),
             name,
@@ -249,16 +278,16 @@ where
     fn unlink(&mut self, req: &Request, parent: u64, name: &OsStr, reply: ReplyEmpty) {
         let request_info: RequestInfo = req.into();
         let converter = Arc::clone(&self.converter);
-        let name_cb = name.to_os_string();
+        let name_owned = name.to_owned();
         let callback: ReplyCb<()> = Box::new(move |result| match result {
             Ok(()) => {
-                converter.lock().unwrap().remove(parent, &name_cb);
+                converter.lock().unwrap().remove(parent, &name_owned);
                 reply.ok()
             }
             Err(e) => reply.error(e.raw_os_error().unwrap()),
         });
-        FuseAPI::unlink(
-            &mut self.fs_impl,
+        FuseCallbackAPI::unlink(
+            &mut self.fuse_impl,
             request_info,
             self.converter.lock().unwrap().to_id(parent),
             &name,
@@ -269,16 +298,16 @@ where
     fn rmdir(&mut self, req: &Request, parent: u64, name: &OsStr, reply: ReplyEmpty) {
         let request_info: RequestInfo = req.into();
         let converter = self.converter.clone();
-        let name_cb = name.to_os_string();
+        let name_owned = name.to_owned();
         let callback: ReplyCb<()> = Box::new(move |result| match result {
             Ok(()) => {
-                converter.lock().unwrap().remove(parent, &name_cb);
+                converter.lock().unwrap().remove(parent, &name_owned);
                 reply.ok()
             }
             Err(e) => reply.error(e.raw_os_error().unwrap()),
         });
-        FuseAPI::rmdir(
-            &mut self.fs_impl,
+        FuseCallbackAPI::rmdir(
+            &mut self.fuse_impl,
             request_info,
             self.converter.lock().unwrap().to_id(parent),
             name,
@@ -294,23 +323,27 @@ where
         target: &Path,
         reply: ReplyEntry,
     ) {
-        let default_ttl = self.fs_impl.get_default_ttl();
+        let default_ttl = T::get_default_ttl();
         let converter = self.converter.clone();
-        let link_name_cb = link_name.to_os_string();
+        let link_name_owned = link_name.to_os_string();
         let callback: ReplyCb<FileAttribute> = Box::new(move |result| match result {
-            Ok(file_attr) => {
-                converter.lock().unwrap()
-                    .map_inode(parent, Some(&link_name_cb), &mut file_attr);
+            Ok(mut file_attr) => {
+                converter.lock().unwrap().map_inode(
+                    parent,
+                    Some(&link_name_owned),
+                    &mut file_attr.inode,
+                );
+                let generation = file_attr.generation.unwrap_or(get_random_generation());
                 reply.entry(
                     &file_attr.ttl.unwrap_or(default_ttl),
                     &file_attr.to_fuse(),
-                    file_attr.generation.unwrap_or(get_random_generation()),
+                    generation,
                 );
             }
             Err(e) => reply.error(e.raw_os_error().unwrap()),
         });
-        FuseAPI::symlink(
-            &mut self.fs_impl,
+        FuseCallbackAPI::symlink(
+            &mut self.fuse_impl,
             req.into(),
             self.converter.lock().unwrap().to_id(parent),
             link_name,
@@ -330,17 +363,20 @@ where
         reply: ReplyEmpty,
     ) {
         let converter = self.converter.clone();
-        let name_cb = name.to_os_string();
+        let name_owned = name.to_owned();
         let newname_cb = newname.to_os_string();
         let callback: ReplyCb<()> = Box::new(move |result| match result {
             Ok(()) => {
-                converter.lock().unwrap().rename(parent, &name_cb, newparent, newname_cb);
+                converter
+                    .lock()
+                    .unwrap()
+                    .rename(parent, &name_owned, newparent, newname_cb);
                 reply.ok()
             }
             Err(e) => reply.error(e.raw_os_error().unwrap()),
         });
-        FuseAPI::rename(
-            &mut self.fs_impl,
+        FuseCallbackAPI::rename(
+            &mut self.fuse_impl,
             req.into(),
             self.converter.lock().unwrap().to_id(parent),
             name,
@@ -359,21 +395,27 @@ where
         newname: &OsStr,
         reply: ReplyEntry,
     ) {
-        let default_ttl = self.fs_impl.get_default_ttl();
+        let default_ttl = T::get_default_ttl();
+        let converter = self.converter.clone();
+        let newname_owned = newname.to_owned();
         let callback: ReplyCb<FileAttribute> = Box::new(move |result| match result {
-            Ok(file_attr) => {
-                self.converter.lock().unwrap()
-                    .map_inode(newparent, Some(newname), &mut file_attr);
+            Ok(mut file_attr) => {
+                converter.lock().unwrap().map_inode(
+                    newparent,
+                    Some(&newname_owned),
+                    &mut file_attr.inode,
+                );
+                let generation = file_attr.generation.unwrap_or(get_random_generation());
                 reply.entry(
                     &file_attr.ttl.unwrap_or(default_ttl),
                     &file_attr.to_fuse(),
-                    file_attr.generation.unwrap_or(get_random_generation()),
+                    generation,
                 );
             }
             Err(e) => reply.error(e.raw_os_error().unwrap()),
         });
-        FuseAPI::link(
-            &mut self.fs_impl,
+        FuseCallbackAPI::link(
+            &mut self.fuse_impl,
             req.into(),
             self.converter.lock().unwrap().to_id(ino),
             self.converter.lock().unwrap().to_id(newparent),
@@ -390,8 +432,8 @@ where
                 }
                 Err(e) => reply.error(e.raw_os_error().unwrap()),
             });
-        FuseAPI::open(
-            &mut self.fs_impl,
+        FuseCallbackAPI::open(
+            &mut self.fuse_impl,
             req.into(),
             self.converter.lock().unwrap().to_id(ino),
             OpenFlags::from(_flags),
@@ -414,8 +456,8 @@ where
             Ok(data_reply) => reply.data(&data_reply),
             Err(e) => reply.error(e.raw_os_error().unwrap()),
         });
-        FuseAPI::read(
-            &mut self.fs_impl,
+        FuseCallbackAPI::read(
+            &mut self.fuse_impl,
             req.into(),
             self.converter.lock().unwrap().to_id(ino),
             fh.into(),
@@ -443,8 +485,8 @@ where
             Ok(bytes_written) => reply.written(bytes_written),
             Err(e) => reply.error(e.raw_os_error().unwrap()),
         });
-        FuseAPI::write(
-            &mut self.fs_impl,
+        FuseCallbackAPI::write(
+            &mut self.fuse_impl,
             req.into(),
             self.converter.lock().unwrap().to_id(ino),
             FileHandle::from(fh),
@@ -462,8 +504,8 @@ where
             Ok(()) => reply.ok(),
             Err(e) => reply.error(e.raw_os_error().unwrap()),
         });
-        FuseAPI::flush(
-            &mut self.fs_impl,
+        FuseCallbackAPI::flush(
+            &mut self.fuse_impl,
             req.into(),
             self.converter.lock().unwrap().to_id(ino),
             FileHandle::from(fh),
@@ -477,8 +519,8 @@ where
             Ok(()) => reply.ok(),
             Err(e) => reply.error(e.raw_os_error().unwrap()),
         });
-        FuseAPI::fsync(
-            &mut self.fs_impl,
+        FuseCallbackAPI::fsync(
+            &mut self.fuse_impl,
             req.into(),
             self.converter.lock().unwrap().to_id(ino),
             FileHandle::from(fh),
@@ -495,8 +537,8 @@ where
                 }
                 Err(e) => reply.error(e.raw_os_error().unwrap()),
             });
-        FuseAPI::opendir(
-            &mut self.fs_impl,
+        FuseCallbackAPI::opendir(
+            &mut self.fuse_impl,
             req.into(),
             self.converter.lock().unwrap().to_id(ino),
             OpenFlags::from(_flags),
@@ -513,19 +555,25 @@ where
         let converter = self.converter.clone();
 
         // Helper function to create the callback
-        fn create_callback(
+        fn create_callback<C: IdConverter>(
             mut reply: ReplyDirectory,
             dirmap_iter: Arc<Mutex<HashMap<u64, DirIter<FuseDirEntry>>>>,
             ino: u64,
             offset: i64,
+            converter: Arc<Mutex<C>>,
         ) -> ReplyCb<DirIter<FuseDirEntry>> {
             Box::new(move |result| {
                 match result {
                     Ok(mut dir_iter) => {
                         let mut i = 0;
-                        while let Some(entry) = dir_iter.next() {
+                        while let Some(mut entry) = dir_iter.next() {
+                            converter.lock().unwrap().map_inode(
+                                ino,
+                                Some(entry.name.as_ref()),
+                                &mut entry.inode,
+                            );
                             if reply.add(
-                                entry.inode,
+                                entry.inode.into(),
                                 (i as i64 + offset + 1) as i64,
                                 entry.kind,
                                 &entry.name,
@@ -550,8 +598,8 @@ where
 
         if offset == 0 {
             // Call the high-level readdir function with the callback
-            let callback = create_callback(reply, self.dirmap_iter.clone(), ino, offset);
-            self.fs_impl.readdir(
+            let callback = create_callback(reply, self.dirmap_iter.clone(), ino, offset, converter);
+            self.fuse_impl.readdir(
                 req.into(),
                 self.converter.lock().unwrap().to_id(ino),
                 FileHandle::from(fh),
@@ -564,7 +612,8 @@ where
             // Handle continuation from a previously saved iterator
             match self.dirmap_iter.lock().unwrap().remove(&ino) {
                 Some(entries) => {
-                    let callback = create_callback(reply, self.dirmap_iter.clone(), ino, offset);
+                    let callback =
+                        create_callback(reply, Arc::clone(&self.dirmap_iter), ino, offset, converter);
                     callback(Ok(entries));
                 }
                 None => {
@@ -589,28 +638,31 @@ where
             return;
         }
 
-        fn create_callback(
+        fn create_callback<C: IdConverter>(
             mut reply: ReplyDirectoryPlus,
             dirplus_iter_map: Arc<Mutex<HashMap<u64, DirIter<FuseDirEntryPlus>>>>,
             ino: u64,
             offset: i64,
             default_ttl: Duration,
+            converter: Arc<Mutex<C>>,
         ) -> ReplyCb<DirIter<FuseDirEntryPlus>> {
             Box::new(move |result| {
                 match result {
                     Ok(mut dirplus_iter) => {
                         let mut i = 0;
-                        while let Some(entry) = dirplus_iter.next() {
+                        while let Some(mut entry) = dirplus_iter.next() {
+                            converter.lock().unwrap().map_inode(
+                                ino,
+                                Some(entry.name.as_ref()),
+                                &mut entry.inode,
+                            );
                             let (ttl, generation, file_attr) = (
                                 entry.attr.ttl.unwrap_or(default_ttl),
-                                entry
-                                    .attr
-                                    .generation
-                                    .unwrap_or_else(get_random_generation),
+                                entry.attr.generation.unwrap_or_else(get_random_generation),
                                 entry.attr.to_fuse(),
                             );
                             if reply.add(
-                                entry.inode,
+                                entry.inode.into(),
                                 (i as i64 + offset + 1) as i64,
                                 &entry.name,
                                 &ttl,
@@ -642,9 +694,10 @@ where
                 self.dirplus_iter.clone(),
                 ino,
                 offset,
-                self.fs_impl.get_default_ttl(),
+                T::get_default_ttl(),
+                converter,
             );
-            self.fs_impl.readdirplus(
+            self.fuse_impl.readdirplus(
                 req.into(),
                 self.converter.lock().unwrap().to_id(ino),
                 FileHandle::from(fh),
@@ -659,10 +712,11 @@ where
                 Some(entries) => {
                     let callback = create_callback(
                         reply,
-                        self.dirplus_iter.clone(),
+                        Arc::clone(&self.dirplus_iter),
                         ino,
                         offset,
-                        self.fs_impl.get_default_ttl(),
+                        T::get_default_ttl(),
+                        converter,
                     );
                     callback(Ok(entries));
                 }
@@ -678,8 +732,8 @@ where
             Ok(()) => reply.ok(),
             Err(e) => reply.error(e.raw_os_error().unwrap()),
         });
-        FuseAPI::releasedir(
-            &mut self.fs_impl,
+        FuseCallbackAPI::releasedir(
+            &mut self.fuse_impl,
             req.into(),
             self.converter.lock().unwrap().to_id(ino),
             FileHandle::from(_fh),
@@ -693,8 +747,8 @@ where
             Ok(()) => reply.ok(),
             Err(e) => reply.error(e.raw_os_error().unwrap()),
         });
-        FuseAPI::fsyncdir(
-            &mut self.fs_impl,
+        FuseCallbackAPI::fsyncdir(
+            &mut self.fuse_impl,
             req.into(),
             self.converter.lock().unwrap().to_id(ino),
             FileHandle::from(fh),
@@ -717,8 +771,8 @@ where
             Ok(()) => reply.ok(),
             Err(e) => reply.error(e.raw_os_error().unwrap()),
         });
-        FuseAPI::release(
-            &mut self.fs_impl,
+        FuseCallbackAPI::release(
+            &mut self.fuse_impl,
             req.into(),
             self.converter.lock().unwrap().to_id(ino),
             _fh.into(),
@@ -745,8 +799,8 @@ where
             }
             Err(e) => reply.error(e.raw_os_error().unwrap()),
         });
-        FuseAPI::statfs(
-            &mut self.fs_impl,
+        FuseCallbackAPI::statfs(
+            &mut self.fuse_impl,
             req.into(),
             self.converter.lock().unwrap().to_id(ino),
             callback,
@@ -767,8 +821,8 @@ where
             Ok(()) => reply.ok(),
             Err(e) => reply.error(e.raw_os_error().unwrap()),
         });
-        FuseAPI::setxattr(
-            &mut self.fs_impl,
+        FuseCallbackAPI::setxattr(
+            &mut self.fuse_impl,
             req.into(),
             self.converter.lock().unwrap().to_id(ino),
             name,
@@ -792,8 +846,8 @@ where
             }
             Err(e) => reply.error(e.raw_os_error().unwrap()),
         });
-        FuseAPI::getxattr(
-            &mut self.fs_impl,
+        FuseCallbackAPI::getxattr(
+            &mut self.fuse_impl,
             req.into(),
             self.converter.lock().unwrap().to_id(ino),
             name,
@@ -815,8 +869,8 @@ where
             }
             Err(e) => reply.error(e.raw_os_error().unwrap()),
         });
-        FuseAPI::listxattr(
-            &mut self.fs_impl,
+        FuseCallbackAPI::listxattr(
+            &mut self.fuse_impl,
             req.into(),
             self.converter.lock().unwrap().to_id(ino),
             size,
@@ -829,8 +883,8 @@ where
             Ok(()) => reply.ok(),
             Err(e) => reply.error(e.raw_os_error().unwrap()),
         });
-        FuseAPI::removexattr(
-            &mut self.fs_impl,
+        FuseCallbackAPI::removexattr(
+            &mut self.fuse_impl,
             req.into(),
             self.converter.lock().unwrap().to_id(ino),
             name,
@@ -843,8 +897,8 @@ where
             Ok(()) => reply.ok(),
             Err(e) => reply.error(e.raw_os_error().unwrap()),
         });
-        FuseAPI::access(
-            &mut self.fs_impl,
+        FuseCallbackAPI::access(
+            &mut self.fuse_impl,
             req.into(),
             self.converter.lock().unwrap().to_id(ino),
             AccessMask::from(mask),
@@ -862,20 +916,23 @@ where
         flags: i32,
         reply: ReplyCreate,
     ) {
-        let default_ttl = self.fs_impl.get_default_ttl();
+        let default_ttl = T::get_default_ttl();
         let callback: ReplyCb<(FileHandle, FileAttribute, FUSEOpenResponseFlags)> =
             Box::new(move |result| match result {
-                Ok((file_handle, file_attr, response_flags)) => reply.created(
-                    &file_attr.ttl.unwrap_or(default_ttl),
-                    &file_attr.to_fuse(),
-                    file_attr.generation.unwrap_or(get_random_generation()),
-                    file_handle.into(),
-                    response_flags.as_raw(),
-                ),
+                Ok((file_handle, file_attr, response_flags)) => {
+                    let generation = file_attr.generation.unwrap_or(get_random_generation());
+                    reply.created(
+                        &file_attr.ttl.unwrap_or(default_ttl),
+                        &file_attr.to_fuse(),
+                        generation,
+                        file_handle.into(),
+                        response_flags.as_raw(),
+                    )
+                }
                 Err(e) => reply.error(e.raw_os_error().unwrap()),
             });
-        FuseAPI::create(
-            &mut self.fs_impl,
+        FuseCallbackAPI::create(
+            &mut self.fuse_impl,
             req.into(),
             self.converter.lock().unwrap().to_id(parent),
             name,
@@ -906,7 +963,7 @@ where
             pid,
         };
 
-        // Call the high-level function in FuseAPI
+        // Call the high-level function in FuseCallbackAPI
         let callback: ReplyCb<LockInfo> = Box::new(move |result| match result {
             Ok(lock_info) => {
                 let LockInfo {
@@ -919,8 +976,8 @@ where
             }
             Err(e) => reply.error(e.raw_os_error().unwrap()),
         });
-        FuseAPI::getlk(
-            &mut self.fs_impl,
+        FuseCallbackAPI::getlk(
+            &mut self.fuse_impl,
             req.into(),
             self.converter.lock().unwrap().to_id(ino),
             FileHandle::from(fh),
@@ -951,13 +1008,13 @@ where
             pid,
         };
 
-        // Call the high-level function in FuseAPI
+        // Call the high-level function in FuseCallbackAPI
         let callback: ReplyCb<()> = Box::new(move |result| match result {
             Ok(()) => reply.ok(),
             Err(e) => reply.error(e.raw_os_error().unwrap()),
         });
-        FuseAPI::setlk(
-            &mut self.fs_impl,
+        FuseCallbackAPI::setlk(
+            &mut self.fuse_impl,
             req.into(),
             self.converter.lock().unwrap().to_id(ino),
             FileHandle::from(fh),
@@ -969,13 +1026,13 @@ where
     }
 
     fn bmap(&mut self, req: &Request<'_>, ino: u64, blocksize: u32, idx: u64, reply: ReplyBmap) {
-        // Call the high-level function in FuseAPI
+        // Call the high-level function in FuseCallbackAPI
         let callback: ReplyCb<u64> = Box::new(move |result| match result {
             Ok(block) => reply.bmap(block),
             Err(e) => reply.error(e.raw_os_error().unwrap()),
         });
-        FuseAPI::bmap(
-            &mut self.fs_impl,
+        FuseCallbackAPI::bmap(
+            &mut self.fuse_impl,
             req.into(),
             self.converter.lock().unwrap().to_id(ino),
             blocksize,
@@ -995,13 +1052,13 @@ where
         out_size: u32,
         reply: ReplyIoctl,
     ) {
-        // Call the high-level function in FuseAPI
+        // Call the high-level function in FuseCallbackAPI
         let callback: ReplyCb<(i32, Vec<u8>)> = Box::new(move |result| match result {
             Ok((result, data)) => reply.ioctl(result, &data),
             Err(e) => reply.error(e.raw_os_error().unwrap()),
         });
-        FuseAPI::ioctl(
-            &mut self.fs_impl,
+        FuseCallbackAPI::ioctl(
+            &mut self.fuse_impl,
             req.into(),
             self.converter.lock().unwrap().to_id(ino),
             FileHandle::from(fh),
@@ -1027,8 +1084,8 @@ where
             Ok(()) => reply.ok(),
             Err(e) => reply.error(e.raw_os_error().unwrap()),
         });
-        FuseAPI::fallocate(
-            &mut self.fs_impl,
+        FuseCallbackAPI::fallocate(
+            &mut self.fuse_impl,
             req.into(),
             self.converter.lock().unwrap().to_id(ino),
             FileHandle::from(fh),
@@ -1052,8 +1109,8 @@ where
             Ok(offset) => reply.offset(offset),
             Err(e) => reply.error(e.raw_os_error().unwrap()),
         });
-        FuseAPI::lseek(
-            &mut self.fs_impl,
+        FuseCallbackAPI::lseek(
+            &mut self.fuse_impl,
             req.into(),
             self.converter.lock().unwrap().to_id(ino),
             FileHandle::from(fh),
@@ -1080,8 +1137,8 @@ where
             Ok(bytes_written) => reply.written(bytes_written),
             Err(e) => reply.error(e.raw_os_error().unwrap()),
         });
-        FuseAPI::copy_file_range(
-            &mut self.fs_impl,
+        FuseCallbackAPI::copy_file_range(
+            &mut self.fuse_impl,
             req.into(),
             self.converter.lock().unwrap().to_id(ino_in),
             FileHandle::from(fh_in),

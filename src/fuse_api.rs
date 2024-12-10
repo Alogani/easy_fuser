@@ -1,65 +1,38 @@
-use std::{ffi::OsStr, io, path::Path, time::Duration};
+use std::ffi::OsStr;
+use std::io;
+use std::path::Path;
+use std::time::Duration;
 
+use crate::types::*;
 use crate::wrapper::IdType;
 
-use super::types::*;
-
-pub type ReplyCb<T> = Box<dyn FnOnce(Result<T, io::Error>) + Send>;
-
 pub trait FuseAPI<T: IdType> {
-    fn get_sublayer(&self) -> &impl FuseAPI<T>;
-
-    fn get_default_ttl(&self) -> Duration {
-        self.get_sublayer().get_default_ttl()
+    fn get_default_ttl() -> Duration {
+        Duration::from_secs(1)
     }
 
-    fn init(&self, req: RequestInfo, config: &mut KernelConfig) -> Result<(), io::Error> {
-        self.get_sublayer().init(req, config)
-    }
+    fn init(&self, req: RequestInfo, config: &mut KernelConfig) -> Result<(), io::Error>;
 
-    fn lookup(
-        &self,
-        req: RequestInfo,
-        parent: T,
-        name: &OsStr,
-        callback: ReplyCb<AttributeResponse>,
-    ) {
-        self.get_sublayer().lookup(req, parent, name, callback);
-    }
+    fn lookup(&self, req: RequestInfo, parent: T, name: &OsStr)
+        -> Result<FileAttribute, io::Error>;
 
-    fn forget(&self, req: RequestInfo, file: T, nlookup: u64) {
-        self.get_sublayer().forget(req, file, nlookup);
-    }
+    fn forget(&self, req: RequestInfo, file: T, nlookup: u64);
 
     fn getattr(
         &self,
         req: RequestInfo,
         file: T,
         file_handle: Option<FileHandle>,
-        callback: ReplyCb<AttributeResponse>,
-    ) {
-        self.get_sublayer()
-            .getattr(req, file, file_handle, callback);
-    }
+    ) -> Result<FileAttribute, io::Error>;
 
     fn setattr(
         &self,
         req: RequestInfo,
         file: T,
         attrs: SetAttrRequest,
-        callback: ReplyCb<AttributeResponse>,
-    ) {
-        self.get_sublayer().setattr(req, file, attrs, callback);
-    }
+    ) -> Result<FileAttribute, io::Error>;
 
-    fn readlink(
-        &self,
-        req: RequestInfo,
-        file: T,
-        callback: Box<dyn FnOnce(Result<Vec<u8>, io::Error>) + Send>,
-    ) {
-        self.get_sublayer().readlink(req, file, callback);
-    }
+    fn readlink(&self, req: RequestInfo, file: T) -> Result<Vec<u8>, io::Error>;
 
     fn mknod(
         &self,
@@ -69,11 +42,7 @@ pub trait FuseAPI<T: IdType> {
         mode: u32,
         umask: u32,
         rdev: DeviceType,
-        callback: ReplyCb<AttributeResponse>,
-    ) {
-        self.get_sublayer()
-            .mknod(req, parent, name, mode, umask, rdev, callback);
-    }
+    ) -> Result<FileAttribute, io::Error>;
 
     fn mkdir(
         &self,
@@ -82,19 +51,11 @@ pub trait FuseAPI<T: IdType> {
         name: &OsStr,
         mode: u32,
         umask: u32,
-        callback: ReplyCb<AttributeResponse>,
-    ) {
-        self.get_sublayer()
-            .mkdir(req, parent, name, mode, umask, callback);
-    }
+    ) -> Result<FileAttribute, io::Error>;
 
-    fn unlink(&self, req: RequestInfo, parent: T, name: &OsStr, callback: ReplyCb<()>) {
-        self.get_sublayer().unlink(req, parent, name, callback);
-    }
+    fn unlink(&self, req: RequestInfo, parent: T, name: &OsStr) -> Result<(), io::Error>;
 
-    fn rmdir(&self, req: RequestInfo, parent: T, name: &OsStr, callback: ReplyCb<()>) {
-        self.get_sublayer().rmdir(req, parent, name, callback);
-    }
+    fn rmdir(&self, req: RequestInfo, parent: T, name: &OsStr) -> Result<(), io::Error>;
 
     fn symlink(
         &self,
@@ -102,11 +63,7 @@ pub trait FuseAPI<T: IdType> {
         parent: T,
         link_name: &OsStr,
         target: &Path,
-        callback: ReplyCb<AttributeResponse>,
-    ) {
-        self.get_sublayer()
-            .symlink(req, parent, link_name, target, callback);
-    }
+    ) -> Result<FileAttribute, io::Error>;
 
     fn rename(
         &self,
@@ -116,11 +73,7 @@ pub trait FuseAPI<T: IdType> {
         newparent: T,
         newname: &OsStr,
         flags: RenameFlags,
-        callback: ReplyCb<()>,
-    ) {
-        self.get_sublayer()
-            .rename(req, parent, name, newparent, newname, flags, callback);
-    }
+    ) -> Result<(), io::Error>;
 
     fn link(
         &self,
@@ -128,21 +81,14 @@ pub trait FuseAPI<T: IdType> {
         file: T,
         newparent: T,
         newname: &OsStr,
-        callback: ReplyCb<AttributeResponse>,
-    ) {
-        self.get_sublayer()
-            .link(req, file, newparent, newname, callback);
-    }
+    ) -> Result<FileAttribute, io::Error>;
 
     fn open(
         &self,
         req: RequestInfo,
         file: T,
         flags: OpenFlags,
-        callback: ReplyCb<(FileHandle, FUSEOpenResponseFlags)>,
-    ) {
-        self.get_sublayer().open(req, file, flags, callback);
-    }
+    ) -> Result<(FileHandle, FUSEOpenResponseFlags), io::Error>;
 
     fn read(
         &self,
@@ -153,19 +99,7 @@ pub trait FuseAPI<T: IdType> {
         size: u32,
         flags: FUSEReadFlags,
         lock_owner: Option<u64>,
-        callback: ReplyCb<Vec<u8>>,
-    ) {
-        self.get_sublayer().read(
-            req,
-            file,
-            file_handle,
-            offset,
-            size,
-            flags,
-            lock_owner,
-            callback,
-        );
-    }
+    ) -> Result<Vec<u8>, io::Error>;
 
     fn write(
         &self,
@@ -177,20 +111,7 @@ pub trait FuseAPI<T: IdType> {
         write_flags: FUSEWriteFlags,
         flags: OpenFlags,
         lock_owner: Option<u64>,
-        callback: ReplyCb<u32>,
-    ) {
-        self.get_sublayer().write(
-            req,
-            file,
-            file_handle,
-            offset,
-            data,
-            write_flags,
-            flags,
-            lock_owner,
-            callback,
-        );
-    }
+    ) -> Result<u32, io::Error>;
 
     fn flush(
         &self,
@@ -198,11 +119,7 @@ pub trait FuseAPI<T: IdType> {
         file: T,
         file_handle: FileHandle,
         lock_owner: u64,
-        callback: ReplyCb<()>,
-    ) {
-        self.get_sublayer()
-            .flush(req, file, file_handle, lock_owner, callback);
-    }
+    ) -> Result<(), io::Error>;
 
     fn fsync(
         &self,
@@ -210,43 +127,28 @@ pub trait FuseAPI<T: IdType> {
         file: T,
         file_handle: FileHandle,
         datasync: bool,
-        callback: ReplyCb<()>,
-    ) {
-        self.get_sublayer()
-            .fsync(req, file, file_handle, datasync, callback);
-    }
+    ) -> Result<(), io::Error>;
 
     fn opendir(
         &self,
         req: RequestInfo,
         file: T,
         flags: OpenFlags,
-        callback: ReplyCb<(FileHandle, FUSEOpenResponseFlags)>,
-    ) {
-        self.get_sublayer().opendir(req, file, flags, callback);
-    }
+    ) -> Result<(FileHandle, FUSEOpenResponseFlags), io::Error>;
 
     fn readdir(
         &self,
         req: RequestInfo,
         file: T,
         file_handle: FileHandle,
-        callback: ReplyCb<Vec<FuseDirEntry>>,
-    ) {
-        self.get_sublayer()
-            .readdir(req, file, file_handle, callback);
-    }
+    ) -> Result<Vec<FuseDirEntry>, io::Error>;
 
     fn readdirplus(
         &self,
         req: RequestInfo,
         file: T,
         file_handle: FileHandle,
-        callback: ReplyCb<Vec<FuseDirEntryPlus>>,
-    ) {
-        self.get_sublayer()
-            .readdirplus(req, file, file_handle, callback);
-    }
+    ) -> Result<Vec<FuseDirEntryPlus>, io::Error>;
 
     fn releasedir(
         &self,
@@ -254,11 +156,7 @@ pub trait FuseAPI<T: IdType> {
         file: T,
         file_handle: FileHandle,
         flags: OpenFlags,
-        callback: ReplyCb<()>,
-    ) {
-        self.get_sublayer()
-            .releasedir(req, file, file_handle, flags, callback);
-    }
+    ) -> Result<(), io::Error>;
 
     fn fsyncdir(
         &self,
@@ -266,11 +164,7 @@ pub trait FuseAPI<T: IdType> {
         file: T,
         file_handle: FileHandle,
         datasync: bool,
-        callback: ReplyCb<()>,
-    ) {
-        self.get_sublayer()
-            .fsyncdir(req, file, file_handle, datasync, callback);
-    }
+    ) -> Result<(), io::Error>;
 
     fn release(
         &self,
@@ -280,15 +174,9 @@ pub trait FuseAPI<T: IdType> {
         flags: OpenFlags,
         lock_owner: Option<u64>,
         flush: bool,
-        callback: ReplyCb<()>,
-    ) {
-        self.get_sublayer()
-            .release(req, file, file_handle, flags, lock_owner, flush, callback);
-    }
+    ) -> Result<(), io::Error>;
 
-    fn statfs(&self, req: RequestInfo, file: T, callback: ReplyCb<StatFs>) {
-        self.get_sublayer().statfs(req, file, callback);
-    }
+    fn statfs(&self, req: RequestInfo, file: T) -> Result<StatFs, io::Error>;
 
     fn setxattr(
         &self,
@@ -298,11 +186,7 @@ pub trait FuseAPI<T: IdType> {
         value: &[u8],
         flags: FUSESetXAttrFlags,
         position: u32,
-        callback: ReplyCb<()>,
-    ) {
-        self.get_sublayer()
-            .setxattr(req, file, name, value, flags, position, callback);
-    }
+    ) -> Result<(), io::Error>;
 
     fn getxattr(
         &self,
@@ -310,23 +194,13 @@ pub trait FuseAPI<T: IdType> {
         file: T,
         name: &OsStr,
         size: u32,
-        callback: ReplyCb<Vec<u8>>,
-    ) {
-        self.get_sublayer()
-            .getxattr(req, file, name, size, callback);
-    }
+    ) -> Result<Vec<u8>, io::Error>;
 
-    fn listxattr(&self, req: RequestInfo, file: T, size: u32, callback: ReplyCb<Vec<u8>>) {
-        self.get_sublayer().listxattr(req, file, size, callback);
-    }
+    fn listxattr(&self, req: RequestInfo, file: T, size: u32) -> Result<Vec<u8>, io::Error>;
 
-    fn removexattr(&self, req: RequestInfo, file: T, name: &OsStr, callback: ReplyCb<()>) {
-        self.get_sublayer().removexattr(req, file, name, callback);
-    }
+    fn removexattr(&self, req: RequestInfo, file: T, name: &OsStr) -> Result<(), io::Error>;
 
-    fn access(&self, req: RequestInfo, file: T, mask: AccessMask, callback: ReplyCb<()>) {
-        self.get_sublayer().access(req, file, mask, callback);
-    }
+    fn access(&self, req: RequestInfo, file: T, mask: AccessMask) -> Result<(), io::Error>;
 
     fn getlk(
         &self,
@@ -335,11 +209,7 @@ pub trait FuseAPI<T: IdType> {
         file_handle: FileHandle,
         lock_owner: u64,
         lock_info: LockInfo,
-        callback: ReplyCb<LockInfo>,
-    ) {
-        self.get_sublayer()
-            .getlk(req, file, file_handle, lock_owner, lock_info, callback);
-    }
+    ) -> Result<LockInfo, io::Error>;
 
     fn setlk(
         &self,
@@ -349,23 +219,9 @@ pub trait FuseAPI<T: IdType> {
         lock_owner: u64,
         lock_info: LockInfo,
         sleep: bool,
-        callback: ReplyCb<()>,
-    ) {
-        self.get_sublayer().setlk(
-            req,
-            file,
-            file_handle,
-            lock_owner,
-            lock_info,
-            sleep,
-            callback,
-        );
-    }
+    ) -> Result<(), io::Error>;
 
-    fn bmap(&self, req: RequestInfo, file: T, blocksize: u32, idx: u64, callback: ReplyCb<u64>) {
-        self.get_sublayer()
-            .bmap(req, file, blocksize, idx, callback);
-    }
+    fn bmap(&self, req: RequestInfo, file: T, blocksize: u32, idx: u64) -> Result<u64, io::Error>;
 
     fn ioctl(
         &self,
@@ -376,19 +232,7 @@ pub trait FuseAPI<T: IdType> {
         cmd: u32,
         in_data: &[u8],
         out_size: u32,
-        callback: ReplyCb<(i32, Vec<u8>)>,
-    ) {
-        self.get_sublayer().ioctl(
-            req,
-            file,
-            file_handle,
-            flags,
-            cmd,
-            in_data,
-            out_size,
-            callback,
-        );
-    }
+    ) -> Result<(i32, Vec<u8>), io::Error>;
 
     fn create(
         &self,
@@ -398,11 +242,7 @@ pub trait FuseAPI<T: IdType> {
         mode: u32,
         umask: u32,
         flags: OpenFlags,
-        callback: ReplyCb<(FileHandle, AttributeResponse, FUSEOpenResponseFlags)>,
-    ) {
-        self.get_sublayer()
-            .create(req, parent, name, mode, umask, flags, callback);
-    }
+    ) -> Result<(FileHandle, FileAttribute, FUSEOpenResponseFlags), io::Error>;
 
     fn fallocate(
         &self,
@@ -412,11 +252,7 @@ pub trait FuseAPI<T: IdType> {
         offset: i64,
         length: i64,
         mode: i32,
-        callback: ReplyCb<()>,
-    ) {
-        self.get_sublayer()
-            .fallocate(req, file, file_handle, offset, length, mode, callback);
-    }
+    ) -> Result<(), io::Error>;
 
     fn lseek(
         &self,
@@ -425,11 +261,7 @@ pub trait FuseAPI<T: IdType> {
         file_handle: FileHandle,
         offset: i64,
         whence: Whence,
-        callback: ReplyCb<i64>,
-    ) {
-        self.get_sublayer()
-            .lseek(req, file, file_handle, offset, whence, callback);
-    }
+    ) -> Result<i64, io::Error>;
 
     fn copy_file_range(
         &self,
@@ -442,19 +274,5 @@ pub trait FuseAPI<T: IdType> {
         offset_out: i64,
         len: u64,
         flags: u32, // Not implemented yet in standard
-        callback: ReplyCb<u32>,
-    ) {
-        self.get_sublayer().copy_file_range(
-            req,
-            file_in,
-            file_handle_in,
-            offset_in,
-            file_out,
-            file_handle_out,
-            offset_out,
-            len,
-            flags,
-            callback,
-        );
-    }
+    ) -> Result<u32, io::Error>;
 }

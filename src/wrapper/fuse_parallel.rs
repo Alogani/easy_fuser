@@ -1,3 +1,6 @@
+
+/*
+#[cfg(feature = "threadpool")]
 use std::sync::Arc;
 
 use threadpool::ThreadPool;
@@ -135,3 +138,5 @@ where
         });
     }
 }
+
+*/
