@@ -10,7 +10,7 @@ where
     U: IdType,
 {
     fuse_api: T,
-    phantom: PhantomData<U>
+    phantom: PhantomData<U>,
 }
 
 impl<T, U> FuseSerial<T, U>
@@ -21,7 +21,7 @@ where
     pub fn new(fuse_api: T) -> Self {
         Self {
             fuse_api,
-            phantom: PhantomData
+            phantom: PhantomData,
         }
     }
 }

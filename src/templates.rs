@@ -1,13 +1,8 @@
-/*
 mod base;
-mod fd_bridge;
-#[cfg(feature = "threadpool")]
-mod threadpool;
-mod passthrough;
-
 pub use base::BaseFuse;
+
+mod fd_bridge;
 pub use fd_bridge::FileDescriptorBridge;
-#[cfg(feature = "threadpool")]
-pub use threadpool::ThreadPoolFuse;
+mod passthrough;
 pub use passthrough::PassthroughFs;
-*/
+

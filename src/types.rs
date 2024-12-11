@@ -5,4 +5,4 @@ pub use errors::*;
 mod flags;
 pub use flags::*;
 
-pub use fuser::{FileType, KernelConfig};
+pub use fuser::{FileType, KernelConfig, TimeOrNow};

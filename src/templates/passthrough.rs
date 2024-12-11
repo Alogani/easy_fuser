@@ -3,71 +3,37 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
-use fuse_api::ReplyCb;
-use inode_path_handler::{FilesystemBackend, InodePathHandler};
 use types::FuseDirEntry;
 
 use super::fd_bridge::FileDescriptorBridge;
 use crate::types::*;
 use crate::*;
 
-pub struct PassthroughFs {
-    path_handler: Mutex<InodePathHandler>,
-    sublayer: FileDescriptorBridge
-}
 
-struct BackEndFs {}
-
-impl FilesystemBackend for BackEndFs {
-    fn readdir(&self, parent_path: &Path) -> Result<Vec<PathBuf>, io::Error> {
-        Ok(posix_fs::readdir(parent_path)?
-            .into_iter()
-            .map(|(name, _type)| name)
-            .collect())
-    }
-
-    fn rename(&self, path: &Path, newpath: &Path, flags: RenameFlags) -> Result<(), io::Error> {
-        posix_fs::rename(path, newpath, flags)
-    }
-
-    fn unlink(&self, path: &Path) -> Result<(), io::Error> {
-        posix_fs::unlink(path)
-    }
-}
 
 impl PassthroughFs {
     pub fn new(repo: PathBuf) -> Self {
         Self {
-            path_handler: Mutex::new(InodePathHandler::new(
-                Box::new(BackEndFs {}),
-                PathBuf::from(repo),
-            )),
             sublayer: FileDescriptorBridge::new()
         }
     }
 }
 
-impl FuseAPI for PassthroughFs {
-    fn get_sublayer(&self) -> &impl FuseAPI {
+pub struct PassthroughFs {
+    sublayer: FileDescriptorBridge
+}
+
+impl FuseAPI<PathBuf> for PassthroughFs {
+    fn get_inner(&self) -> &impl FuseAPI<PathBuf> {
         &self.sublayer
     }
 
-    fn lookup(
-        &self,
-        _req: RequestInfo,
-        parent_ino: u64,
-        name: &OsStr,
-        callback: ReplyCb<AttributeResponse>,
-    ) {
-        callback((|| {
-            let mut path_handler = self.path_handler.lock().unwrap();
-            let inode = path_handler.lookup(parent_ino, name)?;
-            let path = path_handler.get_path(inode)?;
-            let fd = posix_fs::open(path.as_ref(), OpenFlags::new())?;
-            let result = posix_fs::getattr(&fd, Some(inode));
-            posix_fs::release(fd)?;
-            result
-        })());
+    fn lookup(&self, req: RequestInfo, parent: PathBuf, name: &OsStr)
+        -> FuseResult<FileAttribute> {
+        let fd = posix_fs::open(parent.as_ref(), OpenFlags::new())?;
+        let result = posix_fs::getattr(&fd);
+        posix_fs::release(fd)?;
+        result
     }
 
     fn open(

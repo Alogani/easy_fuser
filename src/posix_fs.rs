@@ -6,10 +6,8 @@ use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::{self as unix_fs, *};
 use std::{fs, io};
 
-use fuser::{FileAttr, FileType, TimeOrNow};
+use crate::types::*;
 use libc::{c_char, c_void, timespec};
-
-use super::types::*;
 
 /// Convert file type from fs::FileType to the one expected by fuse_api
 /// Be careful with symlinks
@@ -28,9 +26,9 @@ pub fn convert_filetype(f: fs::FileType) -> FileType {
 
 /// Convert file attribute obtained from fs::Metadata to the type expected by fuser
 /// Be careful with symlink, use fs::symlink_metadata
-pub fn convert_fileattr(metadata: fs::Metadata) -> FileAttr {
-    FileAttr {
-        ino: metadata.ino(),
+pub fn convert_fileattribute(metadata: fs::Metadata) -> FileAttribute {
+    FileAttribute {
+        inode: INVALID_INODE,
         size: metadata.size(),
         blocks: metadata.blocks(),
         atime: SystemTime::UNIX_EPOCH + Duration::new(metadata.atime() as u64, 0),
@@ -45,10 +43,12 @@ pub fn convert_fileattr(metadata: fs::Metadata) -> FileAttr {
         rdev: metadata.rdev() as u32,
         blksize: metadata.blksize() as u32,
         flags: 0, // macOS only; placeholder here
+        ttl: None,
+        generation: None,
     }
 }
 
-fn convert_stat_struct(statbuf: libc::stat, custom_inode: Option<u64>) -> Option<FileAttr> {
+fn convert_stat_struct(statbuf: libc::stat) -> Option<FileAttribute> {
     // Convert timestamp values to SystemTime
     let atime = SystemTime::UNIX_EPOCH + Duration::new(statbuf.st_atime as u64, 0);
     let mtime = SystemTime::UNIX_EPOCH + Duration::new(statbuf.st_mtime as u64, 0);
@@ -58,8 +58,8 @@ fn convert_stat_struct(statbuf: libc::stat, custom_inode: Option<u64>) -> Option
     // Flags are not directly supported in `stat`, use a placeholder for now
     let flags = 0; // Update this if your system provides a way to get file flags
 
-    Some(FileAttr {
-        ino: custom_inode.unwrap_or(statbuf.st_ino),
+    Some(FileAttribute {
+        inode: INVALID_INODE,
         size: statbuf.st_size as u64,
         blocks: statbuf.st_blocks as u64,
         atime,
@@ -74,6 +74,8 @@ fn convert_stat_struct(statbuf: libc::stat, custom_inode: Option<u64>) -> Option
         rdev: statbuf.st_rdev as u32,
         blksize: statbuf.st_blksize as u32,
         flags: flags,
+        ttl: None,
+        generation: None,
     })
 }
 
@@ -108,41 +110,30 @@ fn cstring_from_path(path: &Path) -> Result<CString, io::Error> {
 /// Equivalent to the fuse function of the same name
 /// Get the metadata associated with a path
 /// custom_inode is useful if user tracks its inode instead of wanting the one of the filesystem (which might be the case with fuse)
-pub fn lookup(path: &Path, custom_inode: Option<u64>) -> Result<AttributeResponse, io::Error> {
+pub fn lookup(path: &Path) -> Result<FileAttribute, io::Error> {
     let c_path = cstring_from_path(path)?;
     let mut statbuf: libc::stat = unsafe { std::mem::zeroed() };
     let result = unsafe { libc::lstat(c_path.as_ptr(), &mut statbuf) };
     if result == -1 {
         return Err(from_last_errno());
     }
-    Ok(AttributeResponse::from(
-        convert_stat_struct(statbuf, custom_inode).ok_or(PosixError::INVALID_ARGUMENT)?,
-    ))
+    Ok(convert_stat_struct(statbuf).ok_or(PosixError::INVALID_ARGUMENT)?)
 }
 
 /// Equivalent to the fuse function of the same name
 /// Get the metadata associated with a FileDescriptor
 /// custom_inode is useful if user tracks its inode instead of wanting the one of the filesystem (which might be the case with fuse)
-pub fn getattr(
-    fd: &FileDescriptor,
-    custom_inode: Option<u64>,
-) -> Result<AttributeResponse, io::Error> {
+pub fn getattr(fd: &FileDescriptor) -> Result<FileAttribute, io::Error> {
     let mut statbuf: libc::stat = unsafe { std::mem::zeroed() };
     let result = unsafe { libc::fstat(fd.clone().into(), &mut statbuf) };
     if result == -1 {
         return Err(from_last_errno());
     }
-    Ok(AttributeResponse::from(
-        convert_stat_struct(statbuf, custom_inode).ok_or(PosixError::INVALID_ARGUMENT)?,
-    ))
+    Ok(convert_stat_struct(statbuf).ok_or(PosixError::INVALID_ARGUMENT)?)
 }
 
 /// Equivalent to the fuse function of the same name
-pub fn setattr(
-    path: &Path,
-    attrs: SetAttrRequest,
-    custom_inode: Option<u64>,
-) -> Result<AttributeResponse, io::Error> {
+pub fn setattr(path: &Path, attrs: SetAttrRequest) -> Result<FileAttribute, io::Error> {
     let c_path = cstring_from_path(path)?;
 
     // update permissions
@@ -214,7 +205,7 @@ pub fn setattr(
         }
     }
 
-    lookup(path, custom_inode)
+    lookup(path)
 }
 
 /// Equivalent to the fuse function of the same name
@@ -231,32 +222,23 @@ pub fn readlink(path: &Path) -> Result<Vec<u8>, io::Error> {
 }
 
 /// Equivalent to the fuse function of the same name
-pub fn mknod(
-    path: &Path,
-    mode: u32,
-    rdev: DeviceType,
-    custom_inode: Option<u64>,
-) -> Result<AttributeResponse, io::Error> {
+pub fn mknod(path: &Path, mode: u32, rdev: DeviceType) -> Result<FileAttribute, io::Error> {
     let c_path = cstring_from_path(path)?;
     let ret = unsafe { libc::mknod(c_path.as_ptr(), mode, rdev.to_rdev() as libc::dev_t) };
     if ret == -1 {
         return Err(from_last_errno());
     }
-    lookup(path, custom_inode)
+    lookup(path)
 }
 
 /// Equivalent to the fuse function of the same name
-pub fn mkdir(
-    path: &Path,
-    mode: u32,
-    custom_inode: Option<u64>,
-) -> Result<AttributeResponse, io::Error> {
+pub fn mkdir(path: &Path, mode: u32) -> Result<FileAttribute, io::Error> {
     let c_path = cstring_from_path(path)?;
     let ret = unsafe { libc::mkdir(c_path.as_ptr(), mode) };
     if ret == -1 {
         return Err(from_last_errno());
     }
-    lookup(path, custom_inode)
+    lookup(path)
 }
 
 /// Equivalent to the fuse function of the same name
@@ -270,13 +252,9 @@ pub fn rmdir(path: &Path) -> Result<(), io::Error> {
 }
 
 /// Equivalent to the fuse function of the same name
-pub fn symlink(
-    path: &Path,
-    target: &Path,
-    custom_inode: Option<u64>,
-) -> Result<AttributeResponse, io::Error> {
+pub fn symlink(path: &Path, target: &Path) -> Result<FileAttribute, io::Error> {
     unix_fs::symlink(target, path)?;
-    lookup(path, custom_inode)
+    lookup(path)
 }
 
 /// Equivalent to the fuse function of the same name
@@ -289,7 +267,7 @@ pub fn rename(oldpath: &Path, newpath: &Path, flags: RenameFlags) -> Result<(), 
             old_cstr.as_ptr(),
             libc::AT_FDCWD, // Current working directory for the new path
             new_cstr.as_ptr(),
-            flags.as_raw(),
+            flags.bits(),
         )
     };
     if result == 0 {
@@ -303,7 +281,7 @@ pub fn rename(oldpath: &Path, newpath: &Path, flags: RenameFlags) -> Result<(), 
 /// Which must be manually released to avoid a resource leak (release is defined in fuse_api, so it will be done automatically if transmitted)
 pub fn open(path: &Path, flags: OpenFlags) -> Result<FileDescriptor, io::Error> {
     let c_path = cstring_from_path(path)?;
-    let fd = unsafe { libc::open(c_path.as_ptr(), flags.as_raw()) };
+    let fd = unsafe { libc::open(c_path.as_ptr(), flags.bits()) };
     if fd == -1 {
         return Err(from_last_errno());
     }
@@ -394,7 +372,7 @@ pub fn readdir(path: &Path) -> Result<Vec<(PathBuf, FileType)>, io::Error> {
 }
 
 /// Equivalent to the fuse function of the same name
-pub fn readdirplus(path: &Path) -> Result<Vec<(PathBuf, FileType, FileAttr)>, io::Error> {
+pub fn readdirplus(path: &Path) -> Result<Vec<(PathBuf, FileType, FileAttribute)>, io::Error> {
     let entries = fs::read_dir(path)?;
     let mut result = Vec::new();
     for entry in entries {
@@ -402,7 +380,7 @@ pub fn readdirplus(path: &Path) -> Result<Vec<(PathBuf, FileType, FileAttr)>, io
         result.push((
             PathBuf::from(entry.file_name()),
             convert_filetype(entry.file_type()?),
-            convert_fileattr(entry.metadata()?),
+            convert_fileattribute(entry.metadata()?),
         ))
     }
     Ok(result)
@@ -504,7 +482,7 @@ pub fn listxattr(path: &Path, size: u32) -> Result<Vec<u8>, io::Error> {
 /// Equivalent to the fuse function of the same name
 pub fn access(path: &Path, mask: AccessMask) -> Result<(), io::Error> {
     let c_path = cstring_from_path(path)?;
-    let ret = unsafe { libc::access(c_path.as_ptr(), mask.as_raw()) };
+    let ret = unsafe { libc::access(c_path.as_ptr(), mask.bits()) };
     if ret == -1 {
         return Err(from_last_errno());
     }
@@ -514,11 +492,7 @@ pub fn access(path: &Path, mask: AccessMask) -> Result<(), io::Error> {
 /// Equivalent to the fuse function of the same name
 /// The doc of `open` apply
 /// Return a file handle with write flag. Return an error if file already exists
-pub fn create(
-    path: &Path,
-    mode: u32,
-    custom_inode: Option<u64>,
-) -> Result<(FileDescriptor, AttributeResponse), io::Error> {
+pub fn create(path: &Path, mode: u32) -> Result<(FileDescriptor, FileAttribute), io::Error> {
     let c_path = cstring_from_path(path)?;
 
     // Open the file with O_CREAT (create if it does not exist) and O_WRONLY (write only)
@@ -534,7 +508,7 @@ pub fn create(
         return Err(from_last_errno());
     }
 
-    Ok((fd.into(), lookup(path, custom_inode)?))
+    Ok((fd.into(), lookup(path)?))
 }
 
 /// Equivalent to the fuse function of the same name
@@ -602,11 +576,11 @@ mod tests {
     }
 
     #[test]
-    fn test_convert_fileattr() {
+    fn test_convert_fileattribute() {
         let tmpfile = NamedTempFile::new().unwrap();
         fs::write(&tmpfile.path(), "blah").unwrap();
         let metadata = fs::metadata(&tmpfile.path()).unwrap();
-        let attr = convert_fileattr(metadata);
+        let attr = convert_fileattribute(metadata);
 
         assert!(attr.size > 0);
         drop(tmpfile);
@@ -633,11 +607,11 @@ mod tests {
     fn test_get_attr() {
         let tmpfile = NamedTempFile::new().unwrap();
         fs::write(&tmpfile.path(), "blah").unwrap();
-        let attr1 = lookup(&tmpfile.path(), None).unwrap();
+        let attr1 = lookup(&tmpfile.path()).unwrap();
         let fd = open(&tmpfile.path(), OpenFlags::READ_ONLY).unwrap();
-        let attr2 = getattr(&fd, None).unwrap();
+        let attr2 = getattr(&fd).unwrap();
         let _ = release(fd);
-        assert!(attr1.file_attr.size > 0);
+        assert!(attr1.size > 0);
         assert_eq!(attr1, attr2);
         drop(tmpfile);
     }
@@ -650,7 +624,7 @@ mod tests {
         let _ = File::create_new(&target_path).unwrap();
 
         let symlink_path = tmpdir.path().join("symlink");
-        symlink(&symlink_path, &target_path, None).unwrap();
+        symlink(&symlink_path, &target_path).unwrap();
 
         let link_target = readlink(&symlink_path).unwrap();
         fs::remove_file(&target_path).unwrap();
@@ -664,7 +638,7 @@ mod tests {
     fn test_mkdir_and_rmdir() {
         let tmpdir = TempDir::new().unwrap();
         let dir_path = tmpdir.path().join("dir");
-        mkdir(&dir_path, 0o755, None).unwrap();
+        mkdir(&dir_path, 0o755).unwrap();
         assert!(dir_path.exists());
 
         rmdir(&dir_path).unwrap();
@@ -680,13 +654,13 @@ mod tests {
         let _ = File::create_new(&target_path).unwrap();
 
         let symlink_path = tmpdir.path().join("symlink");
-        let attr = symlink(&symlink_path, &target_path, None).unwrap();
+        let attr = symlink(&symlink_path, &target_path).unwrap();
 
         fs::remove_file(&target_path).unwrap();
         fs::remove_file(&symlink_path).unwrap();
         drop(tmpdir);
 
-        assert_eq!(attr.file_attr.kind, FileType::Symlink);
+        assert_eq!(attr.kind, FileType::Symlink);
     }
 
     #[test]
@@ -708,7 +682,7 @@ mod tests {
         File::create(&src_path).unwrap();
         let dest_path = tmpdir.path().join("dest");
 
-        rename(&src_path, &dest_path, RenameFlags::new()).unwrap();
+        rename(&src_path, &dest_path, RenameFlags::empty()).unwrap();
         assert!(!src_path.exists());
         assert!(dest_path.exists());
 
@@ -719,7 +693,7 @@ mod tests {
     fn test_open() {
         let tmpfile = NamedTempFile::new().unwrap();
 
-        let fd = open(&tmpfile.path(), OpenFlags::new()).unwrap();
+        let fd = open(&tmpfile.path(), OpenFlags::empty()).unwrap();
         assert!(i32::from(fd.clone()) > 0);
         let _ = release(fd);
         drop(tmpfile);

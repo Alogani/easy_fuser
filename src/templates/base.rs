@@ -1,9 +1,11 @@
-use std::{ffi::OsStr, io, path::Path, time::Duration};
+use std::{ffi::OsStr, path::Path, time::Duration};
 
 use fuser::KernelConfig;
 use log::{debug, warn};
 
-use crate::{fuse_api::ReplyCb, types::*, FuseAPI};
+use crate::types::*;
+use crate::wrapper::IdType;
+use crate::FuseAPI;
 
 /// Default skeleton, see templates to have ready to use fuse filesystem
 ///
@@ -14,526 +16,484 @@ use crate::{fuse_api::ReplyCb, types::*, FuseAPI};
 /// - `fsyncdir` -> returns just an Ok response
 /// - `statsfs` -> return the value of StatFs::default
 
-pub struct BaseFuse {}
 
-impl BaseFuse {
-    pub fn new() -> Self {
-        BaseFuse { }
+pub struct BaseFuse;
+
+impl<T: IdType> FuseAPI<T> for BaseFuse
+{
+    #[allow(refining_impl_trait)]
+    fn get_inner(&self) -> &BaseFuse {
+        panic!("BaseFuse doesn't have inner API")
     }
-}
-
-impl FuseAPI for BaseFuse {
-    #[allow(refining_impl_trait_reachable)]
-    fn get_sublayer(&self) -> &BaseFuse {
-        panic!("Base layer does not have a sublayer");
-    }
-
-    /// Function to get a default TTL of 1 second, that should be ok
-    fn get_default_ttl(&self) -> Duration {
+    
+    fn get_default_ttl() -> Duration {
         Duration::from_secs(1)
     }
 
-    fn init(&self, _req: RequestInfo, _config: &mut KernelConfig) -> Result<(), io::Error> {
+    fn init(&self, _req: RequestInfo, _config: &mut KernelConfig) -> FuseResult<()> {
         Ok(())
     }
 
-    fn lookup(
-        &self,
-        _req: RequestInfo,
-        parent_ino: u64,
-        name: &OsStr,
-        callback: ReplyCb<AttributeResponse>,
-    ) {
+    fn lookup(&self, _req: RequestInfo, parent: T, name: &OsStr)
+        -> FuseResult<FileAttribute> {
         warn!(
-            "[Not Implemented] lookup(parent_ino: {:#x?}, name {:?})",
-            parent_ino, name
+            "[Not Implemented] lookup(parent_file: {:?}, name {:?})",
+            parent, name
         );
-        callback(Err(PosixError::FUNCTION_NOT_IMPLEMENTED.into()));
+        Err(PosixError::FUNCTION_NOT_IMPLEMENTED.into())
     }
 
-    fn forget(&self, _req: RequestInfo, _ino: u64, _nlookup: u64) {}
+    fn forget(&self, _req: RequestInfo, _file: T, _nlookup: u64) {}
 
     fn getattr(
         &self,
         _req: RequestInfo,
-        ino: u64,
+        file: T,
         file_handle: Option<FileHandle>,
-        callback: ReplyCb<AttributeResponse>,
-    ) {
+    ) -> FuseResult<FileAttribute> {
         warn!(
-            "[Not Implemented] getattr(ino: {:#x?}, file_handle {:?})",
-            ino, file_handle
+            "[Not Implemented] getattr(file: {:?}, file_handle {:?})",
+            file, file_handle
         );
-        callback(Err(PosixError::FUNCTION_NOT_IMPLEMENTED.into()));
+        Err(PosixError::FUNCTION_NOT_IMPLEMENTED.into())
     }
 
     fn setattr(
         &self,
         _req: RequestInfo,
-        ino: u64,
+        file: T,
         attrs: SetAttrRequest,
-        callback: ReplyCb<AttributeResponse>,
-    ) {
+    ) -> FuseResult<FileAttribute> {
         debug!(
-            "[Not Implemented] setattr(ino: {:#x?}, req: {:?}, attrs: {:?}",
-            ino, _req, attrs
+            "[Not Implemented] setattr(file: {:?}, _req: {:?}, attrs: {:?}",
+            file, _req, attrs
         );
-        callback(Err(PosixError::FUNCTION_NOT_IMPLEMENTED.into()));
+        Err(PosixError::FUNCTION_NOT_IMPLEMENTED.into())
     }
 
-    fn readlink(
-        &self,
-        _req: RequestInfo,
-        ino: u64,
-        callback: Box<dyn FnOnce(Result<Vec<u8>, io::Error>) + Send>,
-    ) {
-        debug!("[Not Implemented] readlink(ino: {:#x?})", ino);
-        callback(Err(PosixError::FUNCTION_NOT_IMPLEMENTED.into()));
+    fn readlink(&self, _req: RequestInfo, file: T) -> FuseResult<Vec<u8>> {
+        debug!("[Not Implemented] readlink(file: {:?})", file);
+        Err(PosixError::FUNCTION_NOT_IMPLEMENTED.into())
     }
 
     fn mknod(
         &self,
         _req: RequestInfo,
-        parent: u64,
+        parent: T,
         name: &OsStr,
         mode: u32,
         umask: u32,
         rdev: DeviceType,
-        callback: ReplyCb<AttributeResponse>,
-    ) {
+    ) -> FuseResult<FileAttribute> {
         debug!(
-            "[Not Implemented] mknod(parent: {:#x?}, name: {:?}, mode: {}, \
-            umask: {:#x?}, rdev: {:?})",
+            "[Not Implemented] mknod(parent: {:?}, name: {:?}, mode: {}, \
+            umask: {:?}, rdev: {:?})",
             parent, name, mode, umask, rdev
         );
-        callback(Err(PosixError::FUNCTION_NOT_IMPLEMENTED.into()));
+        Err(PosixError::FUNCTION_NOT_IMPLEMENTED.into())
     }
 
     fn mkdir(
         &self,
         _req: RequestInfo,
-        parent: u64,
+        parent: T,
         name: &OsStr,
         mode: u32,
         umask: u32,
-        callback: ReplyCb<AttributeResponse>,
-    ) {
+    ) -> FuseResult<FileAttribute> {
         debug!(
-            "[Not Implemented] mkdir(parent: {:#x?}, name: {:?}, mode: {}, umask: {:#x?})",
+            "[Not Implemented] mkdir(parent: {:?}, name: {:?}, mode: {}, umask: {:?})",
             parent, name, mode, umask
         );
-        callback(Err(PosixError::FUNCTION_NOT_IMPLEMENTED.into()));
+        Err(PosixError::FUNCTION_NOT_IMPLEMENTED.into())
     }
 
-    fn unlink(&self, _req: RequestInfo, parent: u64, name: &OsStr, callback: ReplyCb<()>) {
+    fn unlink(&self, _req: RequestInfo, parent: T, name: &OsStr) -> FuseResult<()> {
         debug!(
-            "[Not Implemented] unlink(parent: {:#x?}, name: {:?})",
+            "[Not Implemented] unlink(parent: {:?}, name: {:?})",
             parent, name,
         );
-        callback(Err(PosixError::FUNCTION_NOT_IMPLEMENTED.into()));
+        Err(PosixError::FUNCTION_NOT_IMPLEMENTED.into())
     }
 
-    fn rmdir(&self, _req: RequestInfo, parent: u64, name: &OsStr, callback: ReplyCb<()>) {
+    fn rmdir(&self, _req: RequestInfo, parent: T, name: &OsStr) -> FuseResult<()> {
         debug!(
-            "[Not Implemented] rmdir(parent: {:#x?}, name: {:?})",
+            "[Not Implemented] rmdir(parent: {:?}, name: {:?})",
             parent, name,
         );
-        callback(Err(PosixError::FUNCTION_NOT_IMPLEMENTED.into()));
+        Err(PosixError::FUNCTION_NOT_IMPLEMENTED.into())
     }
 
     fn symlink(
         &self,
         _req: RequestInfo,
-        parent: u64,
+        parent: T,
         link_name: &OsStr,
         target: &Path,
-        callback: ReplyCb<AttributeResponse>,
-    ) {
+    ) -> FuseResult<FileAttribute> {
         debug!(
-            "[Not Implemented] symlink(parent: {:#x?}, link_name: {:?}, target: {:?})",
+            "[Not Implemented] symlink(parent: {:?}, link_name: {:?}, target: {:?})",
             parent, link_name, target,
         );
-        callback(Err(PosixError::FUNCTION_NOT_IMPLEMENTED.into()));
+        Err(PosixError::FUNCTION_NOT_IMPLEMENTED.into())
     }
 
     fn rename(
         &self,
         _req: RequestInfo,
-        parent: u64,
+        parent: T,
         name: &OsStr,
-        newparent: u64,
+        newparent: T,
         newname: &OsStr,
         flags: RenameFlags,
-        callback: ReplyCb<()>,
-    ) {
+    ) -> FuseResult<()> {
         debug!(
-            "[Not Implemented] rename(parent: {:#x?}, name: {:?}, newparent: {:#x?}, \
+            "[Not Implemented] rename(parent: {:?}, name: {:?}, newparent: {:?}, \
             newname: {:?}, flags: {:?})",
             parent, name, newparent, newname, flags,
         );
-        callback(Err(PosixError::FUNCTION_NOT_IMPLEMENTED.into()));
+        Err(PosixError::FUNCTION_NOT_IMPLEMENTED.into())
     }
 
     fn link(
         &self,
         _req: RequestInfo,
-        ino: u64,
-        newparent: u64,
+        file: T,
+        newparent: T,
         newname: &OsStr,
-        callback: ReplyCb<AttributeResponse>,
-    ) {
+    ) -> FuseResult<FileAttribute> {
         debug!(
-            "[Not Implemented] link(ino: {:#x?}, newparent: {:#x?}, newname: {:?})",
-            ino, newparent, newname
+            "[Not Implemented] link(file: {:?}, newparent: {:?}, newname: {:?})",
+            file, newparent, newname
         );
-        callback(Err(PosixError::FUNCTION_NOT_IMPLEMENTED.into()));
+        Err(PosixError::FUNCTION_NOT_IMPLEMENTED.into())
     }
 
     fn open(
         &self,
         _req: RequestInfo,
-        _ino: u64,
-        _flags: OpenFlags,
-        callback: ReplyCb<(FileHandle, FUSEOpenResponseFlags)>,
-    ) {
+        file: T,
+        flags: OpenFlags,
+    ) -> FuseResult<(FileHandle, FUSEOpenResponseFlags)> {
         debug!(
-            "[Not Implemented] open(ino: {:#x?}, flags: {:?})",
-            _ino, _flags
+            "[Not Implemented] open(file: {:?}, flags: {:?})",
+            file, flags
         );
-        callback(Err(PosixError::FUNCTION_NOT_IMPLEMENTED.into()));
+        Err(PosixError::FUNCTION_NOT_IMPLEMENTED.into())
     }
 
     fn read(
         &self,
         _req: RequestInfo,
-        ino: u64,
+        file: T,
         file_handle: FileHandle,
         offset: i64,
         size: u32,
         flags: FUSEReadFlags,
         lock_owner: Option<u64>,
-        callback: ReplyCb<Vec<u8>>,
-    ) {
+    ) -> FuseResult<Vec<u8>> {
         debug!(
-            "[Not Implemented] read(ino: {:#x}, file_handle: {:?}, offset: {}, size: {}, flags: {:?}, lock_owner: {:?})",
-            ino, file_handle, offset, size, flags, lock_owner
+            "[Not Implemented] read(file: {:?}, file_handle: {:?}, offset: {}, size: {}, flags: {:?}, lock_owner: {:?})",
+            file, file_handle, offset, size, flags, lock_owner
         );
-        callback(Err(PosixError::FUNCTION_NOT_IMPLEMENTED.into()));
+        Err(PosixError::FUNCTION_NOT_IMPLEMENTED.into())
     }
 
     fn write(
         &self,
         _req: RequestInfo,
-        ino: u64,
+        file: T,
         file_handle: FileHandle,
         offset: i64,
         data: &[u8],
         write_flags: FUSEWriteFlags,
         flags: OpenFlags,
         lock_owner: Option<u64>,
-        callback: ReplyCb<u32>,
-    ) {
+    ) -> FuseResult<u32> {
         debug!(
-            "[Not Implemented] write(ino: {:#x}, file_handle: {:?}, offset: {}, data_len: {}, write_flags: {:?}, flags: {:?}, lock_owner: {:?})",
-            ino, file_handle, offset, data.len(), write_flags, flags, lock_owner
+            "[Not Implemented] write(file: {:?}, file_handle: {:?}, offset: {}, data_len: {}, write_flags: {:?}, flags: {:?}, lock_owner: {:?})",
+            file, file_handle, offset, data.len(), write_flags, flags, lock_owner
         );
-        callback(Err(PosixError::FUNCTION_NOT_IMPLEMENTED.into()));
+        Err(PosixError::FUNCTION_NOT_IMPLEMENTED.into())
     }
 
     fn flush(
         &self,
         _req: RequestInfo,
-        ino: u64,
+        file: T,
         file_handle: FileHandle,
         lock_owner: u64,
-        callback: ReplyCb<()>,
-    ) {
+    ) -> FuseResult<()> {
         debug!(
-            "[Not Implemented] flush(ino: {:#x}, file_handle: {:?}, lock_owner: {})",
-            ino, file_handle, lock_owner
+            "[Not Implemented] flush(file: {:?}, file_handle: {:?}, lock_owner: {})",
+            file, file_handle, lock_owner
         );
-        callback(Err(PosixError::FUNCTION_NOT_IMPLEMENTED.into()));
+        Err(PosixError::FUNCTION_NOT_IMPLEMENTED.into())
     }
 
     fn fsync(
         &self,
         _req: RequestInfo,
-        ino: u64,
+        file: T,
         file_handle: FileHandle,
         datasync: bool,
-        callback: ReplyCb<()>,
-    ) {
+    ) -> FuseResult<()> {
         debug!(
-            "[Not Implemented] fsync(ino: {:#x}, file_handle: {:?}, datasync: {})",
-            ino, file_handle, datasync
+            "[Not Implemented] fsync(file: {:?}, file_handle: {:?}, datasync: {})",
+            file, file_handle, datasync
         );
-        callback(Err(PosixError::FUNCTION_NOT_IMPLEMENTED.into()));
+        Err(PosixError::FUNCTION_NOT_IMPLEMENTED.into())
     }
 
     fn opendir(
         &self,
         _req: RequestInfo,
-        _ino: u64,
+        _file: T,
         _flags: OpenFlags,
-        callback: ReplyCb<(FileHandle, FUSEOpenResponseFlags)>,
-    ) {
-        callback(Ok((FileHandle::from(0), FUSEOpenResponseFlags::new())));
+    ) -> FuseResult<(FileHandle, FUSEOpenResponseFlags)> {
+        Ok((FileHandle::from(0), FUSEOpenResponseFlags::empty()))
     }
 
     fn readdir(
         &self,
         _req: RequestInfo,
-        ino: u64,
+        file: T,
         file_handle: FileHandle,
-        callback: ReplyCb<Vec<FuseDirEntry>>,
-    ) {
+    ) -> FuseResult<Vec<FuseDirEntry>>{
         warn!(
-            "[Not Implemented] readdir(ino: {:#x?}, fh: {:?})",
-            ino, file_handle
+            "[Not Implemented] readdir(file: {:?}, fh: {:?})",
+            file, file_handle
         );
-        callback(Err(PosixError::FUNCTION_NOT_IMPLEMENTED.into()));
+        Err(PosixError::FUNCTION_NOT_IMPLEMENTED.into())
     }
 
     fn readdirplus(
         &self,
         _req: RequestInfo,
-        ino: u64,
+        file: T,
         file_handle: FileHandle,
-        callback: ReplyCb<Vec<FuseDirEntryPlus>>,
-    ) {
+    ) -> FuseResult<Vec<FuseDirEntryPlus>> {
         warn!(
-            "[Not Implemented] readdirplus(ino: {:#x?}, fh: {:?})",
-            ino, file_handle
+            "[Not Implemented] readdirplus(file: {:?}, fh: {:?})",
+            file, file_handle
         );
-        callback(Err(PosixError::FUNCTION_NOT_IMPLEMENTED.into()));
+        Err(PosixError::FUNCTION_NOT_IMPLEMENTED.into())
     }
 
     fn releasedir(
         &self,
         _req: RequestInfo,
-        _ino: u64,
+        _file: T,
         _file_handle: FileHandle,
         _flags: OpenFlags,
-        callback: ReplyCb<()>,
-    ) {
-        callback(Ok(()))
+    ) -> FuseResult<()> {
+        Ok(())
     }
 
     fn fsyncdir(
         &self,
         _req: RequestInfo,
-        _ino: u64,
+        _file: T,
         _file_handle: FileHandle,
         _datasync: bool,
-        callback: ReplyCb<()>,
-    ) {
-        callback(Ok(()))
+    ) -> FuseResult<()> {
+        Ok(())
     }
 
     fn release(
         &self,
         _req: RequestInfo,
-        _ino: u64,
-        _file_handle: FileHandle,
-        _flags: OpenFlags,
-        _lock_owner: Option<u64>,
-        _flush: bool,
-        callback: ReplyCb<()>,
-    ) {
+        file: T,
+        file_handle: FileHandle,
+        flags: OpenFlags,
+        lock_owner: Option<u64>,
+        flush: bool,
+    ) -> FuseResult<()> {
         debug!(
-            "[Not Implemented] release(ino: {:#x}, file_handle: {:?}, flags: {:?}, lock_owner: {:?}, flush: {:?})",
-            _ino, _file_handle, _flags, _lock_owner, _flush
+            "[Not Implemented] release(file: {:?}, file_handle: {:?}, flags: {:?}, lock_owner: {:?}, flush: {:?})",
+            file, file_handle, flags, lock_owner, flush
         );
-        callback(Err(PosixError::FUNCTION_NOT_IMPLEMENTED.into()));
+        Err(PosixError::FUNCTION_NOT_IMPLEMENTED.into())
     }
 
-    fn statfs(&self, _req: RequestInfo, _ino: u64, callback: ReplyCb<StatFs>) {
-        callback(Ok(StatFs::default()));
+    fn statfs(&self, _req: RequestInfo, _file: T) -> FuseResult<StatFs> {
+        Ok(StatFs::default())
     }
 
     fn setxattr(
         &self,
         _req: RequestInfo,
-        ino: u64,
+        file: T,
         name: &OsStr,
         _value: &[u8],
         flags: FUSESetXAttrFlags,
         position: u32,
-        callback: ReplyCb<()>,
-    ) {
+    ) -> FuseResult<()> {
         debug!(
-            "[Not Implemented] setxattr(ino: {:#x?}, name: {:?}, flags: {:#x?}, position: {})",
-            ino, name, flags, position
+            "[Not Implemented] setxattr(file: {:?}, name: {:?}, flags: {:?}, position: {})",
+            file, name, flags, position
         );
-        callback(Err(PosixError::FUNCTION_NOT_IMPLEMENTED.into()));
+        Err(PosixError::FUNCTION_NOT_IMPLEMENTED.into())
     }
 
     fn getxattr(
         &self,
         _req: RequestInfo,
-        ino: u64,
+        file: T,
         name: &OsStr,
         size: u32,
-        callback: ReplyCb<Vec<u8>>,
-    ) {
+    ) -> FuseResult<Vec<u8>> {
         debug!(
-            "[Not Implemented] getxattr(ino: {:#x?}, name: {:?}, size: {})",
-            ino, name, size
+            "[Not Implemented] getxattr(file: {:?}, name: {:?}, size: {})",
+            file, name, size
         );
-        callback(Err(PosixError::FUNCTION_NOT_IMPLEMENTED.into()));
+        Err(PosixError::FUNCTION_NOT_IMPLEMENTED.into())
     }
 
-    fn listxattr(&self, _req: RequestInfo, ino: u64, size: u32, callback: ReplyCb<Vec<u8>>) {
+    fn listxattr(&self, _req: RequestInfo, file: T, size: u32) -> FuseResult<Vec<u8>> {
         debug!(
-            "[Not Implemented] listxattr(ino: {:#x?}, size: {})",
-            ino, size
+            "[Not Implemented] listxattr(file: {:?}, size: {})",
+            file, size
         );
-        callback(Err(PosixError::FUNCTION_NOT_IMPLEMENTED.into()));
+        Err(PosixError::FUNCTION_NOT_IMPLEMENTED.into())
     }
 
-    fn removexattr(&self, _req: RequestInfo, ino: u64, name: &OsStr, callback: ReplyCb<()>) {
+    fn removexattr(&self, _req: RequestInfo, file: T, name: &OsStr) -> FuseResult<()> {
         debug!(
-            "[Not Implemented] removexattr(ino: {:#x?}, name: {:?})",
-            ino, name
+            "[Not Implemented] removexattr(file: {:?}, name: {:?})",
+            file, name
         );
-        callback(Err(PosixError::FUNCTION_NOT_IMPLEMENTED.into()));
+        Err(PosixError::FUNCTION_NOT_IMPLEMENTED.into())
     }
 
-    fn access(&self, _req: RequestInfo, ino: u64, mask: AccessMask, callback: ReplyCb<()>) {
+    fn access(&self, _req: RequestInfo, file: T, mask: AccessMask) -> FuseResult<()> {
         debug!(
-            "[Not Implemented] access(ino: {:#x?}, mask: {:?})",
-            ino, mask
+            "[Not Implemented] access(file: {:?}, mask: {:?})",
+            file, mask
         );
-        callback(Err(PosixError::FUNCTION_NOT_IMPLEMENTED.into()));
+        Err(PosixError::FUNCTION_NOT_IMPLEMENTED.into())
     }
 
     fn getlk(
         &self,
         _req: RequestInfo,
-        ino: u64,
+        file: T,
         file_handle: FileHandle,
         lock_owner: u64,
         lock_info: LockInfo,
-        callback: ReplyCb<LockInfo>,
-    ) {
+    ) -> FuseResult<LockInfo> {
         debug!(
-            "[Not Implemented] getlk(ino: {:#x?}, fh: {:#x?}, lock_owner, {:?}, lock_info: {:?})",
-            ino, file_handle, lock_owner, lock_info
+            "[Not Implemented] getlk(file: {:?}, fh: {:?}, lock_owner, {:?}, lock_info: {:?})",
+            file, file_handle, lock_owner, lock_info
         );
-        callback(Err(PosixError::FUNCTION_NOT_IMPLEMENTED.into()));
+        Err(PosixError::FUNCTION_NOT_IMPLEMENTED.into())
     }
 
     fn setlk(
         &self,
         _req: RequestInfo,
-        ino: u64,
+        file: T,
         file_handle: FileHandle,
         lock_owner: u64,
         lock_info: LockInfo,
         sleep: bool,
-        callback: ReplyCb<()>,
-    ) {
+    ) -> FuseResult<()> {
         debug!(
-            "[Not Implemented] setlk(ino: {:#x?}, fh: {:#x?}, lock_owner, {:?}, lock_info: {:?}, sleep: {:#x?})",
-            ino, file_handle, lock_owner, lock_info, sleep
+            "[Not Implemented] setlk(file: {:?}, fh: {:?}, lock_owner, {:?}, lock_info: {:?}, sleep: {:?})",
+            file, file_handle, lock_owner, lock_info, sleep
         );
-        callback(Err(PosixError::FUNCTION_NOT_IMPLEMENTED.into()));
+        Err(PosixError::FUNCTION_NOT_IMPLEMENTED.into())
     }
 
-    fn bmap(&self, _req: RequestInfo, ino: u64, blocksize: u32, idx: u64, callback: ReplyCb<u64>) {
+    fn bmap(&self, _req: RequestInfo, file: T, blocksize: u32, idx: u64) -> FuseResult<u64> {
         debug!(
-            "[Not Implemented] bmap(ino: {:#x?}, blocksize: {:#x?}, idx: {:#x?})",
-            ino, blocksize, idx
+            "[Not Implemented] bmap(file: {:?}, blocksize: {:?}, idx: {:?})",
+            file, blocksize, idx
         );
-        callback(Err(PosixError::FUNCTION_NOT_IMPLEMENTED.into()));
+        Err(PosixError::FUNCTION_NOT_IMPLEMENTED.into())
     }
 
     fn ioctl(
         &self,
         _req: RequestInfo,
-        ino: u64,
+        file: T,
         file_handle: FileHandle,
         flags: IOCtlFlags,
         cmd: u32,
         in_data: &[u8],
         out_size: u32,
-        callback: ReplyCb<(i32, Vec<u8>)>,
-    ) {
+    ) -> FuseResult<(i32, Vec<u8>)> {
         debug!(
-            "[Not Implemented] ioctl(ino: {:#x?}, fh: {:#x?}, flags: {:#x?}, cmd: {:#x?}, in_data: {:?}, out_size: {:#x?})",
-            ino, file_handle, flags, cmd, in_data, out_size
+            "[Not Implemented] ioctl(file: {:?}, fh: {:?}, flags: {:?}, cmd: {:?}, in_data: {:?}, out_size: {:?})",
+            file, file_handle, flags, cmd, in_data, out_size
         );
-        callback(Err(PosixError::FUNCTION_NOT_IMPLEMENTED.into()));
+        Err(PosixError::FUNCTION_NOT_IMPLEMENTED.into())
     }
 
     fn create(
         &self,
         _req: RequestInfo,
-        parent: u64,
+        parent: T,
         name: &OsStr,
         mode: u32,
         umask: u32,
         flags: OpenFlags,
-        callback: ReplyCb<(FileHandle, AttributeResponse, FUSEOpenResponseFlags)>,
-    ) {
+    ) -> FuseResult<(FileHandle, FileAttribute, FUSEOpenResponseFlags)> {
         debug!(
-            "[Not Implemented] create(parent: {:#x?}, name: {:?}, mode: {}, umask: {:#x?}, \
-            flags: {:#x?})",
+            "[Not Implemented] create(parent: {:?}, name: {:?}, mode: {}, umask: {:?}, \
+            flags: {:?})",
             parent, name, mode, umask, flags
         );
-        callback(Err(PosixError::FUNCTION_NOT_IMPLEMENTED.into()));
+        Err(PosixError::FUNCTION_NOT_IMPLEMENTED.into())
     }
 
     fn fallocate(
         &self,
         _req: RequestInfo,
-        ino: u64,
-        _file_handle: FileHandle,
+        file: T,
+        file_handle: FileHandle,
         offset: i64,
         length: i64,
         mode: i32,
-        callback: ReplyCb<()>,
-    ) {
+    ) -> FuseResult<()> {
         debug!(
-            "[Not Implemented] fallocate(ino: {:#x}, offset: {}, length: {}, mode: {})",
-            ino, offset, length, mode
+            "[Not Implemented] fallocate(file: {:?}, file_handle: {:?} offset: {}, length: {}, mode: {})",
+            file, file_handle, offset, length, mode
         );
-        callback(Err(PosixError::FUNCTION_NOT_IMPLEMENTED.into()));
+        Err(PosixError::FUNCTION_NOT_IMPLEMENTED.into())
     }
 
     fn lseek(
         &self,
         _req: RequestInfo,
-        ino: u64,
+        file: T,
         file_handle: FileHandle,
         offset: i64,
         whence: Whence,
-        callback: ReplyCb<i64>,
-    ) {
+    ) -> FuseResult<i64> {
         debug!(
-            "[Not Implemented] lseek(ino: {:#x}, file_handle: {:?}, offset: {}, whence: {:?})",
-            ino, file_handle, offset, whence
+            "[Not Implemented] lseek(file: {:?}, file_handle: {:?}, offset: {}, whence: {:?})",
+            file, file_handle, offset, whence
         );
-        callback(Err(PosixError::FUNCTION_NOT_IMPLEMENTED.into()));
+        Err(PosixError::FUNCTION_NOT_IMPLEMENTED.into())
     }
 
     fn copy_file_range(
         &self,
         _req: RequestInfo,
-        ino_in: u64,
+        file_in: T,
         file_handle_in: FileHandle,
         offset_in: i64,
-        ino_out: u64,
+        file_out: T,
         file_handle_out: FileHandle,
         offset_out: i64,
         len: u64,
-        _flags: u32, // Not implemented yet in standard
-        callback: ReplyCb<u32>,
-    ) {
+        flags: u32, // Not implemented yet in standard
+    ) -> FuseResult<u32> {
         debug!(
-            "[Not Implemented] copy_file_range(ino_in: {:#x}, file_handle_in: {:?}, offset_in: {}, ino_out: {:#x}, file_handle_out: {:?}, offset_out: {}, len: {}, flags: {})",
-            ino_in, file_handle_in, offset_in, ino_out, file_handle_out, offset_out, len, _flags
+            "[Not Implemented] copy_file_range(file_in: {:?}, file_handle_in: {:?}, offset_in: {}, file_out: {:?}, file_handle_out: {:?}, offset_out: {}, len: {}, flags: {})",
+            file_in, file_handle_in, offset_in, file_out, file_handle_out, offset_out, len, flags
         );
-        callback(Err(PosixError::FUNCTION_NOT_IMPLEMENTED.into()));
+        Err(PosixError::FUNCTION_NOT_IMPLEMENTED.into())
     }
 }

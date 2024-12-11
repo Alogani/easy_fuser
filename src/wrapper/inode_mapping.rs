@@ -1,3 +1,4 @@
+use core::fmt;
 use std::{
     collections::HashMap,
     ffi::{OsStr, OsString},
@@ -8,7 +9,10 @@ use crate::types::*;
 
 pub const ROOT_INODE: u64 = 1;
 
-pub trait IdType: Send {}
+/// IdType can have two values:
+/// - Inode: in which case the user shall provide its own unique inode (at least a valid one)
+/// - PathBuf: in which the inode to path mapping will be done and cached automatically
+pub trait IdType: Send + fmt::Debug {}
 
 impl IdType for Inode {}
 impl IdType for PathBuf {}
@@ -35,7 +39,11 @@ impl IdConverter for InoToInode {
     }
 
     // Do nothing, user should provide its own inode
-    fn map_inode(&mut self, _ino: u64, _child: Option<&OsStr>, _new_inode: &mut Inode) {}
+    fn map_inode(&mut self, _ino: u64, _child: Option<&OsStr>, new_inode: &mut Inode) {
+        if *new_inode == INVALID_INODE {
+            panic!("Provided inode should be valid (non zero)")
+        }
+    }
     fn rename(&mut self, _parent: u64, _name: &OsStr, _newparent: u64, _newname: OsString) {}
     fn remove(&mut self, _parent: u64, _name: &OsStr) {}
 }

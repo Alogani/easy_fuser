@@ -1,8 +1,8 @@
-use crate::types::*;
 use crate::*;
+use crate::types::*;
 
-use fuse_api::ReplyCb;
 use templates::BaseFuse;
+use wrapper::IdType;
 
 
 /// Implement all functions that rely on file handle to be done by assuming a file handle represents a file descriptor on the filesystem.
@@ -11,173 +11,158 @@ use templates::BaseFuse;
 /// - `open`
 /// - `create`
 
+
 pub struct FileDescriptorBridge {
-    sublayer: BaseFuse
+    inner: BaseFuse
 }
 
 impl FileDescriptorBridge {
     pub fn new() -> Self {
-        Self { sublayer: BaseFuse::new() }
+        Self { inner: BaseFuse{} }
     }
 }
 
-impl FuseAPI for FileDescriptorBridge {
-    fn get_sublayer(&self) -> &impl FuseAPI {
-        &self.sublayer
+impl<T: IdType> FuseAPI<T> for FileDescriptorBridge {
+    fn get_inner(&self) -> &impl FuseAPI<T> {
+        &self.inner
     }
 
     fn getattr(
         &self,
-        _req: RequestInfo,
-        ino: u64,
+        req: RequestInfo,
+        file: T,
         file_handle: Option<FileHandle>,
-        callback: ReplyCb<AttributeResponse>,
-    ) {
+    ) -> FuseResult<FileAttribute> {
         let fh = file_handle.expect("getattr requires a file_handle");
         match FileDescriptor::try_from(fh) {
-            Ok(fd) => callback(posix_fs::getattr(&fd, Some(ino))),
-            Err(e) => callback(Err(e.into())),
+            Ok(fd) => posix_fs::getattr(&fd),
+            Err(e) => Err(e.into()),
         }
     }
 
     fn read(
         &self,
-        _req: RequestInfo,
-        ino: u64,
+        req: RequestInfo,
+        file: T,
         file_handle: FileHandle,
         offset: i64,
         size: u32,
         flags: FUSEReadFlags,
         lock_owner: Option<u64>,
-        callback: ReplyCb<Vec<u8>>,
-    ) {
-        #![allow(unused_variables)]
+    ) -> FuseResult<Vec<u8>> {
         match FileDescriptor::try_from(file_handle) {
-            Ok(fd) => callback(posix_fs::read(&fd, offset, size)),
-            Err(e) => callback(Err(e.into())),
+            Ok(fd) => posix_fs::read(&fd, offset, size),
+            Err(e) => Err(e.into()),
         }
     }
 
     fn write(
         &self,
-        _req: RequestInfo,
-        ino: u64,
+        req: RequestInfo,
+        file: T,
         file_handle: FileHandle,
         offset: i64,
         data: &[u8],
         write_flags: FUSEWriteFlags,
         flags: OpenFlags,
         lock_owner: Option<u64>,
-        callback: ReplyCb<u32>,
-    ) {
-        #![allow(unused_variables)]
+    ) -> FuseResult<u32> {
         match FileDescriptor::try_from(file_handle) {
-            Ok(fd) => callback(posix_fs::write(&fd, offset, data)),
-            Err(e) => callback(Err(e.into())),
+            Ok(fd) => posix_fs::write(&fd, offset, data),
+            Err(e) => Err(e.into()),
         }
     }
 
     fn flush(
         &self,
-        _req: RequestInfo,
-        ino: u64,
+        req: RequestInfo,
+        file: T,
         file_handle: FileHandle,
         lock_owner: u64,
-        callback: ReplyCb<()>,
-    ) {
-        #![allow(unused_variables)]
+    ) -> FuseResult<()> {
         match FileDescriptor::try_from(file_handle) {
-            Ok(fd) => callback(posix_fs::flush(&fd)),
-            Err(e) => callback(Err(e.into())),
+            Ok(fd) => posix_fs::flush(&fd),
+            Err(e) => Err(e.into()),
         }
     }
 
     fn fsync(
         &self,
-        _req: RequestInfo,
-        ino: u64,
+        req: RequestInfo,
+        file: T,
         file_handle: FileHandle,
         datasync: bool,
-        callback: ReplyCb<()>,
-    ) {
-        #![allow(unused_variables)]
+    ) -> FuseResult<()> {
         match FileDescriptor::try_from(file_handle) {
-            Ok(fd) => callback(posix_fs::fsync(&fd, datasync)),
-            Err(e) => callback(Err(e.into())),
+            Ok(fd) => posix_fs::fsync(&fd, datasync),
+            Err(e) => Err(e.into()),
         }
     }
 
     fn release(
         &self,
-        _req: RequestInfo,
-        _ino: u64,
-        _file_handle: FileHandle,
-        _flags: OpenFlags,
-        _lock_owner: Option<u64>,
-        _flush: bool,
-        callback: ReplyCb<()>,
-    ) {
-        match FileDescriptor::try_from(_file_handle) {
-            Ok(fd) => callback(posix_fs::release(fd)),
-            Err(e) => callback(Err(e.into())),
+        req: RequestInfo,
+        file: T,
+        file_handle: FileHandle,
+        flags: OpenFlags,
+        lock_owner: Option<u64>,
+        flush: bool,
+    ) -> FuseResult<()> {
+        match FileDescriptor::try_from(file_handle) {
+            Ok(fd) => posix_fs::release(fd),
+            Err(e) => Err(e.into()),
         }
     }
 
     fn fallocate(
         &self,
-        _req: RequestInfo,
-        ino: u64,
-        _file_handle: FileHandle,
+        req: RequestInfo,
+        file: T,
+        file_handle: FileHandle,
         offset: i64,
         length: i64,
         mode: i32,
-        callback: ReplyCb<()>,
-    ) {
-        #![allow(unused_variables)]
-        match FileDescriptor::try_from(_file_handle) {
-            Ok(fd) => callback(posix_fs::fallocate(&fd, offset, length, mode)),
-            Err(e) => callback(Err(e.into())),
+    ) -> FuseResult<()> {
+        match FileDescriptor::try_from(file_handle) {
+            Ok(fd) => posix_fs::fallocate(&fd, offset, length, mode),
+            Err(e) => Err(e.into()),
         }
     }
 
     fn lseek(
         &self,
         _req: RequestInfo,
-        ino: u64,
+        file: T,
         file_handle: FileHandle,
         offset: i64,
         whence: Whence,
-        callback: ReplyCb<i64>,
-    ) {
-        #![allow(unused_variables)]
+    ) -> FuseResult<i64> {
         match FileDescriptor::try_from(file_handle) {
-            Ok(fd) => callback(posix_fs::lseek(&fd, offset, whence)),
-            Err(e) => callback(Err(e.into())),
+            Ok(fd) => posix_fs::lseek(&fd, offset, whence),
+            Err(e) => Err(e.into()),
         }
     }
 
     fn copy_file_range(
         &self,
-        _req: RequestInfo,
-        ino_in: u64,
+        req: RequestInfo,
+        file_in: T,
         file_handle_in: FileHandle,
         offset_in: i64,
-        ino_out: u64,
+        file_out: T,
         file_handle_out: FileHandle,
         offset_out: i64,
         len: u64,
-        _flags: u32, // Not implemented yet in standard
-        callback: ReplyCb<u32>,
-    ) {
-        #![allow(unused_variables)]
+        flags: u32, // Not implemented yet in standard
+    ) -> FuseResult<u32> {
         match (
             FileDescriptor::try_from(file_handle_in),
             FileDescriptor::try_from(file_handle_out),
         ) {
-            (Ok(fd_in), Ok(fd_out)) => callback(posix_fs::copy_file_range(
+            (Ok(fd_in), Ok(fd_out)) => posix_fs::copy_file_range(
                 &fd_in, offset_in, &fd_out, offset_out, len,
-            )),
-            (Err(e), _) | (_, Err(e)) => callback(Err(e.into())),
+            ),
+            (Err(e), _) | (_, Err(e)) => Err(e.into()),
         }
     }
 }

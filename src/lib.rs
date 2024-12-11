@@ -1,5 +1,7 @@
 mod fuse_api;
-//pub mod posix_fs;
+pub use fuse_api::FuseAPI;
+
+pub mod posix_fs;
 pub mod templates;
 pub mod types;
 mod wrapper;

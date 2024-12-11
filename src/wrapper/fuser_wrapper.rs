@@ -382,7 +382,7 @@ where
             name,
             self.converter.lock().unwrap().to_id(newparent),
             newname,
-            RenameFlags::from(flags),
+            RenameFlags::from_bits_retain(flags),
             callback,
         );
     }
@@ -428,7 +428,7 @@ where
         let callback: ReplyCb<(FileHandle, FUSEOpenResponseFlags)> =
             Box::new(move |result| match result {
                 Ok((file_handle, response_flags)) => {
-                    reply.opened(file_handle.into(), response_flags.as_raw())
+                    reply.opened(file_handle.into(), response_flags.bits())
                 }
                 Err(e) => reply.error(e.raw_os_error().unwrap()),
             });
@@ -436,7 +436,7 @@ where
             &mut self.fuse_impl,
             req.into(),
             self.converter.lock().unwrap().to_id(ino),
-            OpenFlags::from(_flags),
+            OpenFlags::from_bits_retain(_flags),
             callback,
         );
     }
@@ -463,7 +463,7 @@ where
             fh.into(),
             offset,
             size,
-            FUSEReadFlags::from(flags),
+            FUSEReadFlags::from_bits_retain(flags),
             lock_owner,
             callback,
         )
@@ -492,8 +492,8 @@ where
             FileHandle::from(fh),
             offset,
             data,
-            FUSEWriteFlags::from(write_flags),
-            OpenFlags::from(flags),
+            FUSEWriteFlags::from_bits_retain(write_flags),
+            OpenFlags::from_bits_retain(flags),
             lock_owner,
             callback,
         );
@@ -533,7 +533,7 @@ where
         let callback: ReplyCb<(FileHandle, FUSEOpenResponseFlags)> =
             Box::new(move |result| match result {
                 Ok((file_handle, response_flags)) => {
-                    reply.opened(file_handle.into(), response_flags.as_raw())
+                    reply.opened(file_handle.into(), response_flags.bits())
                 }
                 Err(e) => reply.error(e.raw_os_error().unwrap()),
             });
@@ -541,7 +541,7 @@ where
             &mut self.fuse_impl,
             req.into(),
             self.converter.lock().unwrap().to_id(ino),
-            OpenFlags::from(_flags),
+            OpenFlags::from_bits_retain(_flags),
             callback,
         );
     }
@@ -612,8 +612,13 @@ where
             // Handle continuation from a previously saved iterator
             match self.dirmap_iter.lock().unwrap().remove(&ino) {
                 Some(entries) => {
-                    let callback =
-                        create_callback(reply, Arc::clone(&self.dirmap_iter), ino, offset, converter);
+                    let callback = create_callback(
+                        reply,
+                        Arc::clone(&self.dirmap_iter),
+                        ino,
+                        offset,
+                        converter,
+                    );
                     callback(Ok(entries));
                 }
                 None => {
@@ -737,7 +742,7 @@ where
             req.into(),
             self.converter.lock().unwrap().to_id(ino),
             FileHandle::from(_fh),
-            OpenFlags::from(_flags),
+            OpenFlags::from_bits_retain(_flags),
             callback,
         );
     }
@@ -776,7 +781,7 @@ where
             req.into(),
             self.converter.lock().unwrap().to_id(ino),
             _fh.into(),
-            OpenFlags::from(_flags),
+            OpenFlags::from_bits_retain(_flags),
             _lock_owner,
             _flush,
             callback,
@@ -827,7 +832,7 @@ where
             self.converter.lock().unwrap().to_id(ino),
             name,
             _value,
-            FUSESetXAttrFlags::from(flags),
+            FUSESetXAttrFlags::from_bits_retain(flags),
             position,
             callback,
         )
@@ -901,7 +906,7 @@ where
             &mut self.fuse_impl,
             req.into(),
             self.converter.lock().unwrap().to_id(ino),
-            AccessMask::from(mask),
+            AccessMask::from_bits_retain(mask),
             callback,
         );
     }
@@ -926,7 +931,7 @@ where
                         &file_attr.to_fuse(),
                         generation,
                         file_handle.into(),
-                        response_flags.as_raw(),
+                        response_flags.bits(),
                     )
                 }
                 Err(e) => reply.error(e.raw_os_error().unwrap()),
@@ -938,7 +943,7 @@ where
             name,
             mode,
             umask,
-            OpenFlags::from(flags),
+            OpenFlags::from_bits_retain(flags),
             callback,
         );
     }
@@ -959,7 +964,7 @@ where
         let lock_info = LockInfo {
             start,
             end,
-            lock_type: LockType::from(typ),
+            lock_type: LockType::from_bits_retain(typ),
             pid,
         };
 
@@ -972,7 +977,7 @@ where
                     lock_type,
                     pid,
                 } = lock_info;
-                reply.locked(start, end, lock_type.as_raw(), pid)
+                reply.locked(start, end, lock_type.bits(), pid)
             }
             Err(e) => reply.error(e.raw_os_error().unwrap()),
         });
@@ -1004,7 +1009,7 @@ where
         let lock_info = LockInfo {
             start,
             end,
-            lock_type: LockType::from(typ),
+            lock_type: LockType::from_bits_retain(typ),
             pid,
         };
 
@@ -1062,7 +1067,7 @@ where
             req.into(),
             self.converter.lock().unwrap().to_id(ino),
             FileHandle::from(fh),
-            IOCtlFlags::from(flags),
+            IOCtlFlags::from_bits_retain(flags),
             cmd,
             in_data,
             out_size,

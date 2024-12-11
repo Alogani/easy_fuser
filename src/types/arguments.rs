@@ -9,6 +9,7 @@ use super::{errors::*, LockType};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Inode(u64);
+pub const INVALID_INODE: Inode = Inode(0);
 
 impl From<u64> for Inode {
     fn from(value: u64) -> Self {

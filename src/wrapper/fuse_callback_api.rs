@@ -1,8 +1,8 @@
 use std::{ffi::OsStr, io, path::Path, time::Duration};
 
 use super::IdType;
-use crate::types::*;
 use crate::fuse_api::FuseAPI;
+use crate::types::*;
 
 pub type ReplyCb<T> = Box<dyn FnOnce(Result<T, io::Error>) + Send>;
 
@@ -64,7 +64,10 @@ pub trait FuseCallbackAPI<T: IdType> {
         rdev: DeviceType,
         callback: ReplyCb<FileAttribute>,
     ) {
-        callback(self.get_fuse_impl().mknod(req, parent, name, mode, umask, rdev));
+        callback(
+            self.get_fuse_impl()
+                .mknod(req, parent, name, mode, umask, rdev),
+        );
     }
 
     fn mkdir(
@@ -108,7 +111,10 @@ pub trait FuseCallbackAPI<T: IdType> {
         flags: RenameFlags,
         callback: ReplyCb<()>,
     ) {
-        callback(self.get_fuse_impl().rename(req, parent, name, newparent, newname, flags));
+        callback(
+            self.get_fuse_impl()
+                .rename(req, parent, name, newparent, newname, flags),
+        );
     }
 
     fn link(
@@ -143,7 +149,15 @@ pub trait FuseCallbackAPI<T: IdType> {
         lock_owner: Option<u64>,
         callback: ReplyCb<Vec<u8>>,
     ) {
-        callback(self.get_fuse_impl().read(req, file, file_handle, offset, size, flags, lock_owner));
+        callback(self.get_fuse_impl().read(
+            req,
+            file,
+            file_handle,
+            offset,
+            size,
+            flags,
+            lock_owner,
+        ));
     }
 
     fn write(
@@ -158,7 +172,16 @@ pub trait FuseCallbackAPI<T: IdType> {
         lock_owner: Option<u64>,
         callback: ReplyCb<u32>,
     ) {
-        callback(self.get_fuse_impl().write(req, file, file_handle, offset, data, write_flags, flags, lock_owner));
+        callback(self.get_fuse_impl().write(
+            req,
+            file,
+            file_handle,
+            offset,
+            data,
+            write_flags,
+            flags,
+            lock_owner,
+        ));
     }
 
     fn flush(
@@ -169,7 +192,10 @@ pub trait FuseCallbackAPI<T: IdType> {
         lock_owner: u64,
         callback: ReplyCb<()>,
     ) {
-        callback(self.get_fuse_impl().flush(req, file, file_handle, lock_owner));
+        callback(
+            self.get_fuse_impl()
+                .flush(req, file, file_handle, lock_owner),
+        );
     }
 
     fn fsync(
@@ -221,7 +247,10 @@ pub trait FuseCallbackAPI<T: IdType> {
         flags: OpenFlags,
         callback: ReplyCb<()>,
     ) {
-        callback(self.get_fuse_impl().releasedir(req, file, file_handle, flags));
+        callback(
+            self.get_fuse_impl()
+                .releasedir(req, file, file_handle, flags),
+        );
     }
 
     fn fsyncdir(
@@ -232,7 +261,10 @@ pub trait FuseCallbackAPI<T: IdType> {
         datasync: bool,
         callback: ReplyCb<()>,
     ) {
-        callback(self.get_fuse_impl().fsyncdir(req, file, file_handle, datasync));
+        callback(
+            self.get_fuse_impl()
+                .fsyncdir(req, file, file_handle, datasync),
+        );
     }
 
     fn release(
@@ -245,7 +277,10 @@ pub trait FuseCallbackAPI<T: IdType> {
         flush: bool,
         callback: ReplyCb<()>,
     ) {
-        callback(self.get_fuse_impl().release(req, file, file_handle, flags, lock_owner, flush));
+        callback(
+            self.get_fuse_impl()
+                .release(req, file, file_handle, flags, lock_owner, flush),
+        );
     }
 
     fn statfs(&self, req: RequestInfo, file: T, callback: ReplyCb<StatFs>) {
@@ -262,7 +297,10 @@ pub trait FuseCallbackAPI<T: IdType> {
         position: u32,
         callback: ReplyCb<()>,
     ) {
-        callback(self.get_fuse_impl().setxattr(req, file, name, value, flags, position));
+        callback(
+            self.get_fuse_impl()
+                .setxattr(req, file, name, value, flags, position),
+        );
     }
 
     fn getxattr(
@@ -297,7 +335,10 @@ pub trait FuseCallbackAPI<T: IdType> {
         lock_info: LockInfo,
         callback: ReplyCb<LockInfo>,
     ) {
-        callback(self.get_fuse_impl().getlk(req, file, file_handle, lock_owner, lock_info));
+        callback(
+            self.get_fuse_impl()
+                .getlk(req, file, file_handle, lock_owner, lock_info),
+        );
     }
 
     fn setlk(
@@ -310,7 +351,10 @@ pub trait FuseCallbackAPI<T: IdType> {
         sleep: bool,
         callback: ReplyCb<()>,
     ) {
-        callback(self.get_fuse_impl().setlk(req, file, file_handle, lock_owner, lock_info, sleep));
+        callback(
+            self.get_fuse_impl()
+                .setlk(req, file, file_handle, lock_owner, lock_info, sleep),
+        );
     }
 
     fn bmap(&self, req: RequestInfo, file: T, blocksize: u32, idx: u64, callback: ReplyCb<u64>) {
@@ -328,7 +372,10 @@ pub trait FuseCallbackAPI<T: IdType> {
         out_size: u32,
         callback: ReplyCb<(i32, Vec<u8>)>,
     ) {
-        callback(self.get_fuse_impl().ioctl(req, file, file_handle, flags, cmd, in_data, out_size));
+        callback(
+            self.get_fuse_impl()
+                .ioctl(req, file, file_handle, flags, cmd, in_data, out_size),
+        );
     }
 
     fn create(
@@ -341,7 +388,10 @@ pub trait FuseCallbackAPI<T: IdType> {
         flags: OpenFlags,
         callback: ReplyCb<(FileHandle, FileAttribute, FUSEOpenResponseFlags)>,
     ) {
-        callback(self.get_fuse_impl().create(req, parent, name, mode, umask, flags));
+        callback(
+            self.get_fuse_impl()
+                .create(req, parent, name, mode, umask, flags),
+        );
     }
 
     fn fallocate(
@@ -354,7 +404,10 @@ pub trait FuseCallbackAPI<T: IdType> {
         mode: i32,
         callback: ReplyCb<()>,
     ) {
-        callback(self.get_fuse_impl().fallocate(req, file, file_handle, offset, length, mode));
+        callback(
+            self.get_fuse_impl()
+                .fallocate(req, file, file_handle, offset, length, mode),
+        );
     }
 
     fn lseek(
@@ -366,7 +419,10 @@ pub trait FuseCallbackAPI<T: IdType> {
         whence: Whence,
         callback: ReplyCb<i64>,
     ) {
-        callback(self.get_fuse_impl().lseek(req, file, file_handle, offset, whence));
+        callback(
+            self.get_fuse_impl()
+                .lseek(req, file, file_handle, offset, whence),
+        );
     }
 
     fn copy_file_range(
@@ -382,6 +438,16 @@ pub trait FuseCallbackAPI<T: IdType> {
         flags: u32, // Not implemented yet in standard
         callback: ReplyCb<u32>,
     ) {
-        callback(self.get_fuse_impl().copy_file_range(req, file_in, file_handle_in, offset_in, file_out, file_handle_out, offset_out, len, flags));
+        callback(self.get_fuse_impl().copy_file_range(
+            req,
+            file_in,
+            file_handle_in,
+            offset_in,
+            file_out,
+            file_handle_out,
+            offset_out,
+            len,
+            flags,
+        ));
     }
 }

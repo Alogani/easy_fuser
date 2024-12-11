@@ -1,5 +1,7 @@
 use std::{ffi::NulError, io};
 
+pub type FuseResult<T> = Result<T, io::Error>;
+
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub struct PosixError(i32);
 

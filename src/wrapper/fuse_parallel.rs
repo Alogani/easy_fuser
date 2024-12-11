@@ -1,4 +1,3 @@
-
 /*
 #[cfg(feature = "threadpool")]
 use std::sync::Arc;
@@ -27,7 +26,7 @@ impl<T> ThreadPoolFuse<T>
 where
     T: FuseAPI + Send + Sync + 'static,
 {
-    /// Uses the 
+    /// Uses the
     pub fn new(sublayer: T) -> Self {
         Self {
             sublayer: Arc::new(sublayer),
