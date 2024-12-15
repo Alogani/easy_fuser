@@ -43,10 +43,10 @@ where
     U: FuseCallbackAPI<T>,
     C: IdConverter<Output = T>,
 {
-    pub fn new(fuse_cb_api: U) -> FuseFilesystem<T, U, C> {
+    pub fn new(fuse_cb_api: U, converter: C) -> FuseFilesystem<T, U, C> {
         FuseFilesystem {
             fuse_impl: fuse_cb_api,
-            converter: Arc::new(Mutex::new(C::new())),
+            converter: Arc::new(Mutex::new(converter)),
             dirmap_iter: Arc::new(Mutex::new(HashMap::new())),
             dirplus_iter: Arc::new(Mutex::new(HashMap::new())),
         }
@@ -281,7 +281,7 @@ where
         let name_owned = name.to_owned();
         let callback: ReplyCb<()> = Box::new(move |result| match result {
             Ok(()) => {
-                converter.lock().unwrap().remove(parent, &name_owned);
+                converter.lock().unwrap().unlink(parent, &name_owned);
                 reply.ok()
             }
             Err(e) => reply.error(e.raw_os_error().unwrap()),
@@ -301,7 +301,7 @@ where
         let name_owned = name.to_owned();
         let callback: ReplyCb<()> = Box::new(move |result| match result {
             Ok(()) => {
-                converter.lock().unwrap().remove(parent, &name_owned);
+                converter.lock().unwrap().unlink(parent, &name_owned);
                 reply.ok()
             }
             Err(e) => reply.error(e.raw_os_error().unwrap()),

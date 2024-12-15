@@ -6,3 +6,5 @@ mod inode_mapping;
 pub use fuse_callback_api::FuseCallbackAPI;
 mod new_filesystem;
 pub use new_filesystem::new_filesystem;
+
+pub use inode_mapping::IdType;

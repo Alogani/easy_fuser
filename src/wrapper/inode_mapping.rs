@@ -11,8 +11,27 @@ pub const ROOT_INODE: u64 = 1;
 /// IdType can have two values:
 /// - Inode: in which case the user shall provide its own unique inode (at least a valid one)
 /// - PathBuf: in which the inode to path mapping will be done and cached automatically
-impl IdType for Inode {}
-impl IdType for PathBuf {}
+
+pub trait IdType: Send + std::fmt::Debug + 'static {
+    type Converter: IdConverter<Output = Self>;
+
+    fn get_converter() -> Self::Converter;
+}
+
+impl IdType for Inode {
+    type Converter = InoToInode;
+
+    fn get_converter() -> Self::Converter {
+        InoToInode::new()
+    }
+}
+impl IdType for PathBuf {
+    type Converter = InoToPath;
+
+    fn get_converter() -> Self::Converter {
+        InoToPath::new()
+    }
+}
 
 pub trait IdConverter: Send + 'static {
     type Output: IdType;
@@ -20,7 +39,7 @@ pub trait IdConverter: Send + 'static {
     fn to_id(&self, ino: u64) -> Self::Output;
     fn map_inode(&mut self, ino: u64, child: Option<&OsStr>, new_inode: &mut Inode);
     fn rename(&mut self, parent: u64, name: &OsStr, newparent: u64, newname: OsString);
-    fn remove(&mut self, parent: u64, name: &OsStr);
+    fn unlink(&mut self, parent: u64, name: &OsStr);
 }
 
 pub struct InoToInode {}
@@ -42,10 +61,10 @@ impl IdConverter for InoToInode {
         }
     }
     fn rename(&mut self, _parent: u64, _name: &OsStr, _newparent: u64, _newname: OsString) {}
-    fn remove(&mut self, _parent: u64, _name: &OsStr) {}
+    fn unlink(&mut self, _parent: u64, _name: &OsStr) {}
 }
 
-struct InoToPath {
+pub struct InoToPath {
     inodes: HashMap<u64, InodeValue>,
     next_inode: u64,
 }
@@ -180,7 +199,7 @@ impl IdConverter for InoToPath {
             .insert(newname, src_inode);
     }
 
-    fn remove(&mut self, parent: u64, name: &OsStr) {
+    fn unlink(&mut self, parent: u64, name: &OsStr) {
         if let Some(inode) = self.inodes.get_mut(&parent).unwrap().children.remove(name) {
             let _ = self.inodes.remove(&inode);
         }
@@ -330,7 +349,7 @@ mod tests {
         );
 
         // Remove nested path
-        converter.remove(shallow_ino, OsStr::new("file"));
+        converter.unlink(shallow_ino, OsStr::new("file"));
         assert!(!converter.inodes.contains_key(&nested_attr.inode.into()));
         let shallow_inode = converter.inodes.get(&shallow_ino).unwrap();
         assert!(!shallow_inode
@@ -338,7 +357,7 @@ mod tests {
             .contains_key("file".as_ref() as &OsStr));
 
         // Remove shallow path
-        converter.remove(ROOT_INODE, OsStr::new("dir"));
+        converter.unlink(ROOT_INODE, OsStr::new("dir"));
         assert!(!converter.inodes.contains_key(&shallow_attr.inode.into()));
         let root_inode = converter.inodes.get(&ROOT_INODE).unwrap();
         assert!(!root_inode.children.contains_key("dir".as_ref() as &OsStr));

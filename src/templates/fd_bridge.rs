@@ -35,10 +35,11 @@ where
     T: IdType,
 {
     fn get_inner(&self) -> &Box<(dyn FuseAPI<T>)> {
+        eprintln!("FdBridge getinner");
         &self.inner   
     }
 
-    fn getattr(
+    /*fn getattr(
         &self,
         _req: RequestInfo,
         _file: T,
@@ -49,7 +50,7 @@ where
             Ok(fd) => posix_fs::getattr(&fd),
             Err(e) => Err(e.into()),
         }
-    }
+    }*/
 
     fn read(
         &self,

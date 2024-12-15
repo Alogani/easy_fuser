@@ -318,10 +318,6 @@ pub fn write(fd: &FileDescriptor, offset: i64, data: &[u8]) -> Result<u32, io::E
             offset,
         )
     };
-    println!(
-        "FD= {:?}, DATA={:?}, BYTES WRITE={}",
-        fd, data, bytes_written
-    );
     if bytes_written == -1 {
         return Err(from_last_errno());
     }

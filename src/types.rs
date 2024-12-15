@@ -6,3 +6,5 @@ mod flags;
 pub use flags::*;
 
 pub use fuser::{FileType, KernelConfig, TimeOrNow};
+
+pub use crate::wrapper::IdType;
