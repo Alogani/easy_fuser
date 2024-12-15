@@ -3,12 +3,14 @@ use std::path::Path;
 use std::time::Duration;
 
 use crate::types::*;
-use crate::wrapper::IdType;
 
-pub trait FuseAPI<T: IdType> {
-    fn get_inner(&self) -> &impl FuseAPI<T>;
+pub trait FuseAPI<T>: 'static
+where
+    T: IdType,
+{
+    fn get_inner(&self) -> &Box<dyn FuseAPI<T>>;
 
-    fn get_default_ttl() -> Duration {
+    fn get_default_ttl(&self) -> Duration {
         Duration::from_secs(1)
     }
 
@@ -210,7 +212,7 @@ pub trait FuseAPI<T: IdType> {
         file_handle: FileHandle,
         datasync: bool,
     ) -> FuseResult<()> {
-        self.get_inner().fsync(req, file, file_handle, datasync)
+        self.get_inner().fsyncdir(req, file, file_handle, datasync)
     }
 
     fn release(

@@ -16,7 +16,7 @@ use fuser::{
 };
 
 use super::fuse_callback_api::{FuseCallbackAPI, ReplyCb};
-use super::inode_mapping::{IdConverter, IdType};
+use super::inode_mapping::IdConverter;
 use crate::types::*;
 
 type DirIter<T> = Box<dyn Iterator<Item = T> + Send>;
@@ -27,11 +27,11 @@ fn get_random_generation() -> u64 {
 
 pub struct FuseFilesystem<T, U, C>
 where
-    T: FuseCallbackAPI<U>,
-    U: IdType,
-    C: IdConverter<Output = U>,
+    T: IdType,
+    U: FuseCallbackAPI<T>,
+    C: IdConverter<Output = T>,
 {
-    fuse_impl: T,
+    fuse_impl: U,
     converter: Arc<Mutex<C>>,
     dirmap_iter: Arc<Mutex<HashMap<u64, DirIter<FuseDirEntry>>>>,
     dirplus_iter: Arc<Mutex<HashMap<u64, DirIter<FuseDirEntryPlus>>>>,
@@ -39,11 +39,11 @@ where
 
 impl<T, U, C> FuseFilesystem<T, U, C>
 where
-    T: FuseCallbackAPI<U>,
-    U: IdType,
-    C: IdConverter<Output = U>,
+    T: IdType,
+    U: FuseCallbackAPI<T>,
+    C: IdConverter<Output = T>,
 {
-    pub fn new(fuse_cb_api: T) -> FuseFilesystem<T, U, C> {
+    pub fn new(fuse_cb_api: U) -> FuseFilesystem<T, U, C> {
         FuseFilesystem {
             fuse_impl: fuse_cb_api,
             converter: Arc::new(Mutex::new(C::new())),
@@ -55,9 +55,9 @@ where
 
 impl<T, U, C> fuser::Filesystem for FuseFilesystem<T, U, C>
 where
-    T: FuseCallbackAPI<U>,
-    U: IdType,
-    C: IdConverter<Output = U>,
+    T: IdType,
+    U: FuseCallbackAPI<T>,
+    C: IdConverter<Output = T>,
 {
     fn init(&mut self, req: &Request, _config: &mut KernelConfig) -> Result<(), c_int> {
         match FuseCallbackAPI::init(&mut self.fuse_impl, req.into(), _config) {
@@ -67,7 +67,7 @@ where
     }
 
     fn lookup(&mut self, req: &Request, parent: u64, name: &OsStr, reply: ReplyEntry) {
-        let default_ttl = T::get_default_ttl();
+        let default_ttl = U::get_default_ttl();
         let converter = Arc::clone(&self.converter);
         let name_owned = name.to_owned();
         let callback: ReplyCb<FileAttribute> = Box::new(move |result| match result {
@@ -107,7 +107,7 @@ where
     }
 
     fn getattr(&mut self, req: &Request, ino: u64, fh: Option<u64>, reply: ReplyAttr) {
-        let default_ttl = T::get_default_ttl();
+        let default_ttl = U::get_default_ttl();
         let converter = Arc::clone(&self.converter);
         let callback: ReplyCb<FileAttribute> = Box::new(move |result| match result {
             Ok(mut file_attr) => {
@@ -161,7 +161,7 @@ where
             flags: None,
             file_handle: fh.map(FileHandle::from),
         };
-        let default_ttl = T::get_default_ttl();
+        let default_ttl = U::get_default_ttl();
         let converter = Arc::clone(&self.converter);
         let callback: ReplyCb<FileAttribute> = Box::new(move |result| match result {
             Ok(mut file_attr) => {
@@ -205,7 +205,7 @@ where
         rdev: u32,
         reply: ReplyEntry,
     ) {
-        let default_ttl = T::get_default_ttl();
+        let default_ttl = U::get_default_ttl();
         let converter = Arc::clone(&self.converter);
         let owned_name = name.to_owned();
         let callback: ReplyCb<FileAttribute> = Box::new(move |result| match result {
@@ -245,7 +245,7 @@ where
         umask: u32,
         reply: ReplyEntry,
     ) {
-        let default_ttl = T::get_default_ttl();
+        let default_ttl = U::get_default_ttl();
         let converter = Arc::clone(&self.converter);
         let owned_name = name.to_owned();
         let callback: ReplyCb<FileAttribute> = Box::new(move |result| match result {
@@ -323,7 +323,7 @@ where
         target: &Path,
         reply: ReplyEntry,
     ) {
-        let default_ttl = T::get_default_ttl();
+        let default_ttl = U::get_default_ttl();
         let converter = self.converter.clone();
         let link_name_owned = link_name.to_os_string();
         let callback: ReplyCb<FileAttribute> = Box::new(move |result| match result {
@@ -395,7 +395,7 @@ where
         newname: &OsStr,
         reply: ReplyEntry,
     ) {
-        let default_ttl = T::get_default_ttl();
+        let default_ttl = U::get_default_ttl();
         let converter = self.converter.clone();
         let newname_owned = newname.to_owned();
         let callback: ReplyCb<FileAttribute> = Box::new(move |result| match result {
@@ -699,7 +699,7 @@ where
                 self.dirplus_iter.clone(),
                 ino,
                 offset,
-                T::get_default_ttl(),
+                U::get_default_ttl(),
                 converter,
             );
             self.fuse_impl.readdirplus(
@@ -720,7 +720,7 @@ where
                         Arc::clone(&self.dirplus_iter),
                         ino,
                         offset,
-                        T::get_default_ttl(),
+                        U::get_default_ttl(),
                         converter,
                     );
                     callback(Ok(entries));
@@ -921,7 +921,7 @@ where
         flags: i32,
         reply: ReplyCreate,
     ) {
-        let default_ttl = T::get_default_ttl();
+        let default_ttl = U::get_default_ttl();
         let callback: ReplyCb<(FileHandle, FileAttribute, FUSEOpenResponseFlags)> =
             Box::new(move |result| match result {
                 Ok((file_handle, file_attr, response_flags)) => {

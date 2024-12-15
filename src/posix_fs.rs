@@ -1,7 +1,7 @@
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::time::{Duration, SystemTime};
 
-use std::ffi::{CString, OsStr};
+use std::ffi::{CString, OsStr, OsString};
 use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::{self as unix_fs, *};
 use std::{fs, io};
@@ -358,13 +358,13 @@ pub fn fsync(fd: &FileDescriptor, datasync: bool) -> Result<(), io::Error> {
 }
 
 /// Equivalent to the fuse function of the same name
-pub fn readdir(path: &Path) -> Result<Vec<(PathBuf, FileType)>, io::Error> {
+pub fn readdir(path: &Path) -> Result<Vec<(OsString, FileType)>, io::Error> {
     let entries = fs::read_dir(path)?;
     let mut result = Vec::new();
     for entry in entries {
         let entry = entry?;
         result.push((
-            PathBuf::from(entry.file_name()),
+            entry.file_name(),
             convert_filetype(entry.file_type()?),
         ))
     }
@@ -372,13 +372,13 @@ pub fn readdir(path: &Path) -> Result<Vec<(PathBuf, FileType)>, io::Error> {
 }
 
 /// Equivalent to the fuse function of the same name
-pub fn readdirplus(path: &Path) -> Result<Vec<(PathBuf, FileType, FileAttribute)>, io::Error> {
+pub fn readdirplus(path: &Path) -> Result<Vec<(OsString, FileType, FileAttribute)>, io::Error> {
     let entries = fs::read_dir(path)?;
     let mut result = Vec::new();
     for entry in entries {
         let entry = entry?;
         result.push((
-            PathBuf::from(entry.file_name()),
+            entry.file_name(),
             convert_filetype(entry.file_type()?),
             convert_fileattribute(entry.metadata()?),
         ))

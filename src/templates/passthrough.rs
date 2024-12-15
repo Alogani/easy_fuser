@@ -1,7 +1,5 @@
 use std::ffi::{OsStr, OsString};
-use std::io;
-use std::path::{Path, PathBuf};
-use std::sync::Mutex;
+use std::path::PathBuf;
 
 use types::FuseDirEntry;
 
@@ -9,28 +7,30 @@ use super::fd_bridge::FileDescriptorBridge;
 use crate::types::*;
 use crate::*;
 
-
+pub struct PassthroughFs {
+    repo: PathBuf,
+    inner: Box<dyn FuseAPI<PathBuf>>
+}
 
 impl PassthroughFs {
-    pub fn new(repo: PathBuf) -> Self {
+    pub fn new<T: FuseAPI<PathBuf>>(repo: PathBuf, inner: T) -> Self {
         Self {
-            sublayer: FileDescriptorBridge::new()
+            repo,
+            inner: Box::new(FileDescriptorBridge::new(inner))
         }
     }
 }
 
-pub struct PassthroughFs {
-    sublayer: FileDescriptorBridge
-}
 
 impl FuseAPI<PathBuf> for PassthroughFs {
-    fn get_inner(&self) -> &impl FuseAPI<PathBuf> {
-        &self.sublayer
+    fn get_inner(&self) -> &Box<(dyn FuseAPI<PathBuf>)> {
+        &self.inner
     }
 
-    fn lookup(&self, req: RequestInfo, parent: PathBuf, name: &OsStr)
+    fn lookup(&self, _req: RequestInfo, parent: PathBuf, name: &OsStr)
         -> FuseResult<FileAttribute> {
-        let fd = posix_fs::open(parent.as_ref(), OpenFlags::new())?;
+        let file_path = self.repo.join(parent).join(name);
+        let fd = posix_fs::open(file_path.as_ref(), OpenFlags::empty())?;
         let result = posix_fs::getattr(&fd);
         posix_fs::release(fd)?;
         result
@@ -39,86 +39,67 @@ impl FuseAPI<PathBuf> for PassthroughFs {
     fn open(
             &self,
             _req: RequestInfo,
-            ino: u64,
+            file: PathBuf,
             flags: OpenFlags,
-            callback: ReplyCb<(FileHandle, FUSEOpenResponseFlags)>,
-        ) {
-            callback((|| {
-                let path_handler = self.path_handler.lock().unwrap();
-                let path = path_handler.get_path(ino)?;
-                let fd = posix_fs::open(path.as_ref(), flags)?;
-                Ok((fd.to_file_handle()?, FUSEOpenResponseFlags::new()))
-            })());
+        ) -> FuseResult<(FileHandle, FUSEOpenResponseFlags)> {
+        let file_path = self.repo.join(file);
+        let fd = posix_fs::open(file_path.as_ref(), flags)?;
+        Ok((fd.to_file_handle()?, FUSEOpenResponseFlags::empty()))
     }
 
     fn getattr(
-        &self,
-        _req: RequestInfo,
-        ino: u64,
-        _file_handle: Option<FileHandle>,
-        callback: ReplyCb<AttributeResponse>,
-    ) {
-        callback((|| {
-            let path_handler = self.path_handler.lock().unwrap();
-            let path = path_handler.get_path(ino)?;
-            let fd = posix_fs::open(path.as_ref(), OpenFlags::new())?;
-            let result = posix_fs::getattr(&fd, Some(ino));
-            posix_fs::release(fd)?;
-            result
-        })());
+            &self,
+            _req: RequestInfo,
+            file: PathBuf,
+            _file_handle: Option<FileHandle>,
+        ) -> FuseResult<FileAttribute> {
+        let file_path = self.repo.join(file);
+        let fd = posix_fs::open(file_path.as_ref(), OpenFlags::empty())?;
+        let result = posix_fs::getattr(&fd);
+        posix_fs::release(fd)?;
+        result
     }
 
     fn readdir(
-        &self,
-        _req: RequestInfo,
-        ino: u64,
-        _file_handle: FileHandle,
-        callback: ReplyCb<Vec<FuseDirEntry>>,
-    ) {
-        callback((|| {
-            let mut path_handler = self.path_handler.lock().unwrap();
-            let children = path_handler.readdir(ino)?;
-            let mut result = Vec::new();
-            result.push(FuseDirEntry {
-                inode: ino,
-                name: OsString::from("."),
-                kind: FileType::Directory,
-            });
-            result.push(FuseDirEntry {
-                inode: path_handler.lookup_parent(ino),
-                name: OsString::from(".."),
-                kind: FileType::Directory,
-            });
-            for (child_name, child_ino) in children {
-                result.push({
-                    let file_attr =
-                        posix_fs::lookup(path_handler.get_path(child_ino)?.as_ref(), None)?
-                            .file_attr;
-                    FuseDirEntry {
-                        inode: child_ino,
-                        name: child_name,
-                        kind: file_attr.kind,
-                    }
-                })
-            }
-            Ok(result)
-        })());
+            &self,
+            _req: RequestInfo,
+            file: PathBuf,
+            _file_handle: FileHandle,
+        ) -> FuseResult<Vec<FuseDirEntry>> {
+        let folder_path = self.repo.join(file);
+        let children = posix_fs::readdir(folder_path.as_ref())?;
+        let mut result = Vec::new();
+        result.push(FuseDirEntry {
+            inode: INVALID_INODE,
+            name: OsString::from("."),
+            kind: FileType::Directory,
+        });
+        result.push(FuseDirEntry {
+            inode: INVALID_INODE,
+            name: OsString::from(".."),
+            kind: FileType::Directory,
+        });
+        for (child_name, child_kind) in children {
+            result.push({
+                FuseDirEntry {
+                    inode: INVALID_INODE,
+                    name: child_name,
+                    kind: child_kind,
+                }
+            })
+        }
+        Ok(result)
     }
 
-    fn listxattr(&self, _req: RequestInfo, ino: u64, size: u32, callback: ReplyCb<Vec<u8>>) {
-        callback((|| {
-            let path_handler = self.path_handler.lock().unwrap();
-            let path = path_handler.get_path(ino)?;
-            posix_fs::listxattr(&path, size)
-        })())
+    
+    fn listxattr(&self, _req: RequestInfo, file: PathBuf, size: u32) -> FuseResult<Vec<u8>> {
+        let file_path = self.repo.join(file);
+        posix_fs::listxattr(&file_path, size)
     }
 
-    fn access(&self, _req: RequestInfo, ino: u64, mask: AccessMask, callback: ReplyCb<()>) {
-        callback((|| {
-            let path_handler = self.path_handler.lock().unwrap();
-            let path = path_handler.get_path(ino)?;
-            posix_fs::access(&path, mask)
-        })())
+    fn access(&self, _req: RequestInfo, file: PathBuf, mask: AccessMask) -> FuseResult<()> {
+        let file_path = self.repo.join(file);
+        posix_fs::access(&file_path, mask)
     }
 
 }

@@ -2,36 +2,37 @@ use std::marker::PhantomData;
 
 use crate::fuse_api::FuseAPI;
 
-use super::{FuseCallbackAPI, IdType};
+use super::FuseCallbackAPI;
+use crate::types::IdType;
 
 pub struct FuseSerial<T, U>
 where
-    T: FuseAPI<U>,
-    U: IdType,
+    T: IdType,
+    U: FuseAPI<T>,
 {
-    fuse_api: T,
-    phantom: PhantomData<U>,
+    phantom: PhantomData<T>,
+    fuse_api: U,
 }
 
 impl<T, U> FuseSerial<T, U>
 where
-    T: FuseAPI<U>,
-    U: IdType,
+    T: IdType,
+    U: FuseAPI<T>,
 {
-    pub fn new(fuse_api: T) -> Self {
+    pub fn new(fuse_api: U) -> Self {
         Self {
-            fuse_api,
             phantom: PhantomData,
+            fuse_api,
         }
     }
 }
 
-impl<T, U> FuseCallbackAPI<U> for FuseSerial<T, U>
+impl<T, U> FuseCallbackAPI<T> for FuseSerial<T, U>
 where
-    T: FuseAPI<U>,
-    U: IdType,
+    T: IdType,
+    U: FuseAPI<T>,
 {
-    fn get_fuse_impl(&self) -> &impl FuseAPI<U> {
+    fn get_fuse_impl(&self) -> &impl FuseAPI<T> {
         &self.fuse_api
     }
 }

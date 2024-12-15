@@ -1,4 +1,3 @@
-use core::fmt;
 use std::{
     collections::HashMap,
     ffi::{OsStr, OsString},
@@ -12,8 +11,6 @@ pub const ROOT_INODE: u64 = 1;
 /// IdType can have two values:
 /// - Inode: in which case the user shall provide its own unique inode (at least a valid one)
 /// - PathBuf: in which the inode to path mapping will be done and cached automatically
-pub trait IdType: Send + fmt::Debug {}
-
 impl IdType for Inode {}
 impl IdType for PathBuf {}
 
@@ -126,6 +123,8 @@ impl IdConverter for InoToPath {
     fn map_inode(&mut self, ino: u64, child: Option<&OsStr>, new_inode: &mut Inode) {
         let correct_inode = match child {
             None => ino,
+            Some(child_name) if child_name == "." => ino,
+            Some(child_name) if child_name == ".." => self.inodes.get(&ino).unwrap().parent,
             Some(child_name) => match self.inodes.get(&ino).unwrap().children.get(child_name) {
                 Some(child_inode) => *child_inode,
                 None => {

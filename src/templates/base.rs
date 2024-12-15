@@ -3,9 +3,8 @@ use std::{ffi::OsStr, path::Path, time::Duration};
 use fuser::KernelConfig;
 use log::{debug, warn};
 
-use crate::types::*;
-use crate::wrapper::IdType;
 use crate::FuseAPI;
+use crate::types::*;
 
 /// Default skeleton, see templates to have ready to use fuse filesystem
 ///
@@ -17,16 +16,29 @@ use crate::FuseAPI;
 /// - `statsfs` -> return the value of StatFs::default
 
 
-pub struct BaseFuse;
+pub struct BaseFuse {
+    panic: bool
+}
+
+impl BaseFuse {
+    pub fn new() -> Self {
+        BaseFuse { panic: false }
+    }
+
+    pub fn new_with_panic() -> Self {
+        BaseFuse { panic: true }
+    }
+}
 
 impl<T: IdType> FuseAPI<T> for BaseFuse
+where
+    T: IdType,
 {
-    #[allow(refining_impl_trait)]
-    fn get_inner(&self) -> &BaseFuse {
-        panic!("BaseFuse doesn't have inner API")
+    fn get_inner(&self) -> &Box<(dyn FuseAPI<T>)> {
+        panic!("Base Fuse don't have inner type")
     }
-    
-    fn get_default_ttl() -> Duration {
+
+    fn get_default_ttl(&self) -> Duration {
         Duration::from_secs(1)
     }
 
@@ -40,7 +52,11 @@ impl<T: IdType> FuseAPI<T> for BaseFuse
             "[Not Implemented] lookup(parent_file: {:?}, name {:?})",
             parent, name
         );
-        Err(PosixError::FUNCTION_NOT_IMPLEMENTED.into())
+        if self.panic {
+            panic!("Function not implemented")
+        } else {
+            Err(PosixError::FUNCTION_NOT_IMPLEMENTED.into())
+        }
     }
 
     fn forget(&self, _req: RequestInfo, _file: T, _nlookup: u64) {}
@@ -55,7 +71,11 @@ impl<T: IdType> FuseAPI<T> for BaseFuse
             "[Not Implemented] getattr(file: {:?}, file_handle {:?})",
             file, file_handle
         );
-        Err(PosixError::FUNCTION_NOT_IMPLEMENTED.into())
+        if self.panic {
+            panic!("Function not implemented")
+        } else {
+            Err(PosixError::FUNCTION_NOT_IMPLEMENTED.into())
+        }
     }
 
     fn setattr(
@@ -68,12 +88,20 @@ impl<T: IdType> FuseAPI<T> for BaseFuse
             "[Not Implemented] setattr(file: {:?}, _req: {:?}, attrs: {:?}",
             file, _req, attrs
         );
-        Err(PosixError::FUNCTION_NOT_IMPLEMENTED.into())
+        if self.panic {
+            panic!("Function not implemented")
+        } else {
+            Err(PosixError::FUNCTION_NOT_IMPLEMENTED.into())
+        }
     }
 
     fn readlink(&self, _req: RequestInfo, file: T) -> FuseResult<Vec<u8>> {
         debug!("[Not Implemented] readlink(file: {:?})", file);
-        Err(PosixError::FUNCTION_NOT_IMPLEMENTED.into())
+        if self.panic {
+            panic!("Function not implemented")
+        } else {
+            Err(PosixError::FUNCTION_NOT_IMPLEMENTED.into())
+        }
     }
 
     fn mknod(
@@ -90,7 +118,11 @@ impl<T: IdType> FuseAPI<T> for BaseFuse
             umask: {:?}, rdev: {:?})",
             parent, name, mode, umask, rdev
         );
-        Err(PosixError::FUNCTION_NOT_IMPLEMENTED.into())
+        if self.panic {
+            panic!("Function not implemented")
+        } else {
+            Err(PosixError::FUNCTION_NOT_IMPLEMENTED.into())
+        }
     }
 
     fn mkdir(
@@ -105,7 +137,11 @@ impl<T: IdType> FuseAPI<T> for BaseFuse
             "[Not Implemented] mkdir(parent: {:?}, name: {:?}, mode: {}, umask: {:?})",
             parent, name, mode, umask
         );
-        Err(PosixError::FUNCTION_NOT_IMPLEMENTED.into())
+        if self.panic {
+            panic!("Function not implemented")
+        } else {
+            Err(PosixError::FUNCTION_NOT_IMPLEMENTED.into())
+        }
     }
 
     fn unlink(&self, _req: RequestInfo, parent: T, name: &OsStr) -> FuseResult<()> {
@@ -113,7 +149,11 @@ impl<T: IdType> FuseAPI<T> for BaseFuse
             "[Not Implemented] unlink(parent: {:?}, name: {:?})",
             parent, name,
         );
-        Err(PosixError::FUNCTION_NOT_IMPLEMENTED.into())
+        if self.panic {
+            panic!("Function not implemented")
+        } else {
+            Err(PosixError::FUNCTION_NOT_IMPLEMENTED.into())
+        }
     }
 
     fn rmdir(&self, _req: RequestInfo, parent: T, name: &OsStr) -> FuseResult<()> {
@@ -121,7 +161,11 @@ impl<T: IdType> FuseAPI<T> for BaseFuse
             "[Not Implemented] rmdir(parent: {:?}, name: {:?})",
             parent, name,
         );
-        Err(PosixError::FUNCTION_NOT_IMPLEMENTED.into())
+        if self.panic {
+            panic!("Function not implemented")
+        } else {
+            Err(PosixError::FUNCTION_NOT_IMPLEMENTED.into())
+        }
     }
 
     fn symlink(
@@ -135,7 +179,11 @@ impl<T: IdType> FuseAPI<T> for BaseFuse
             "[Not Implemented] symlink(parent: {:?}, link_name: {:?}, target: {:?})",
             parent, link_name, target,
         );
-        Err(PosixError::FUNCTION_NOT_IMPLEMENTED.into())
+        if self.panic {
+            panic!("Function not implemented")
+        } else {
+            Err(PosixError::FUNCTION_NOT_IMPLEMENTED.into())
+        }
     }
 
     fn rename(
@@ -152,7 +200,11 @@ impl<T: IdType> FuseAPI<T> for BaseFuse
             newname: {:?}, flags: {:?})",
             parent, name, newparent, newname, flags,
         );
-        Err(PosixError::FUNCTION_NOT_IMPLEMENTED.into())
+        if self.panic {
+            panic!("Function not implemented")
+        } else {
+            Err(PosixError::FUNCTION_NOT_IMPLEMENTED.into())
+        }
     }
 
     fn link(
@@ -166,7 +218,11 @@ impl<T: IdType> FuseAPI<T> for BaseFuse
             "[Not Implemented] link(file: {:?}, newparent: {:?}, newname: {:?})",
             file, newparent, newname
         );
-        Err(PosixError::FUNCTION_NOT_IMPLEMENTED.into())
+        if self.panic {
+            panic!("Function not implemented")
+        } else {
+            Err(PosixError::FUNCTION_NOT_IMPLEMENTED.into())
+        }
     }
 
     fn open(
@@ -179,7 +235,11 @@ impl<T: IdType> FuseAPI<T> for BaseFuse
             "[Not Implemented] open(file: {:?}, flags: {:?})",
             file, flags
         );
-        Err(PosixError::FUNCTION_NOT_IMPLEMENTED.into())
+        if self.panic {
+            panic!("Function not implemented")
+        } else {
+            Err(PosixError::FUNCTION_NOT_IMPLEMENTED.into())
+        }
     }
 
     fn read(
@@ -196,7 +256,11 @@ impl<T: IdType> FuseAPI<T> for BaseFuse
             "[Not Implemented] read(file: {:?}, file_handle: {:?}, offset: {}, size: {}, flags: {:?}, lock_owner: {:?})",
             file, file_handle, offset, size, flags, lock_owner
         );
-        Err(PosixError::FUNCTION_NOT_IMPLEMENTED.into())
+        if self.panic {
+            panic!("Function not implemented")
+        } else {
+            Err(PosixError::FUNCTION_NOT_IMPLEMENTED.into())
+        }
     }
 
     fn write(
@@ -214,7 +278,11 @@ impl<T: IdType> FuseAPI<T> for BaseFuse
             "[Not Implemented] write(file: {:?}, file_handle: {:?}, offset: {}, data_len: {}, write_flags: {:?}, flags: {:?}, lock_owner: {:?})",
             file, file_handle, offset, data.len(), write_flags, flags, lock_owner
         );
-        Err(PosixError::FUNCTION_NOT_IMPLEMENTED.into())
+        if self.panic {
+            panic!("Function not implemented")
+        } else {
+            Err(PosixError::FUNCTION_NOT_IMPLEMENTED.into())
+        }
     }
 
     fn flush(
@@ -228,7 +296,11 @@ impl<T: IdType> FuseAPI<T> for BaseFuse
             "[Not Implemented] flush(file: {:?}, file_handle: {:?}, lock_owner: {})",
             file, file_handle, lock_owner
         );
-        Err(PosixError::FUNCTION_NOT_IMPLEMENTED.into())
+        if self.panic {
+            panic!("Function not implemented")
+        } else {
+            Err(PosixError::FUNCTION_NOT_IMPLEMENTED.into())
+        }
     }
 
     fn fsync(
@@ -242,7 +314,11 @@ impl<T: IdType> FuseAPI<T> for BaseFuse
             "[Not Implemented] fsync(file: {:?}, file_handle: {:?}, datasync: {})",
             file, file_handle, datasync
         );
-        Err(PosixError::FUNCTION_NOT_IMPLEMENTED.into())
+        if self.panic {
+            panic!("Function not implemented")
+        } else {
+            Err(PosixError::FUNCTION_NOT_IMPLEMENTED.into())
+        }
     }
 
     fn opendir(
@@ -264,7 +340,11 @@ impl<T: IdType> FuseAPI<T> for BaseFuse
             "[Not Implemented] readdir(file: {:?}, fh: {:?})",
             file, file_handle
         );
-        Err(PosixError::FUNCTION_NOT_IMPLEMENTED.into())
+        if self.panic {
+            panic!("Function not implemented")
+        } else {
+            Err(PosixError::FUNCTION_NOT_IMPLEMENTED.into())
+        }
     }
 
     fn readdirplus(
@@ -277,7 +357,11 @@ impl<T: IdType> FuseAPI<T> for BaseFuse
             "[Not Implemented] readdirplus(file: {:?}, fh: {:?})",
             file, file_handle
         );
-        Err(PosixError::FUNCTION_NOT_IMPLEMENTED.into())
+        if self.panic {
+            panic!("Function not implemented")
+        } else {
+            Err(PosixError::FUNCTION_NOT_IMPLEMENTED.into())
+        }
     }
 
     fn releasedir(
@@ -313,7 +397,11 @@ impl<T: IdType> FuseAPI<T> for BaseFuse
             "[Not Implemented] release(file: {:?}, file_handle: {:?}, flags: {:?}, lock_owner: {:?}, flush: {:?})",
             file, file_handle, flags, lock_owner, flush
         );
-        Err(PosixError::FUNCTION_NOT_IMPLEMENTED.into())
+        if self.panic {
+            panic!("Function not implemented")
+        } else {
+            Err(PosixError::FUNCTION_NOT_IMPLEMENTED.into())
+        }
     }
 
     fn statfs(&self, _req: RequestInfo, _file: T) -> FuseResult<StatFs> {
@@ -333,7 +421,11 @@ impl<T: IdType> FuseAPI<T> for BaseFuse
             "[Not Implemented] setxattr(file: {:?}, name: {:?}, flags: {:?}, position: {})",
             file, name, flags, position
         );
-        Err(PosixError::FUNCTION_NOT_IMPLEMENTED.into())
+        if self.panic {
+            panic!("Function not implemented")
+        } else {
+            Err(PosixError::FUNCTION_NOT_IMPLEMENTED.into())
+        }
     }
 
     fn getxattr(
@@ -347,7 +439,11 @@ impl<T: IdType> FuseAPI<T> for BaseFuse
             "[Not Implemented] getxattr(file: {:?}, name: {:?}, size: {})",
             file, name, size
         );
-        Err(PosixError::FUNCTION_NOT_IMPLEMENTED.into())
+        if self.panic {
+            panic!("Function not implemented")
+        } else {
+            Err(PosixError::FUNCTION_NOT_IMPLEMENTED.into())
+        }
     }
 
     fn listxattr(&self, _req: RequestInfo, file: T, size: u32) -> FuseResult<Vec<u8>> {
@@ -355,7 +451,11 @@ impl<T: IdType> FuseAPI<T> for BaseFuse
             "[Not Implemented] listxattr(file: {:?}, size: {})",
             file, size
         );
-        Err(PosixError::FUNCTION_NOT_IMPLEMENTED.into())
+        if self.panic {
+            panic!("Function not implemented")
+        } else {
+            Err(PosixError::FUNCTION_NOT_IMPLEMENTED.into())
+        }
     }
 
     fn removexattr(&self, _req: RequestInfo, file: T, name: &OsStr) -> FuseResult<()> {
@@ -363,7 +463,11 @@ impl<T: IdType> FuseAPI<T> for BaseFuse
             "[Not Implemented] removexattr(file: {:?}, name: {:?})",
             file, name
         );
-        Err(PosixError::FUNCTION_NOT_IMPLEMENTED.into())
+        if self.panic {
+            panic!("Function not implemented")
+        } else {
+            Err(PosixError::FUNCTION_NOT_IMPLEMENTED.into())
+        }
     }
 
     fn access(&self, _req: RequestInfo, file: T, mask: AccessMask) -> FuseResult<()> {
@@ -371,7 +475,11 @@ impl<T: IdType> FuseAPI<T> for BaseFuse
             "[Not Implemented] access(file: {:?}, mask: {:?})",
             file, mask
         );
-        Err(PosixError::FUNCTION_NOT_IMPLEMENTED.into())
+        if self.panic {
+            panic!("Function not implemented")
+        } else {
+            Err(PosixError::FUNCTION_NOT_IMPLEMENTED.into())
+        }
     }
 
     fn getlk(
@@ -386,7 +494,11 @@ impl<T: IdType> FuseAPI<T> for BaseFuse
             "[Not Implemented] getlk(file: {:?}, fh: {:?}, lock_owner, {:?}, lock_info: {:?})",
             file, file_handle, lock_owner, lock_info
         );
-        Err(PosixError::FUNCTION_NOT_IMPLEMENTED.into())
+        if self.panic {
+            panic!("Function not implemented")
+        } else {
+            Err(PosixError::FUNCTION_NOT_IMPLEMENTED.into())
+        }
     }
 
     fn setlk(
@@ -402,7 +514,11 @@ impl<T: IdType> FuseAPI<T> for BaseFuse
             "[Not Implemented] setlk(file: {:?}, fh: {:?}, lock_owner, {:?}, lock_info: {:?}, sleep: {:?})",
             file, file_handle, lock_owner, lock_info, sleep
         );
-        Err(PosixError::FUNCTION_NOT_IMPLEMENTED.into())
+        if self.panic {
+            panic!("Function not implemented")
+        } else {
+            Err(PosixError::FUNCTION_NOT_IMPLEMENTED.into())
+        }
     }
 
     fn bmap(&self, _req: RequestInfo, file: T, blocksize: u32, idx: u64) -> FuseResult<u64> {
@@ -410,7 +526,11 @@ impl<T: IdType> FuseAPI<T> for BaseFuse
             "[Not Implemented] bmap(file: {:?}, blocksize: {:?}, idx: {:?})",
             file, blocksize, idx
         );
-        Err(PosixError::FUNCTION_NOT_IMPLEMENTED.into())
+        if self.panic {
+            panic!("Function not implemented")
+        } else {
+            Err(PosixError::FUNCTION_NOT_IMPLEMENTED.into())
+        }
     }
 
     fn ioctl(
@@ -427,7 +547,11 @@ impl<T: IdType> FuseAPI<T> for BaseFuse
             "[Not Implemented] ioctl(file: {:?}, fh: {:?}, flags: {:?}, cmd: {:?}, in_data: {:?}, out_size: {:?})",
             file, file_handle, flags, cmd, in_data, out_size
         );
-        Err(PosixError::FUNCTION_NOT_IMPLEMENTED.into())
+        if self.panic {
+            panic!("Function not implemented")
+        } else {
+            Err(PosixError::FUNCTION_NOT_IMPLEMENTED.into())
+        }
     }
 
     fn create(
@@ -444,7 +568,11 @@ impl<T: IdType> FuseAPI<T> for BaseFuse
             flags: {:?})",
             parent, name, mode, umask, flags
         );
-        Err(PosixError::FUNCTION_NOT_IMPLEMENTED.into())
+        if self.panic {
+            panic!("Function not implemented")
+        } else {
+            Err(PosixError::FUNCTION_NOT_IMPLEMENTED.into())
+        }
     }
 
     fn fallocate(
@@ -460,7 +588,11 @@ impl<T: IdType> FuseAPI<T> for BaseFuse
             "[Not Implemented] fallocate(file: {:?}, file_handle: {:?} offset: {}, length: {}, mode: {})",
             file, file_handle, offset, length, mode
         );
-        Err(PosixError::FUNCTION_NOT_IMPLEMENTED.into())
+        if self.panic {
+            panic!("Function not implemented")
+        } else {
+            Err(PosixError::FUNCTION_NOT_IMPLEMENTED.into())
+        }
     }
 
     fn lseek(
@@ -475,7 +607,11 @@ impl<T: IdType> FuseAPI<T> for BaseFuse
             "[Not Implemented] lseek(file: {:?}, file_handle: {:?}, offset: {}, whence: {:?})",
             file, file_handle, offset, whence
         );
-        Err(PosixError::FUNCTION_NOT_IMPLEMENTED.into())
+        if self.panic {
+            panic!("Function not implemented")
+        } else {
+            Err(PosixError::FUNCTION_NOT_IMPLEMENTED.into())
+        }
     }
 
     fn copy_file_range(
@@ -494,6 +630,10 @@ impl<T: IdType> FuseAPI<T> for BaseFuse
             "[Not Implemented] copy_file_range(file_in: {:?}, file_handle_in: {:?}, offset_in: {}, file_out: {:?}, file_handle_out: {:?}, offset_out: {}, len: {}, flags: {})",
             file_in, file_handle_in, offset_in, file_out, file_handle_out, offset_out, len, flags
         );
-        Err(PosixError::FUNCTION_NOT_IMPLEMENTED.into())
+        if self.panic {
+            panic!("Function not implemented")
+        } else {
+            Err(PosixError::FUNCTION_NOT_IMPLEMENTED.into())
+        }
     }
 }

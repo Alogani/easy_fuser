@@ -1,6 +1,5 @@
 use std::{ffi::OsStr, io, path::Path, time::Duration};
 
-use super::IdType;
 use crate::fuse_api::FuseAPI;
 use crate::types::*;
 

@@ -1,8 +1,7 @@
 use crate::*;
 use crate::types::*;
 
-use templates::BaseFuse;
-use wrapper::IdType;
+use crate::FuseAPI;
 
 
 /// Implement all functions that rely on file handle to be done by assuming a file handle represents a file descriptor on the filesystem.
@@ -11,26 +10,38 @@ use wrapper::IdType;
 /// - `open`
 /// - `create`
 
-
-pub struct FileDescriptorBridge {
-    inner: BaseFuse
+pub struct FileDescriptorBridge<T>
+where
+    T: IdType,
+{
+    inner: Box<dyn FuseAPI<T>>
 }
 
-impl FileDescriptorBridge {
-    pub fn new() -> Self {
-        Self { inner: BaseFuse{} }
+impl<T> FileDescriptorBridge<T>
+where
+    T: IdType,
+{
+    pub fn new<U: FuseAPI<T>>(inner: U) -> Self {
+        Self {
+            inner: Box::new(inner)
+        }
     }
+
 }
 
-impl<T: IdType> FuseAPI<T> for FileDescriptorBridge {
-    fn get_inner(&self) -> &impl FuseAPI<T> {
-        &self.inner
+
+impl<T> FuseAPI<T> for FileDescriptorBridge<T>
+where
+    T: IdType,
+{
+    fn get_inner(&self) -> &Box<(dyn FuseAPI<T>)> {
+        &self.inner   
     }
 
     fn getattr(
         &self,
-        req: RequestInfo,
-        file: T,
+        _req: RequestInfo,
+        _file: T,
         file_handle: Option<FileHandle>,
     ) -> FuseResult<FileAttribute> {
         let fh = file_handle.expect("getattr requires a file_handle");
@@ -42,13 +53,13 @@ impl<T: IdType> FuseAPI<T> for FileDescriptorBridge {
 
     fn read(
         &self,
-        req: RequestInfo,
-        file: T,
+        _req: RequestInfo,
+        _file: T,
         file_handle: FileHandle,
         offset: i64,
         size: u32,
-        flags: FUSEReadFlags,
-        lock_owner: Option<u64>,
+        _flags: FUSEReadFlags,
+        _lock_owner: Option<u64>,
     ) -> FuseResult<Vec<u8>> {
         match FileDescriptor::try_from(file_handle) {
             Ok(fd) => posix_fs::read(&fd, offset, size),
@@ -58,14 +69,14 @@ impl<T: IdType> FuseAPI<T> for FileDescriptorBridge {
 
     fn write(
         &self,
-        req: RequestInfo,
-        file: T,
+        _req: RequestInfo,
+        _file: T,
         file_handle: FileHandle,
         offset: i64,
         data: &[u8],
-        write_flags: FUSEWriteFlags,
-        flags: OpenFlags,
-        lock_owner: Option<u64>,
+        _write_flags: FUSEWriteFlags,
+        _flags: OpenFlags,
+        _lock_owner: Option<u64>,
     ) -> FuseResult<u32> {
         match FileDescriptor::try_from(file_handle) {
             Ok(fd) => posix_fs::write(&fd, offset, data),
@@ -75,10 +86,10 @@ impl<T: IdType> FuseAPI<T> for FileDescriptorBridge {
 
     fn flush(
         &self,
-        req: RequestInfo,
-        file: T,
+        _req: RequestInfo,
+        _file: T,
         file_handle: FileHandle,
-        lock_owner: u64,
+        _lock_owner: u64,
     ) -> FuseResult<()> {
         match FileDescriptor::try_from(file_handle) {
             Ok(fd) => posix_fs::flush(&fd),
@@ -88,8 +99,8 @@ impl<T: IdType> FuseAPI<T> for FileDescriptorBridge {
 
     fn fsync(
         &self,
-        req: RequestInfo,
-        file: T,
+        _req: RequestInfo,
+        _file: T,
         file_handle: FileHandle,
         datasync: bool,
     ) -> FuseResult<()> {
@@ -101,12 +112,12 @@ impl<T: IdType> FuseAPI<T> for FileDescriptorBridge {
 
     fn release(
         &self,
-        req: RequestInfo,
-        file: T,
+        _req: RequestInfo,
+        _file: T,
         file_handle: FileHandle,
-        flags: OpenFlags,
-        lock_owner: Option<u64>,
-        flush: bool,
+        _flags: OpenFlags,
+        _lock_owner: Option<u64>,
+        _flush: bool,
     ) -> FuseResult<()> {
         match FileDescriptor::try_from(file_handle) {
             Ok(fd) => posix_fs::release(fd),
@@ -116,8 +127,8 @@ impl<T: IdType> FuseAPI<T> for FileDescriptorBridge {
 
     fn fallocate(
         &self,
-        req: RequestInfo,
-        file: T,
+        _req: RequestInfo,
+        _file: T,
         file_handle: FileHandle,
         offset: i64,
         length: i64,
@@ -132,7 +143,7 @@ impl<T: IdType> FuseAPI<T> for FileDescriptorBridge {
     fn lseek(
         &self,
         _req: RequestInfo,
-        file: T,
+        _file: T,
         file_handle: FileHandle,
         offset: i64,
         whence: Whence,
@@ -145,15 +156,15 @@ impl<T: IdType> FuseAPI<T> for FileDescriptorBridge {
 
     fn copy_file_range(
         &self,
-        req: RequestInfo,
-        file_in: T,
+        _req: RequestInfo,
+        _file_in: T,
         file_handle_in: FileHandle,
         offset_in: i64,
-        file_out: T,
+        _file_out: T,
         file_handle_out: FileHandle,
         offset_out: i64,
         len: u64,
-        flags: u32, // Not implemented yet in standard
+        _flags: u32, // Not implemented yet in standard
     ) -> FuseResult<u32> {
         match (
             FileDescriptor::try_from(file_handle_in),

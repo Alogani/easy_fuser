@@ -7,6 +7,8 @@ use fuser::{FileType, Request, TimeOrNow};
 
 use super::{errors::*, LockType};
 
+pub trait IdType: Send + std::fmt::Debug + 'static {}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct Inode(u64);
 pub const INVALID_INODE: Inode = Inode(0);
