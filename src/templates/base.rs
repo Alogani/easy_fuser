@@ -30,9 +30,7 @@ impl BaseFuse {
     }
 }
 
-impl<T: IdType> FuseAPI<T> for BaseFuse
-where
-    T: IdType,
+impl<T: FileIdType> FuseAPI<T> for BaseFuse
 {
     fn get_inner(&self) -> &Box<(dyn FuseAPI<T>)> {
         panic!("Base Fuse don't have inner type")
@@ -46,11 +44,11 @@ where
         Ok(())
     }
 
-    fn lookup(&self, _req: RequestInfo, parent: T, name: &OsStr)
+    fn lookup(&self, _req: RequestInfo, parent_id: T, name: &OsStr)
         -> FuseResult<FileAttribute> {
         warn!(
             "[Not Implemented] lookup(parent_file: {:?}, name {:?})",
-            parent, name
+            parent_id, name
         );
         if self.panic {
             panic!("Function not implemented")
@@ -59,17 +57,17 @@ where
         }
     }
 
-    fn forget(&self, _req: RequestInfo, _file: T, _nlookup: u64) {}
+    fn forget(&self, _req: RequestInfo, _file_id: T, _nlookup: u64) {}
 
     fn getattr(
         &self,
         _req: RequestInfo,
-        file: T,
+        file_id: T,
         file_handle: Option<FileHandle>,
     ) -> FuseResult<FileAttribute> {
         warn!(
-            "[Not Implemented] getattr(file: {:?}, file_handle {:?})",
-            file, file_handle
+            "[Not Implemented] getattr(file_id: {:?}, file_handle {:?})",
+            file_id, file_handle
         );
         if self.panic {
             panic!("Function not implemented")
@@ -81,12 +79,12 @@ where
     fn setattr(
         &self,
         _req: RequestInfo,
-        file: T,
+        file_id: T,
         attrs: SetAttrRequest,
     ) -> FuseResult<FileAttribute> {
         debug!(
-            "[Not Implemented] setattr(file: {:?}, _req: {:?}, attrs: {:?}",
-            file, _req, attrs
+            "[Not Implemented] setattr(file_id: {:?}, _req: {:?}, attrs: {:?}",
+            file_id, _req, attrs
         );
         if self.panic {
             panic!("Function not implemented")
@@ -95,8 +93,8 @@ where
         }
     }
 
-    fn readlink(&self, _req: RequestInfo, file: T) -> FuseResult<Vec<u8>> {
-        debug!("[Not Implemented] readlink(file: {:?})", file);
+    fn readlink(&self, _req: RequestInfo, file_id: T) -> FuseResult<Vec<u8>> {
+        debug!("[Not Implemented] readlink(file_id: {:?})", file_id);
         if self.panic {
             panic!("Function not implemented")
         } else {
@@ -107,16 +105,16 @@ where
     fn mknod(
         &self,
         _req: RequestInfo,
-        parent: T,
+        parent_id: T,
         name: &OsStr,
         mode: u32,
         umask: u32,
         rdev: DeviceType,
     ) -> FuseResult<FileAttribute> {
         debug!(
-            "[Not Implemented] mknod(parent: {:?}, name: {:?}, mode: {}, \
+            "[Not Implemented] mknod(parent_id: {:?}, name: {:?}, mode: {}, \
             umask: {:?}, rdev: {:?})",
-            parent, name, mode, umask, rdev
+            parent_id, name, mode, umask, rdev
         );
         if self.panic {
             panic!("Function not implemented")
@@ -128,14 +126,14 @@ where
     fn mkdir(
         &self,
         _req: RequestInfo,
-        parent: T,
+        parent_id: T,
         name: &OsStr,
         mode: u32,
         umask: u32,
     ) -> FuseResult<FileAttribute> {
         debug!(
-            "[Not Implemented] mkdir(parent: {:?}, name: {:?}, mode: {}, umask: {:?})",
-            parent, name, mode, umask
+            "[Not Implemented] mkdir(parent_id: {:?}, name: {:?}, mode: {}, umask: {:?})",
+            parent_id, name, mode, umask
         );
         if self.panic {
             panic!("Function not implemented")
@@ -144,10 +142,10 @@ where
         }
     }
 
-    fn unlink(&self, _req: RequestInfo, parent: T, name: &OsStr) -> FuseResult<()> {
+    fn unlink(&self, _req: RequestInfo, parent_id: T, name: &OsStr) -> FuseResult<()> {
         debug!(
-            "[Not Implemented] unlink(parent: {:?}, name: {:?})",
-            parent, name,
+            "[Not Implemented] unlink(parent_id: {:?}, name: {:?})",
+            parent_id, name,
         );
         if self.panic {
             panic!("Function not implemented")
@@ -156,10 +154,10 @@ where
         }
     }
 
-    fn rmdir(&self, _req: RequestInfo, parent: T, name: &OsStr) -> FuseResult<()> {
+    fn rmdir(&self, _req: RequestInfo, parent_id: T, name: &OsStr) -> FuseResult<()> {
         debug!(
-            "[Not Implemented] rmdir(parent: {:?}, name: {:?})",
-            parent, name,
+            "[Not Implemented] rmdir(parent_id: {:?}, name: {:?})",
+            parent_id, name,
         );
         if self.panic {
             panic!("Function not implemented")
@@ -171,13 +169,13 @@ where
     fn symlink(
         &self,
         _req: RequestInfo,
-        parent: T,
+        parent_id: T,
         link_name: &OsStr,
         target: &Path,
     ) -> FuseResult<FileAttribute> {
         debug!(
-            "[Not Implemented] symlink(parent: {:?}, link_name: {:?}, target: {:?})",
-            parent, link_name, target,
+            "[Not Implemented] symlink(parent_id: {:?}, link_name: {:?}, target: {:?})",
+            parent_id, link_name, target,
         );
         if self.panic {
             panic!("Function not implemented")
@@ -189,16 +187,16 @@ where
     fn rename(
         &self,
         _req: RequestInfo,
-        parent: T,
+        parent_id: T,
         name: &OsStr,
         newparent: T,
         newname: &OsStr,
         flags: RenameFlags,
     ) -> FuseResult<()> {
         debug!(
-            "[Not Implemented] rename(parent: {:?}, name: {:?}, newparent: {:?}, \
+            "[Not Implemented] rename(parent_id: {:?}, name: {:?}, newparent: {:?}, \
             newname: {:?}, flags: {:?})",
-            parent, name, newparent, newname, flags,
+            parent_id, name, newparent, newname, flags,
         );
         if self.panic {
             panic!("Function not implemented")
@@ -210,13 +208,13 @@ where
     fn link(
         &self,
         _req: RequestInfo,
-        file: T,
+        file_id: T,
         newparent: T,
         newname: &OsStr,
     ) -> FuseResult<FileAttribute> {
         debug!(
-            "[Not Implemented] link(file: {:?}, newparent: {:?}, newname: {:?})",
-            file, newparent, newname
+            "[Not Implemented] link(file_id: {:?}, newparent: {:?}, newname: {:?})",
+            file_id, newparent, newname
         );
         if self.panic {
             panic!("Function not implemented")
@@ -228,12 +226,12 @@ where
     fn open(
         &self,
         _req: RequestInfo,
-        file: T,
+        file_id: T,
         flags: OpenFlags,
     ) -> FuseResult<(FileHandle, FUSEOpenResponseFlags)> {
         debug!(
-            "[Not Implemented] open(file: {:?}, flags: {:?})",
-            file, flags
+            "[Not Implemented] open(file_id: {:?}, flags: {:?})",
+            file_id, flags
         );
         if self.panic {
             panic!("Function not implemented")
@@ -245,7 +243,7 @@ where
     fn read(
         &self,
         _req: RequestInfo,
-        file: T,
+        file_id: T,
         file_handle: FileHandle,
         offset: i64,
         size: u32,
@@ -253,8 +251,8 @@ where
         lock_owner: Option<u64>,
     ) -> FuseResult<Vec<u8>> {
         debug!(
-            "[Not Implemented] read(file: {:?}, file_handle: {:?}, offset: {}, size: {}, flags: {:?}, lock_owner: {:?})",
-            file, file_handle, offset, size, flags, lock_owner
+            "[Not Implemented] read(file_id: {:?}, file_handle: {:?}, offset: {}, size: {}, flags: {:?}, lock_owner: {:?})",
+            file_id, file_handle, offset, size, flags, lock_owner
         );
         if self.panic {
             panic!("Function not implemented")
@@ -266,7 +264,7 @@ where
     fn write(
         &self,
         _req: RequestInfo,
-        file: T,
+        file_id: T,
         file_handle: FileHandle,
         offset: i64,
         data: &[u8],
@@ -275,8 +273,8 @@ where
         lock_owner: Option<u64>,
     ) -> FuseResult<u32> {
         debug!(
-            "[Not Implemented] write(file: {:?}, file_handle: {:?}, offset: {}, data_len: {}, write_flags: {:?}, flags: {:?}, lock_owner: {:?})",
-            file, file_handle, offset, data.len(), write_flags, flags, lock_owner
+            "[Not Implemented] write(file_id: {:?}, file_handle: {:?}, offset: {}, data_len: {}, write_flags: {:?}, flags: {:?}, lock_owner: {:?})",
+            file_id, file_handle, offset, data.len(), write_flags, flags, lock_owner
         );
         if self.panic {
             panic!("Function not implemented")
@@ -288,13 +286,13 @@ where
     fn flush(
         &self,
         _req: RequestInfo,
-        file: T,
+        file_id: T,
         file_handle: FileHandle,
         lock_owner: u64,
     ) -> FuseResult<()> {
         debug!(
-            "[Not Implemented] flush(file: {:?}, file_handle: {:?}, lock_owner: {})",
-            file, file_handle, lock_owner
+            "[Not Implemented] flush(file_id: {:?}, file_handle: {:?}, lock_owner: {})",
+            file_id, file_handle, lock_owner
         );
         if self.panic {
             panic!("Function not implemented")
@@ -306,13 +304,13 @@ where
     fn fsync(
         &self,
         _req: RequestInfo,
-        file: T,
+        file_id: T,
         file_handle: FileHandle,
         datasync: bool,
     ) -> FuseResult<()> {
         debug!(
-            "[Not Implemented] fsync(file: {:?}, file_handle: {:?}, datasync: {})",
-            file, file_handle, datasync
+            "[Not Implemented] fsync(file_id: {:?}, file_handle: {:?}, datasync: {})",
+            file_id, file_handle, datasync
         );
         if self.panic {
             panic!("Function not implemented")
@@ -324,7 +322,7 @@ where
     fn opendir(
         &self,
         _req: RequestInfo,
-        _file: T,
+        _file_id: T,
         _flags: OpenFlags,
     ) -> FuseResult<(FileHandle, FUSEOpenResponseFlags)> {
         Ok((FileHandle::from(0), FUSEOpenResponseFlags::empty()))
@@ -333,12 +331,12 @@ where
     fn readdir(
         &self,
         _req: RequestInfo,
-        file: T,
+        file_id: T,
         file_handle: FileHandle,
     ) -> FuseResult<Vec<FuseDirEntry>>{
         warn!(
-            "[Not Implemented] readdir(file: {:?}, fh: {:?})",
-            file, file_handle
+            "[Not Implemented] readdir(file_id: {:?}, fh: {:?})",
+            file_id, file_handle
         );
         if self.panic {
             panic!("Function not implemented")
@@ -350,12 +348,12 @@ where
     fn readdirplus(
         &self,
         _req: RequestInfo,
-        file: T,
+        file_id: T,
         file_handle: FileHandle,
     ) -> FuseResult<Vec<FuseDirEntryPlus>> {
         warn!(
-            "[Not Implemented] readdirplus(file: {:?}, fh: {:?})",
-            file, file_handle
+            "[Not Implemented] readdirplus(file_id: {:?}, fh: {:?})",
+            file_id, file_handle
         );
         if self.panic {
             panic!("Function not implemented")
@@ -367,7 +365,7 @@ where
     fn releasedir(
         &self,
         _req: RequestInfo,
-        _file: T,
+        _file_id: T,
         _file_handle: FileHandle,
         _flags: OpenFlags,
     ) -> FuseResult<()> {
@@ -377,7 +375,7 @@ where
     fn fsyncdir(
         &self,
         _req: RequestInfo,
-        _file: T,
+        _file_id: T,
         _file_handle: FileHandle,
         _datasync: bool,
     ) -> FuseResult<()> {
@@ -387,15 +385,15 @@ where
     fn release(
         &self,
         _req: RequestInfo,
-        file: T,
+        file_id: T,
         file_handle: FileHandle,
         flags: OpenFlags,
         lock_owner: Option<u64>,
         flush: bool,
     ) -> FuseResult<()> {
         debug!(
-            "[Not Implemented] release(file: {:?}, file_handle: {:?}, flags: {:?}, lock_owner: {:?}, flush: {:?})",
-            file, file_handle, flags, lock_owner, flush
+            "[Not Implemented] release(file_id: {:?}, file_handle: {:?}, flags: {:?}, lock_owner: {:?}, flush: {:?})",
+            file_id, file_handle, flags, lock_owner, flush
         );
         if self.panic {
             panic!("Function not implemented")
@@ -404,22 +402,22 @@ where
         }
     }
 
-    fn statfs(&self, _req: RequestInfo, _file: T) -> FuseResult<StatFs> {
+    fn statfs(&self, _req: RequestInfo, _file_id: T) -> FuseResult<StatFs> {
         Ok(StatFs::default())
     }
 
     fn setxattr(
         &self,
         _req: RequestInfo,
-        file: T,
+        file_id: T,
         name: &OsStr,
         _value: &[u8],
         flags: FUSESetXAttrFlags,
         position: u32,
     ) -> FuseResult<()> {
         debug!(
-            "[Not Implemented] setxattr(file: {:?}, name: {:?}, flags: {:?}, position: {})",
-            file, name, flags, position
+            "[Not Implemented] setxattr(file_id: {:?}, name: {:?}, flags: {:?}, position: {})",
+            file_id, name, flags, position
         );
         if self.panic {
             panic!("Function not implemented")
@@ -431,13 +429,13 @@ where
     fn getxattr(
         &self,
         _req: RequestInfo,
-        file: T,
+        file_id: T,
         name: &OsStr,
         size: u32,
     ) -> FuseResult<Vec<u8>> {
         debug!(
-            "[Not Implemented] getxattr(file: {:?}, name: {:?}, size: {})",
-            file, name, size
+            "[Not Implemented] getxattr(file_id: {:?}, name: {:?}, size: {})",
+            file_id, name, size
         );
         if self.panic {
             panic!("Function not implemented")
@@ -446,10 +444,10 @@ where
         }
     }
 
-    fn listxattr(&self, _req: RequestInfo, file: T, size: u32) -> FuseResult<Vec<u8>> {
+    fn listxattr(&self, _req: RequestInfo, file_id: T, size: u32) -> FuseResult<Vec<u8>> {
         debug!(
-            "[Not Implemented] listxattr(file: {:?}, size: {})",
-            file, size
+            "[Not Implemented] listxattr(file_id: {:?}, size: {})",
+            file_id, size
         );
         if self.panic {
             panic!("Function not implemented")
@@ -458,10 +456,10 @@ where
         }
     }
 
-    fn removexattr(&self, _req: RequestInfo, file: T, name: &OsStr) -> FuseResult<()> {
+    fn removexattr(&self, _req: RequestInfo, file_id: T, name: &OsStr) -> FuseResult<()> {
         debug!(
-            "[Not Implemented] removexattr(file: {:?}, name: {:?})",
-            file, name
+            "[Not Implemented] removexattr(file_id: {:?}, name: {:?})",
+            file_id, name
         );
         if self.panic {
             panic!("Function not implemented")
@@ -470,10 +468,10 @@ where
         }
     }
 
-    fn access(&self, _req: RequestInfo, file: T, mask: AccessMask) -> FuseResult<()> {
+    fn access(&self, _req: RequestInfo, file_id: T, mask: AccessMask) -> FuseResult<()> {
         debug!(
-            "[Not Implemented] access(file: {:?}, mask: {:?})",
-            file, mask
+            "[Not Implemented] access(file_id: {:?}, mask: {:?})",
+            file_id, mask
         );
         if self.panic {
             panic!("Function not implemented")
@@ -485,14 +483,14 @@ where
     fn getlk(
         &self,
         _req: RequestInfo,
-        file: T,
+        file_id: T,
         file_handle: FileHandle,
         lock_owner: u64,
         lock_info: LockInfo,
     ) -> FuseResult<LockInfo> {
         debug!(
-            "[Not Implemented] getlk(file: {:?}, fh: {:?}, lock_owner, {:?}, lock_info: {:?})",
-            file, file_handle, lock_owner, lock_info
+            "[Not Implemented] getlk(file_id: {:?}, fh: {:?}, lock_owner, {:?}, lock_info: {:?})",
+            file_id, file_handle, lock_owner, lock_info
         );
         if self.panic {
             panic!("Function not implemented")
@@ -504,15 +502,15 @@ where
     fn setlk(
         &self,
         _req: RequestInfo,
-        file: T,
+        file_id: T,
         file_handle: FileHandle,
         lock_owner: u64,
         lock_info: LockInfo,
         sleep: bool,
     ) -> FuseResult<()> {
         debug!(
-            "[Not Implemented] setlk(file: {:?}, fh: {:?}, lock_owner, {:?}, lock_info: {:?}, sleep: {:?})",
-            file, file_handle, lock_owner, lock_info, sleep
+            "[Not Implemented] setlk(file_id: {:?}, fh: {:?}, lock_owner, {:?}, lock_info: {:?}, sleep: {:?})",
+            file_id, file_handle, lock_owner, lock_info, sleep
         );
         if self.panic {
             panic!("Function not implemented")
@@ -521,10 +519,10 @@ where
         }
     }
 
-    fn bmap(&self, _req: RequestInfo, file: T, blocksize: u32, idx: u64) -> FuseResult<u64> {
+    fn bmap(&self, _req: RequestInfo, file_id: T, blocksize: u32, idx: u64) -> FuseResult<u64> {
         debug!(
-            "[Not Implemented] bmap(file: {:?}, blocksize: {:?}, idx: {:?})",
-            file, blocksize, idx
+            "[Not Implemented] bmap(file_id: {:?}, blocksize: {:?}, idx: {:?})",
+            file_id, blocksize, idx
         );
         if self.panic {
             panic!("Function not implemented")
@@ -536,7 +534,7 @@ where
     fn ioctl(
         &self,
         _req: RequestInfo,
-        file: T,
+        file_id: T,
         file_handle: FileHandle,
         flags: IOCtlFlags,
         cmd: u32,
@@ -544,8 +542,8 @@ where
         out_size: u32,
     ) -> FuseResult<(i32, Vec<u8>)> {
         debug!(
-            "[Not Implemented] ioctl(file: {:?}, fh: {:?}, flags: {:?}, cmd: {:?}, in_data: {:?}, out_size: {:?})",
-            file, file_handle, flags, cmd, in_data, out_size
+            "[Not Implemented] ioctl(file_id: {:?}, fh: {:?}, flags: {:?}, cmd: {:?}, in_data: {:?}, out_size: {:?})",
+            file_id, file_handle, flags, cmd, in_data, out_size
         );
         if self.panic {
             panic!("Function not implemented")
@@ -557,16 +555,16 @@ where
     fn create(
         &self,
         _req: RequestInfo,
-        parent: T,
+        parent_id: T,
         name: &OsStr,
         mode: u32,
         umask: u32,
         flags: OpenFlags,
     ) -> FuseResult<(FileHandle, FileAttribute, FUSEOpenResponseFlags)> {
         debug!(
-            "[Not Implemented] create(parent: {:?}, name: {:?}, mode: {}, umask: {:?}, \
+            "[Not Implemented] create(parent_id: {:?}, name: {:?}, mode: {}, umask: {:?}, \
             flags: {:?})",
-            parent, name, mode, umask, flags
+            parent_id, name, mode, umask, flags
         );
         if self.panic {
             panic!("Function not implemented")
@@ -578,15 +576,15 @@ where
     fn fallocate(
         &self,
         _req: RequestInfo,
-        file: T,
+        file_id: T,
         file_handle: FileHandle,
         offset: i64,
         length: i64,
         mode: i32,
     ) -> FuseResult<()> {
         debug!(
-            "[Not Implemented] fallocate(file: {:?}, file_handle: {:?} offset: {}, length: {}, mode: {})",
-            file, file_handle, offset, length, mode
+            "[Not Implemented] fallocate(file_id: {:?}, file_handle: {:?} offset: {}, length: {}, mode: {})",
+            file_id, file_handle, offset, length, mode
         );
         if self.panic {
             panic!("Function not implemented")
@@ -598,14 +596,14 @@ where
     fn lseek(
         &self,
         _req: RequestInfo,
-        file: T,
+        file_id: T,
         file_handle: FileHandle,
         offset: i64,
         whence: Whence,
     ) -> FuseResult<i64> {
         debug!(
-            "[Not Implemented] lseek(file: {:?}, file_handle: {:?}, offset: {}, whence: {:?})",
-            file, file_handle, offset, whence
+            "[Not Implemented] lseek(file_id: {:?}, file_handle: {:?}, offset: {}, whence: {:?})",
+            file_id, file_handle, offset, whence
         );
         if self.panic {
             panic!("Function not implemented")

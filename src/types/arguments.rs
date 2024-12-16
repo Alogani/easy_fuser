@@ -1,11 +1,10 @@
 use std::ffi::OsString;
-use std::io;
 use std::time::{Duration, SystemTime};
 
 use fuser::FileAttr as FuseFileAttr;
 use fuser::{FileType, Request, TimeOrNow};
 
-use super::{errors::*, LockType};
+use super::LockType;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Inode(u64);
@@ -37,42 +36,6 @@ impl From<u64> for FileHandle {
 impl From<FileHandle> for u64 {
     fn from(value: FileHandle) -> Self {
         value.0
-    }
-}
-
-/// Represents the file descriptor of an open file on the system
-#[derive(Debug, Clone)]
-pub struct FileDescriptor(i32);
-
-impl From<FileDescriptor> for i32 {
-    fn from(value: FileDescriptor) -> Self {
-        value.0
-    }
-}
-
-impl From<i32> for FileDescriptor {
-    fn from(value: i32) -> Self {
-        FileDescriptor(value)
-    }
-}
-
-impl TryFrom<FileHandle> for FileDescriptor {
-    type Error = io::Error;
-
-    fn try_from(fh: FileHandle) -> Result<Self, Self::Error> {
-        Ok(Self(
-            i32::try_from(u64::from(fh)).map_err(|_| PosixError::INVALID_ARGUMENT)?,
-        ))
-    }
-}
-
-impl FileDescriptor {
-    pub fn to_file_handle(self) -> Result<FileHandle, io::Error> {
-        let fd: i32 = self.into();
-        if fd < 0 {
-            return Err(from_last_errno());
-        }
-        return Ok(FileHandle::from(fd as u64));
     }
 }
 

@@ -10,16 +10,12 @@ use crate::FuseAPI;
 /// - `open`
 /// - `create`
 
-pub struct FileDescriptorBridge<T>
-where
-    T: IdType,
+pub struct FileDescriptorBridge<T: FileIdType>
 {
     inner: Box<dyn FuseAPI<T>>
 }
 
-impl<T> FileDescriptorBridge<T>
-where
-    T: IdType,
+impl<T: FileIdType> FileDescriptorBridge<T>
 {
     pub fn new<U: FuseAPI<T>>(inner: U) -> Self {
         Self {
@@ -30,9 +26,7 @@ where
 }
 
 
-impl<T> FuseAPI<T> for FileDescriptorBridge<T>
-where
-    T: IdType,
+impl<T: FileIdType> FuseAPI<T> for FileDescriptorBridge<T>
 {
     fn get_inner(&self) -> &Box<(dyn FuseAPI<T>)> {
         eprintln!("FdBridge getinner");
@@ -42,7 +36,7 @@ where
     /*fn getattr(
         &self,
         _req: RequestInfo,
-        _file: T,
+        _file_id: T,
         file_handle: Option<FileHandle>,
     ) -> FuseResult<FileAttribute> {
         let fh = file_handle.expect("getattr requires a file_handle");
@@ -55,7 +49,7 @@ where
     fn read(
         &self,
         _req: RequestInfo,
-        _file: T,
+        _file_id: T,
         file_handle: FileHandle,
         offset: i64,
         size: u32,
@@ -71,7 +65,7 @@ where
     fn write(
         &self,
         _req: RequestInfo,
-        _file: T,
+        _file_id: T,
         file_handle: FileHandle,
         offset: i64,
         data: &[u8],
@@ -88,7 +82,7 @@ where
     fn flush(
         &self,
         _req: RequestInfo,
-        _file: T,
+        _file_id: T,
         file_handle: FileHandle,
         _lock_owner: u64,
     ) -> FuseResult<()> {
@@ -101,7 +95,7 @@ where
     fn fsync(
         &self,
         _req: RequestInfo,
-        _file: T,
+        _file_id: T,
         file_handle: FileHandle,
         datasync: bool,
     ) -> FuseResult<()> {
@@ -114,7 +108,7 @@ where
     fn release(
         &self,
         _req: RequestInfo,
-        _file: T,
+        _file_id: T,
         file_handle: FileHandle,
         _flags: OpenFlags,
         _lock_owner: Option<u64>,
@@ -129,7 +123,7 @@ where
     fn fallocate(
         &self,
         _req: RequestInfo,
-        _file: T,
+        _file_id: T,
         file_handle: FileHandle,
         offset: i64,
         length: i64,
@@ -144,7 +138,7 @@ where
     fn lseek(
         &self,
         _req: RequestInfo,
-        _file: T,
+        _file_id: T,
         file_handle: FileHandle,
         offset: i64,
         whence: Whence,

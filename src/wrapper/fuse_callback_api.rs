@@ -5,7 +5,7 @@ use crate::types::*;
 
 pub type ReplyCb<T> = Box<dyn FnOnce(Result<T, io::Error>) + Send>;
 
-pub trait FuseCallbackAPI<T: IdType> {
+pub trait FuseCallbackAPI<T: FileIdType> {
     fn get_default_ttl() -> Duration {
         Duration::from_secs(1)
     }

@@ -27,46 +27,44 @@ impl FuseAPI<PathBuf> for PassthroughFs {
         &self.inner
     }
 
-    fn lookup(&self, _req: RequestInfo, parent: PathBuf, name: &OsStr)
+    fn lookup(&self, _req: RequestInfo, parent_id: PathBuf, name: &OsStr)
         -> FuseResult<FileAttribute> {
-        let file_path = self.repo.join(parent).join(name);
+        let file_path = self.repo.join(parent_id).join(name);
         let fd = posix_fs::open(file_path.as_ref(), OpenFlags::empty())?;
         let result = posix_fs::getattr(&fd);
-        posix_fs::release(fd)?;
         result
     }
 
     fn open(
             &self,
             _req: RequestInfo,
-            file: PathBuf,
+            file_id: PathBuf,
             flags: OpenFlags,
         ) -> FuseResult<(FileHandle, FUSEOpenResponseFlags)> {
-        let file_path = self.repo.join(file);
-        let fd = posix_fs::open(file_path.as_ref(), flags)?;
-        Ok((fd.to_file_handle()?, FUSEOpenResponseFlags::empty()))
+        let file_path = self.repo.join(file_id);
+        let mut fd = posix_fs::open(file_path.as_ref(), flags)?;
+        Ok((fd.take_to_file_handle()?, FUSEOpenResponseFlags::empty()))
     }
 
     fn getattr(
             &self,
             _req: RequestInfo,
-            file: PathBuf,
+            file_id: PathBuf,
             _file_handle: Option<FileHandle>,
         ) -> FuseResult<FileAttribute> {
-        let file_path = self.repo.join(file);
+        let file_path = self.repo.join(file_id);
         let fd = posix_fs::open(file_path.as_ref(), OpenFlags::empty())?;
         let result = posix_fs::getattr(&fd);
-        posix_fs::release(fd)?;
         result
     }
 
     fn readdir(
             &self,
             _req: RequestInfo,
-            file: PathBuf,
+            file_id: PathBuf,
             _file_handle: FileHandle,
         ) -> FuseResult<Vec<FuseDirEntry>> {
-        let folder_path = self.repo.join(file);
+        let folder_path = self.repo.join(file_id);
         let children = posix_fs::readdir(folder_path.as_ref())?;
         let mut result = Vec::new();
         result.push(FuseDirEntry {
@@ -92,13 +90,13 @@ impl FuseAPI<PathBuf> for PassthroughFs {
     }
 
     
-    fn listxattr(&self, _req: RequestInfo, file: PathBuf, size: u32) -> FuseResult<Vec<u8>> {
-        let file_path = self.repo.join(file);
+    fn listxattr(&self, _req: RequestInfo, file_id: PathBuf, size: u32) -> FuseResult<Vec<u8>> {
+        let file_path = self.repo.join(file_id);
         posix_fs::listxattr(&file_path, size)
     }
 
-    fn access(&self, _req: RequestInfo, file: PathBuf, mask: AccessMask) -> FuseResult<()> {
-        let file_path = self.repo.join(file);
+    fn access(&self, _req: RequestInfo, file_id: PathBuf, mask: AccessMask) -> FuseResult<()> {
+        let file_path = self.repo.join(file_id);
         posix_fs::access(&file_path, mask)
     }
 

@@ -278,14 +278,13 @@ pub fn rename(oldpath: &Path, newpath: &Path, flags: RenameFlags) -> Result<(), 
 
 /// Equivalent to the fuse function of the same name
 /// Return a file descriptor (fuse doesn't assume it necessarly equivalent to its file handle)
-/// Which must be manually released to avoid a resource leak (release is defined in fuse_api, so it will be done automatically if transmitted)
-pub fn open(path: &Path, flags: OpenFlags) -> Result<FileDescriptor, io::Error> {
+pub fn open(path: &Path, flags: OpenFlags) -> Result<FileDescriptorGuard, io::Error> {
     let c_path = cstring_from_path(path)?;
     let fd = unsafe { libc::open(c_path.as_ptr(), flags.bits()) };
     if fd == -1 {
         return Err(from_last_errno());
     }
-    Ok(fd.into())
+    Ok(FileDescriptorGuard::new(fd.into()))
 }
 
 /// Equivalent to the fuse function of the same name
@@ -384,6 +383,7 @@ pub fn readdirplus(path: &Path) -> Result<Vec<(OsString, FileType, FileAttribute
 
 /// Equivalent to the fuse function of the same name
 /// Integrated automatically into fuse_api (so file_handle as fd transmitted to it doesn't need to be released)
+/// Useless to call for FileDescriptorGuard
 pub fn release(fd: FileDescriptor) -> Result<(), io::Error> {
     // Attempt to close the file descriptor.
     let result = unsafe { libc::close(fd.into()) };
@@ -488,7 +488,7 @@ pub fn access(path: &Path, mask: AccessMask) -> Result<(), io::Error> {
 /// Equivalent to the fuse function of the same name
 /// The doc of `open` apply
 /// Return a file handle with write flag. Return an error if file already exists
-pub fn create(path: &Path, mode: u32) -> Result<(FileDescriptor, FileAttribute), io::Error> {
+pub fn create(path: &Path, mode: u32) -> Result<(FileDescriptorGuard, FileAttribute), io::Error> {
     let c_path = cstring_from_path(path)?;
 
     // Open the file with O_CREAT (create if it does not exist) and O_WRONLY (write only)
@@ -504,7 +504,7 @@ pub fn create(path: &Path, mode: u32) -> Result<(FileDescriptor, FileAttribute),
         return Err(from_last_errno());
     }
 
-    Ok((fd.into(), lookup(path)?))
+    Ok((FileDescriptorGuard::new(fd.into()), lookup(path)?))
 }
 
 /// Equivalent to the fuse function of the same name
@@ -606,7 +606,6 @@ mod tests {
         let attr1 = lookup(&tmpfile.path()).unwrap();
         let fd = open(&tmpfile.path(), OpenFlags::READ_ONLY).unwrap();
         let attr2 = getattr(&fd).unwrap();
-        let _ = release(fd);
         assert!(attr1.size > 0);
         assert_eq!(attr1, attr2);
         drop(tmpfile);
@@ -691,7 +690,6 @@ mod tests {
 
         let fd = open(&tmpfile.path(), OpenFlags::empty()).unwrap();
         assert!(i32::from(fd.clone()) > 0);
-        let _ = release(fd);
         drop(tmpfile);
     }
 
@@ -711,7 +709,6 @@ mod tests {
         let result = read(&fd, 50, 10);
         assert!(!result.is_err());
         assert_eq!(result.unwrap().len(), 0);
-        let _ = release(fd);
         drop(tmpfile);
     }
 
