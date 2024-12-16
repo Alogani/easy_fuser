@@ -1,23 +1,23 @@
 use std::marker::PhantomData;
 
-use crate::fuse_api::FuseAPI;
+use crate::fuse_handler::FuseHandler;
 
-use super::FuseCallbackAPI;
+use super::FuseCallbackHandler;
 use crate::types::FileIdType;
 
-pub struct FuseSerial<T, U>
+pub struct SerialCallbackHandler<T, U>
 where
     T: FileIdType,
-    U: FuseAPI<T>,
+    U: FuseHandler<T>,
 {
     phantom: PhantomData<T>,
     fuse_api: U,
 }
 
-impl<T, U> FuseSerial<T, U>
+impl<T, U> SerialCallbackHandler<T, U>
 where
     T: FileIdType,
-    U: FuseAPI<T>,
+    U: FuseHandler<T>,
 {
     pub fn new(fuse_api: U) -> Self {
         Self {
@@ -27,12 +27,12 @@ where
     }
 }
 
-impl<T, U> FuseCallbackAPI<T> for FuseSerial<T, U>
+impl<T, U> FuseCallbackHandler<T> for SerialCallbackHandler<T, U>
 where
     T: FileIdType,
-    U: FuseAPI<T>,
+    U: FuseHandler<T>,
 {
-    fn get_fuse_impl(&self) -> &impl FuseAPI<T> {
+    fn get_fuse_handler(&self) -> &impl FuseHandler<T> {
         &self.fuse_api
     }
 }

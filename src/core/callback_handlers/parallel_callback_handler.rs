@@ -1,4 +1,6 @@
 /*
+An example based on the an earlier version of the API
+
 #[cfg(feature = "threadpool")]
 use std::sync::Arc;
 

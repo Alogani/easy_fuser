@@ -1,11 +1,9 @@
 use std::path::PathBuf;
 
-use easy_fuser::templates::{PassthroughFs, BaseFuse};
+use easy_fuser::templates::{MirrorFs, DefaultFuseHandler};
 use easy_fuser::*;
 
 use tempfile::TempDir;
-use templates::FileDescriptorBridge;
-use types::Inode;
 
 fn spawn_deadlock_checker() {
     #[cfg(feature = "deadlock_detection")]
@@ -49,10 +47,10 @@ fn mount_test() {
 
     let mntpoint = TempDir::new().unwrap();
     //let fs = FileDescriptorBridge::<PathBuf>::new(BaseFuse::new());
-    let fs = PassthroughFs::new(PathBuf::from("/tmp/test"), BaseFuse::new_with_panic());
-    let fuse = new_filesystem(fs);
+    let fs = MirrorFs::new(PathBuf::from("/tmp/test"), DefaultFuseHandler::new_with_panic());
+    let fuse = new_serial_driver(fs);
     println!("MOUNTPOINT={:?}", mntpoint.path());
-    let r = mount2(fuse, mntpoint.path(), &[]);
+    let r = mount(fuse, mntpoint.path(), &[]);
     print!("{:?}", r);
     drop(mntpoint);
 }

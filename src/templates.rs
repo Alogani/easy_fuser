@@ -1,8 +1,8 @@
-mod base;
-pub use base::BaseFuse;
+mod default_fuse_handler;
+pub use default_fuse_handler::DefaultFuseHandler;
 
-mod fd_bridge;
-pub use fd_bridge::FileDescriptorBridge;
-mod passthrough;
-pub use passthrough::PassthroughFs;
+mod fd_handler_helper;
+pub use fd_handler_helper::FdHandlerHelper;
+mod mirror_fs;
+pub use mirror_fs::MirrorFs;
 

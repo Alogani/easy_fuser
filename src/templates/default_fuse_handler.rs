@@ -3,7 +3,7 @@ use std::{ffi::OsStr, path::Path, time::Duration};
 use fuser::KernelConfig;
 use log::{debug, warn};
 
-use crate::FuseAPI;
+use crate::FuseHandler;
 use crate::types::*;
 
 /// Default skeleton, see templates to have ready to use fuse filesystem
@@ -16,23 +16,23 @@ use crate::types::*;
 /// - `statsfs` -> return the value of StatFs::default
 
 
-pub struct BaseFuse {
+pub struct DefaultFuseHandler {
     panic: bool
 }
 
-impl BaseFuse {
+impl DefaultFuseHandler {
     pub fn new() -> Self {
-        BaseFuse { panic: false }
+        DefaultFuseHandler { panic: false }
     }
 
     pub fn new_with_panic() -> Self {
-        BaseFuse { panic: true }
+        DefaultFuseHandler { panic: true }
     }
 }
 
-impl<T: FileIdType> FuseAPI<T> for BaseFuse
+impl<T: FileIdType> FuseHandler<T> for DefaultFuseHandler
 {
-    fn get_inner(&self) -> &Box<(dyn FuseAPI<T>)> {
+    fn get_inner(&self) -> &Box<(dyn FuseHandler<T>)> {
         panic!("Base Fuse don't have inner type")
     }
 

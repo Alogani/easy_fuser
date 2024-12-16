@@ -1,7 +1,7 @@
 use crate::*;
 use crate::types::*;
 
-use crate::FuseAPI;
+use crate::FuseHandler;
 
 
 /// Implement all functions that rely on file handle to be done by assuming a file handle represents a file descriptor on the filesystem.
@@ -10,14 +10,14 @@ use crate::FuseAPI;
 /// - `open`
 /// - `create`
 
-pub struct FileDescriptorBridge<T: FileIdType>
+pub struct FdHandlerHelper<T: FileIdType>
 {
-    inner: Box<dyn FuseAPI<T>>
+    inner: Box<dyn FuseHandler<T>>
 }
 
-impl<T: FileIdType> FileDescriptorBridge<T>
+impl<T: FileIdType> FdHandlerHelper<T>
 {
-    pub fn new<U: FuseAPI<T>>(inner: U) -> Self {
+    pub fn new<U: FuseHandler<T>>(inner: U) -> Self {
         Self {
             inner: Box::new(inner)
         }
@@ -26,9 +26,9 @@ impl<T: FileIdType> FileDescriptorBridge<T>
 }
 
 
-impl<T: FileIdType> FuseAPI<T> for FileDescriptorBridge<T>
+impl<T: FileIdType> FuseHandler<T> for FdHandlerHelper<T>
 {
-    fn get_inner(&self) -> &Box<(dyn FuseAPI<T>)> {
+    fn get_inner(&self) -> &Box<(dyn FuseHandler<T>)> {
         eprintln!("FdBridge getinner");
         &self.inner   
     }

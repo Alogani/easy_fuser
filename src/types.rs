@@ -1,12 +1,15 @@
 mod arguments;
-pub use arguments::*;
 mod errors;
-pub use errors::*;
 mod flags;
-pub use flags::*;
 mod file_descriptor;
-pub use file_descriptor::*;
+
+pub use self::{
+    arguments::*,
+    errors::*,
+    flags::*,
+    file_descriptor::*,
+};
+
+pub use crate::core::FileIdType;
 
 pub use fuser::{FileType, KernelConfig, TimeOrNow};
-
-pub use crate::wrapper::FileIdType;

@@ -4,9 +4,9 @@ use std::time::Duration;
 
 use crate::types::*;
 
-pub trait FuseAPI<T: FileIdType>: 'static
+pub trait FuseHandler<T: FileIdType>: 'static
 {
-    fn get_inner(&self) -> &Box<dyn FuseAPI<T>>;
+    fn get_inner(&self) -> &Box<dyn FuseHandler<T>>;
 
     fn get_default_ttl(&self) -> Duration {
         Duration::from_secs(1)

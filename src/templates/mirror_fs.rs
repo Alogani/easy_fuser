@@ -3,27 +3,27 @@ use std::path::PathBuf;
 
 use types::FuseDirEntry;
 
-use super::fd_bridge::FileDescriptorBridge;
+use super::fd_handler_helper::FdHandlerHelper;
 use crate::types::*;
 use crate::*;
 
-pub struct PassthroughFs {
+pub struct MirrorFs {
     repo: PathBuf,
-    inner: Box<dyn FuseAPI<PathBuf>>
+    inner: Box<dyn FuseHandler<PathBuf>>
 }
 
-impl PassthroughFs {
-    pub fn new<T: FuseAPI<PathBuf>>(repo: PathBuf, inner: T) -> Self {
+impl MirrorFs {
+    pub fn new<T: FuseHandler<PathBuf>>(repo: PathBuf, inner: T) -> Self {
         Self {
             repo,
-            inner: Box::new(FileDescriptorBridge::new(inner))
+            inner: Box::new(FdHandlerHelper::new(inner))
         }
     }
 }
 
 
-impl FuseAPI<PathBuf> for PassthroughFs {
-    fn get_inner(&self) -> &Box<(dyn FuseAPI<PathBuf>)> {
+impl FuseHandler<PathBuf> for MirrorFs {
+    fn get_inner(&self) -> &Box<(dyn FuseHandler<PathBuf>)> {
         &self.inner
     }
 

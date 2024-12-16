@@ -1,1 +1,0 @@
-// Should be a super type of fuse_callback_api

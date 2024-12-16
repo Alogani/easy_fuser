@@ -4,12 +4,10 @@ version = "0.1.0"
 edition = "2021"
 
 [features]
-default = ["threadpool", "deadlock_detection"] # For developement
+default = ["threadpool"] # For developement
 threadpool = ["dep:threadpool", "dep:num_cpus"]
-deadlock_detection = []
 
 [dependencies]
-parking_lot = {version = "0.12.3", features = ["deadlock_detection"]}
 log = "0.4"
 libc = "0.2"
 fuser = "0.15"
