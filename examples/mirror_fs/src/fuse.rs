@@ -1,11 +1,9 @@
 use std::ffi::{OsStr, OsString};
 use std::path::PathBuf;
 
-use types::FuseDirEntry;
+use easy_fuser::types::*;
+use easy_fuser::templates::FdHandlerHelper;
 
-use super::fd_handler_helper::FdHandlerHelper;
-use crate::types::*;
-use crate::*;
 
 pub struct MirrorFs {
     repo: PathBuf,

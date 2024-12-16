@@ -5,6 +5,7 @@ use easy_fuser::*;
 
 use tempfile::TempDir;
 
+/*
 fn spawn_deadlock_checker() {
     #[cfg(feature = "deadlock_detection")]
     { // only for #[cfg]
@@ -33,17 +34,15 @@ fn spawn_deadlock_checker() {
         }
     });
     }
-}
+}*/
 
-//cargo test --test test -- --nocapture
-#[test]
-fn mount_test() {
+fn main() {
     let _ = env_logger::builder()
         .is_test(true)
         .filter_level(log::LevelFilter::Trace)
         .try_init();
 
-    spawn_deadlock_checker();
+    //spawn_deadlock_checker();
 
     let mntpoint = TempDir::new().unwrap();
     //let fs = FileDescriptorBridge::<PathBuf>::new(BaseFuse::new());

@@ -1,14 +1,9 @@
 mod arguments;
 mod errors;
-mod flags;
 mod file_descriptor;
+mod flags;
 
-pub use self::{
-    arguments::*,
-    errors::*,
-    flags::*,
-    file_descriptor::*,
-};
+pub use self::{arguments::*, errors::*, file_descriptor::*, flags::*};
 
 pub use crate::core::FileIdType;
 

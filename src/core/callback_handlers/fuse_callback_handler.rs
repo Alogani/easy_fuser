@@ -78,7 +78,10 @@ pub trait FuseCallbackHandler<T: FileIdType> {
         umask: u32,
         callback: ReplyCb<FileAttribute>,
     ) {
-        callback(self.get_fuse_handler().mkdir(req, parent, name, mode, umask));
+        callback(
+            self.get_fuse_handler()
+                .mkdir(req, parent, name, mode, umask),
+        );
     }
 
     fn unlink(&self, req: RequestInfo, parent: T, name: &OsStr, callback: ReplyCb<()>) {
@@ -97,7 +100,10 @@ pub trait FuseCallbackHandler<T: FileIdType> {
         target: &Path,
         callback: ReplyCb<FileAttribute>,
     ) {
-        callback(self.get_fuse_handler().symlink(req, parent, link_name, target));
+        callback(
+            self.get_fuse_handler()
+                .symlink(req, parent, link_name, target),
+        );
     }
 
     fn rename(
@@ -205,7 +211,10 @@ pub trait FuseCallbackHandler<T: FileIdType> {
         datasync: bool,
         callback: ReplyCb<()>,
     ) {
-        callback(self.get_fuse_handler().fsync(req, file, file_handle, datasync));
+        callback(
+            self.get_fuse_handler()
+                .fsync(req, file, file_handle, datasync),
+        );
     }
 
     fn opendir(
@@ -350,10 +359,14 @@ pub trait FuseCallbackHandler<T: FileIdType> {
         sleep: bool,
         callback: ReplyCb<()>,
     ) {
-        callback(
-            self.get_fuse_handler()
-                .setlk(req, file, file_handle, lock_owner, lock_info, sleep),
-        );
+        callback(self.get_fuse_handler().setlk(
+            req,
+            file,
+            file_handle,
+            lock_owner,
+            lock_info,
+            sleep,
+        ));
     }
 
     fn bmap(&self, req: RequestInfo, file: T, blocksize: u32, idx: u64, callback: ReplyCb<u64>) {
@@ -371,10 +384,15 @@ pub trait FuseCallbackHandler<T: FileIdType> {
         out_size: u32,
         callback: ReplyCb<(i32, Vec<u8>)>,
     ) {
-        callback(
-            self.get_fuse_handler()
-                .ioctl(req, file, file_handle, flags, cmd, in_data, out_size),
-        );
+        callback(self.get_fuse_handler().ioctl(
+            req,
+            file,
+            file_handle,
+            flags,
+            cmd,
+            in_data,
+            out_size,
+        ));
     }
 
     fn create(

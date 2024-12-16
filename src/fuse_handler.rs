@@ -4,8 +4,7 @@ use std::time::Duration;
 
 use crate::types::*;
 
-pub trait FuseHandler<T: FileIdType>: 'static
-{
+pub trait FuseHandler<T: FileIdType>: 'static {
     fn get_inner(&self) -> &Box<dyn FuseHandler<T>>;
 
     fn get_default_ttl(&self) -> Duration {
@@ -16,10 +15,9 @@ pub trait FuseHandler<T: FileIdType>: 'static
         self.get_inner().init(req, config)
     }
 
-    fn lookup(&self, req: RequestInfo, parent_id: T, name: &OsStr)
-        -> FuseResult<FileAttribute> {
-            self.get_inner().lookup(req, parent_id, name)
-        }
+    fn lookup(&self, req: RequestInfo, parent_id: T, name: &OsStr) -> FuseResult<FileAttribute> {
+        self.get_inner().lookup(req, parent_id, name)
+    }
 
     fn forget(&self, req: RequestInfo, file_id: T, nlookup: u64) {
         self.get_inner().forget(req, file_id, nlookup);
@@ -56,7 +54,8 @@ pub trait FuseHandler<T: FileIdType>: 'static
         umask: u32,
         rdev: DeviceType,
     ) -> FuseResult<FileAttribute> {
-        self.get_inner().mknod(req, parent_id, name, mode, umask, rdev)
+        self.get_inner()
+            .mknod(req, parent_id, name, mode, umask, rdev)
     }
 
     fn mkdir(
@@ -97,7 +96,8 @@ pub trait FuseHandler<T: FileIdType>: 'static
         newname: &OsStr,
         flags: RenameFlags,
     ) -> FuseResult<()> {
-        self.get_inner().rename(req, parent_id, name, newparent, newname, flags)
+        self.get_inner()
+            .rename(req, parent_id, name, newparent, newname, flags)
     }
 
     fn link(
@@ -129,7 +129,8 @@ pub trait FuseHandler<T: FileIdType>: 'static
         flags: FUSEReadFlags,
         lock_owner: Option<u64>,
     ) -> FuseResult<Vec<u8>> {
-        self.get_inner().read(req, file_id, file_handle, offset, size, flags, lock_owner)
+        self.get_inner()
+            .read(req, file_id, file_handle, offset, size, flags, lock_owner)
     }
 
     fn write(
@@ -143,7 +144,16 @@ pub trait FuseHandler<T: FileIdType>: 'static
         flags: OpenFlags,
         lock_owner: Option<u64>,
     ) -> FuseResult<u32> {
-        self.get_inner().write(req, file_id, file_handle, offset, data, write_flags, flags, lock_owner)
+        self.get_inner().write(
+            req,
+            file_id,
+            file_handle,
+            offset,
+            data,
+            write_flags,
+            flags,
+            lock_owner,
+        )
     }
 
     fn flush(
@@ -153,7 +163,8 @@ pub trait FuseHandler<T: FileIdType>: 'static
         file_handle: FileHandle,
         lock_owner: u64,
     ) -> FuseResult<()> {
-        self.get_inner().flush(req, file_id, file_handle, lock_owner)
+        self.get_inner()
+            .flush(req, file_id, file_handle, lock_owner)
     }
 
     fn fsync(
@@ -200,7 +211,8 @@ pub trait FuseHandler<T: FileIdType>: 'static
         file_handle: FileHandle,
         flags: OpenFlags,
     ) -> FuseResult<()> {
-        self.get_inner().releasedir(req, file_id, file_handle, flags)
+        self.get_inner()
+            .releasedir(req, file_id, file_handle, flags)
     }
 
     fn fsyncdir(
@@ -210,7 +222,8 @@ pub trait FuseHandler<T: FileIdType>: 'static
         file_handle: FileHandle,
         datasync: bool,
     ) -> FuseResult<()> {
-        self.get_inner().fsyncdir(req, file_id, file_handle, datasync)
+        self.get_inner()
+            .fsyncdir(req, file_id, file_handle, datasync)
     }
 
     fn release(
@@ -222,7 +235,8 @@ pub trait FuseHandler<T: FileIdType>: 'static
         lock_owner: Option<u64>,
         flush: bool,
     ) -> FuseResult<()> {
-        self.get_inner().release(req, file_id, file_handle, flags, lock_owner, flush)
+        self.get_inner()
+            .release(req, file_id, file_handle, flags, lock_owner, flush)
     }
 
     fn statfs(&self, req: RequestInfo, file_id: T) -> FuseResult<StatFs> {
@@ -238,7 +252,8 @@ pub trait FuseHandler<T: FileIdType>: 'static
         flags: FUSESetXAttrFlags,
         position: u32,
     ) -> FuseResult<()> {
-        self.get_inner().setxattr(req, file_id, name, value, flags, position)
+        self.get_inner()
+            .setxattr(req, file_id, name, value, flags, position)
     }
 
     fn getxattr(
@@ -271,7 +286,8 @@ pub trait FuseHandler<T: FileIdType>: 'static
         lock_owner: u64,
         lock_info: LockInfo,
     ) -> FuseResult<LockInfo> {
-        self.get_inner().getlk(req, file_id, file_handle, lock_owner, lock_info)
+        self.get_inner()
+            .getlk(req, file_id, file_handle, lock_owner, lock_info)
     }
 
     fn setlk(
@@ -283,7 +299,8 @@ pub trait FuseHandler<T: FileIdType>: 'static
         lock_info: LockInfo,
         sleep: bool,
     ) -> FuseResult<()> {
-        self.get_inner().setlk(req, file_id, file_handle, lock_owner, lock_info, sleep)
+        self.get_inner()
+            .setlk(req, file_id, file_handle, lock_owner, lock_info, sleep)
     }
 
     fn bmap(&self, req: RequestInfo, file_id: T, blocksize: u32, idx: u64) -> FuseResult<u64> {
@@ -300,7 +317,8 @@ pub trait FuseHandler<T: FileIdType>: 'static
         in_data: &[u8],
         out_size: u32,
     ) -> FuseResult<(i32, Vec<u8>)> {
-        self.get_inner().ioctl(req, file_id, file_handle, flags, cmd, in_data, out_size)
+        self.get_inner()
+            .ioctl(req, file_id, file_handle, flags, cmd, in_data, out_size)
     }
 
     fn create(
@@ -312,7 +330,8 @@ pub trait FuseHandler<T: FileIdType>: 'static
         umask: u32,
         flags: OpenFlags,
     ) -> FuseResult<(FileHandle, FileAttribute, FUSEOpenResponseFlags)> {
-        self.get_inner().create(req, parent_id, name, mode, umask, flags)
+        self.get_inner()
+            .create(req, parent_id, name, mode, umask, flags)
     }
 
     fn fallocate(
@@ -324,7 +343,8 @@ pub trait FuseHandler<T: FileIdType>: 'static
         length: i64,
         mode: i32,
     ) -> FuseResult<()> {
-        self.get_inner().fallocate(req, file_id, file_handle, offset, length, mode)
+        self.get_inner()
+            .fallocate(req, file_id, file_handle, offset, length, mode)
     }
 
     fn lseek(
@@ -335,7 +355,8 @@ pub trait FuseHandler<T: FileIdType>: 'static
         offset: i64,
         whence: Whence,
     ) -> FuseResult<i64> {
-        self.get_inner().lseek(req, file_id, file_handle, offset, whence)
+        self.get_inner()
+            .lseek(req, file_id, file_handle, offset, whence)
     }
 
     fn copy_file_range(
@@ -350,6 +371,16 @@ pub trait FuseHandler<T: FileIdType>: 'static
         len: u64,
         flags: u32, // Not implemented yet in standard
     ) -> FuseResult<u32> {
-        self.get_inner().copy_file_range(req, file_in, file_handle_in, offset_in, file_out, file_handle_out, offset_out, len, flags)
+        self.get_inner().copy_file_range(
+            req,
+            file_in,
+            file_handle_in,
+            offset_in,
+            file_out,
+            file_handle_out,
+            offset_out,
+            len,
+            flags,
+        )
     }
 }

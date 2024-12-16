@@ -15,10 +15,9 @@ use fuser::{
     ReplyStatfs, ReplyWrite, ReplyXattr, Request, TimeOrNow,
 };
 
-use crate::types::*;
 use super::callback_handlers::{FuseCallbackHandler, ReplyCb};
 use super::inode_mapping::FileIdResolver;
-
+use crate::types::*;
 
 type DirIter<T> = Box<dyn Iterator<Item = T> + Send>;
 
@@ -73,11 +72,7 @@ where
         let name_owned = name.to_owned();
         let callback: ReplyCb<FileAttribute> = Box::new(move |result| match result {
             Ok(mut file_attr) => {
-                resolver.assign_or_initialize_ino(
-                    parent,
-                    Some(&name_owned),
-                    &mut file_attr.inode,
-                );
+                resolver.assign_or_initialize_ino(parent, Some(&name_owned), &mut file_attr.inode);
                 let generation = file_attr.generation.unwrap_or(get_random_generation());
                 reply.entry(
                     &file_attr.ttl.unwrap_or(default_ttl),
@@ -113,8 +108,7 @@ where
         let callback: ReplyCb<FileAttribute> = Box::new(move |result| match result {
             Ok(mut file_attr) => {
                 eprintln!("ACQUIRE LOCK: {:?}", file_attr);
-                resolver
-                    .assign_or_initialize_ino(ino, None, &mut file_attr.inode);
+                resolver.assign_or_initialize_ino(ino, None, &mut file_attr.inode);
                 eprintln!("LOCK ACQUIRED: {:?}", file_attr);
                 reply.attr(&file_attr.ttl.unwrap_or(default_ttl), &file_attr.to_fuse());
             }
@@ -166,8 +160,7 @@ where
         let resolver = Arc::clone(&self.id_resolver);
         let callback: ReplyCb<FileAttribute> = Box::new(move |result| match result {
             Ok(mut file_attr) => {
-                resolver
-                    .assign_or_initialize_ino(ino, None, &mut file_attr.inode);
+                resolver.assign_or_initialize_ino(ino, None, &mut file_attr.inode);
                 reply.attr(&file_attr.ttl.unwrap_or(default_ttl), &file_attr.to_fuse());
             }
             Err(e) => reply.error(e.raw_os_error().unwrap()),
@@ -209,11 +202,7 @@ where
         let owned_name = name.to_owned();
         let callback: ReplyCb<FileAttribute> = Box::new(move |result| match result {
             Ok(mut file_attr) => {
-                resolver.assign_or_initialize_ino(
-                    parent,
-                    Some(&owned_name),
-                    &mut file_attr.inode,
-                );
+                resolver.assign_or_initialize_ino(parent, Some(&owned_name), &mut file_attr.inode);
                 let generation = file_attr.generation.unwrap_or(get_random_generation());
                 reply.entry(
                     &file_attr.ttl.unwrap_or(default_ttl),
@@ -249,11 +238,7 @@ where
         let owned_name = name.to_owned();
         let callback: ReplyCb<FileAttribute> = Box::new(move |result| match result {
             Ok(mut file_attr) => {
-                resolver.assign_or_initialize_ino(
-                    parent,
-                    Some(&owned_name),
-                    &mut file_attr.inode,
-                );
+                resolver.assign_or_initialize_ino(parent, Some(&owned_name), &mut file_attr.inode);
                 let generation = file_attr.generation.unwrap_or(get_random_generation());
                 reply.entry(
                     &file_attr.ttl.unwrap_or(default_ttl),
@@ -366,8 +351,7 @@ where
         let newname_cb = newname.to_os_string();
         let callback: ReplyCb<()> = Box::new(move |result| match result {
             Ok(()) => {
-                resolver
-                    .rename(parent, &name_owned, newparent, newname_cb);
+                resolver.rename(parent, &name_owned, newparent, newname_cb);
                 reply.ok()
             }
             Err(e) => reply.error(e.raw_os_error().unwrap()),

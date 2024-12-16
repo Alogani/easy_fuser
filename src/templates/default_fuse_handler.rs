@@ -3,8 +3,7 @@ use std::{ffi::OsStr, path::Path, time::Duration};
 use fuser::KernelConfig;
 use log::{debug, warn};
 
-use crate::FuseHandler;
-use crate::types::*;
+use crate::prelude::*;
 
 /// Default skeleton, see templates to have ready to use fuse filesystem
 ///
@@ -15,9 +14,8 @@ use crate::types::*;
 /// - `fsyncdir` -> returns just an Ok response
 /// - `statsfs` -> return the value of StatFs::default
 
-
 pub struct DefaultFuseHandler {
-    panic: bool
+    panic: bool,
 }
 
 impl DefaultFuseHandler {
@@ -30,8 +28,7 @@ impl DefaultFuseHandler {
     }
 }
 
-impl<T: FileIdType> FuseHandler<T> for DefaultFuseHandler
-{
+impl<T: FileIdType> FuseHandler<T> for DefaultFuseHandler {
     fn get_inner(&self) -> &Box<(dyn FuseHandler<T>)> {
         panic!("Base Fuse don't have inner type")
     }
@@ -44,8 +41,7 @@ impl<T: FileIdType> FuseHandler<T> for DefaultFuseHandler
         Ok(())
     }
 
-    fn lookup(&self, _req: RequestInfo, parent_id: T, name: &OsStr)
-        -> FuseResult<FileAttribute> {
+    fn lookup(&self, _req: RequestInfo, parent_id: T, name: &OsStr) -> FuseResult<FileAttribute> {
         warn!(
             "[Not Implemented] lookup(parent_file: {:?}, name {:?})",
             parent_id, name
@@ -333,7 +329,7 @@ impl<T: FileIdType> FuseHandler<T> for DefaultFuseHandler
         _req: RequestInfo,
         file_id: T,
         file_handle: FileHandle,
-    ) -> FuseResult<Vec<FuseDirEntry>>{
+    ) -> FuseResult<Vec<FuseDirEntry>> {
         warn!(
             "[Not Implemented] readdir(file_id: {:?}, fh: {:?})",
             file_id, file_handle

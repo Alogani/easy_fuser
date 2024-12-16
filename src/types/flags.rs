@@ -156,4 +156,3 @@ bitflags! {
         const _ = !0;
     }
 }
-

@@ -358,10 +358,7 @@ pub fn readdir(path: &Path) -> Result<Vec<(OsString, FileType)>, io::Error> {
     let mut result = Vec::new();
     for entry in entries {
         let entry = entry?;
-        result.push((
-            entry.file_name(),
-            convert_filetype(entry.file_type()?),
-        ))
+        result.push((entry.file_name(), convert_filetype(entry.file_type()?)))
     }
     Ok(result)
 }

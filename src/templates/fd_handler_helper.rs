@@ -1,8 +1,5 @@
-use crate::*;
-use crate::types::*;
-
-use crate::FuseHandler;
-
+use crate::posix_fs;
+use crate::prelude::*;
 
 /// Implement all functions that rely on file handle to be done by assuming a file handle represents a file descriptor on the filesystem.
 ///
@@ -10,27 +7,22 @@ use crate::FuseHandler;
 /// - `open`
 /// - `create`
 
-pub struct FdHandlerHelper<T: FileIdType>
-{
-    inner: Box<dyn FuseHandler<T>>
+pub struct FdHandlerHelper<T: FileIdType> {
+    inner: Box<dyn FuseHandler<T>>,
 }
 
-impl<T: FileIdType> FdHandlerHelper<T>
-{
+impl<T: FileIdType> FdHandlerHelper<T> {
     pub fn new<U: FuseHandler<T>>(inner: U) -> Self {
         Self {
-            inner: Box::new(inner)
+            inner: Box::new(inner),
         }
     }
-
 }
 
-
-impl<T: FileIdType> FuseHandler<T> for FdHandlerHelper<T>
-{
+impl<T: FileIdType> FuseHandler<T> for FdHandlerHelper<T> {
     fn get_inner(&self) -> &Box<(dyn FuseHandler<T>)> {
         eprintln!("FdBridge getinner");
-        &self.inner   
+        &self.inner
     }
 
     /*fn getattr(
@@ -165,9 +157,9 @@ impl<T: FileIdType> FuseHandler<T> for FdHandlerHelper<T>
             FileDescriptor::try_from(file_handle_in),
             FileDescriptor::try_from(file_handle_out),
         ) {
-            (Ok(fd_in), Ok(fd_out)) => posix_fs::copy_file_range(
-                &fd_in, offset_in, &fd_out, offset_out, len,
-            ),
+            (Ok(fd_in), Ok(fd_out)) => {
+                posix_fs::copy_file_range(&fd_in, offset_in, &fd_out, offset_out, len)
+            }
             (Err(e), _) | (_, Err(e)) => Err(e.into()),
         }
     }

@@ -1,7 +1,8 @@
 use std::{
     collections::HashMap,
     ffi::{OsStr, OsString},
-    path::{Path, PathBuf}, sync::atomic::Ordering,
+    path::{Path, PathBuf},
+    sync::atomic::Ordering,
 };
 
 use std::sync::{atomic::AtomicU64, RwLock};
@@ -288,7 +289,11 @@ mod tests {
         let mut nested_attr = new_default_attr();
 
         // Map shallow and nested paths
-        converter.assign_or_initialize_ino(ROOT_INODE, Some(OsStr::new("dir")), &mut shallow_attr.inode);
+        converter.assign_or_initialize_ino(
+            ROOT_INODE,
+            Some(OsStr::new("dir")),
+            &mut shallow_attr.inode,
+        );
         let shallow_ino = shallow_attr.inode.clone().into();
         converter.assign_or_initialize_ino(
             shallow_ino,
@@ -320,7 +325,11 @@ mod tests {
         let mut nested_attr = new_default_attr();
 
         // Map shallow and nested paths
-        converter.assign_or_initialize_ino(ROOT_INODE, Some(OsStr::new("dir")), &mut shallow_attr.inode);
+        converter.assign_or_initialize_ino(
+            ROOT_INODE,
+            Some(OsStr::new("dir")),
+            &mut shallow_attr.inode,
+        );
         let shallow_ino = shallow_attr.inode.clone().into();
         converter.assign_or_initialize_ino(
             shallow_ino,
@@ -350,7 +359,11 @@ mod tests {
         let mut nested_attr = new_default_attr();
 
         // Map shallow and nested paths
-        converter.assign_or_initialize_ino(ROOT_INODE, Some(OsStr::new("dir")), &mut shallow_attr.inode);
+        converter.assign_or_initialize_ino(
+            ROOT_INODE,
+            Some(OsStr::new("dir")),
+            &mut shallow_attr.inode,
+        );
         let shallow_ino = shallow_attr.inode.clone().into();
         converter.assign_or_initialize_ino(
             shallow_ino,
@@ -368,7 +381,6 @@ mod tests {
                 .children
                 .contains_key("file".as_ref() as &OsStr));
         }
-        
 
         // Remove shallow path
         converter.unlink(ROOT_INODE, OsStr::new("dir"));

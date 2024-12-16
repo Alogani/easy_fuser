@@ -1,8 +1,8 @@
-use std::io;
-use std::ops::Deref;
-use crate::posix_fs::release;
 use super::arguments::FileHandle;
 use super::errors::*;
+use crate::posix_fs::release;
+use std::io;
+use std::ops::Deref;
 
 /// Represents the file descriptor of an open file on the system
 #[derive(Debug, Clone)]
@@ -48,7 +48,10 @@ pub struct FileDescriptorGuard {
 impl FileDescriptorGuard {
     /// Create a new guard, that will be released on drop
     pub fn new(fd: FileDescriptor) -> Self {
-        Self { fd, release_on_drop: true }
+        Self {
+            fd,
+            release_on_drop: true,
+        }
     }
 
     /// Prevent releasing the file descriptor on drop
@@ -62,8 +65,8 @@ impl FileDescriptorGuard {
             Ok(fd) => {
                 self.release_on_drop = false;
                 Ok(fd)
-            },
-            Err(e) => Err(e)
+            }
+            Err(e) => Err(e),
         }
     }
 }

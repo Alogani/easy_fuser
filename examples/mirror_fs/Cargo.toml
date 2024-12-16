@@ -1,0 +1,9 @@
+[package]
+name = "mirror_fs"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+easy_fuser = { path = ".." }
+tempfile = "3.14"
+env_logger = "0.11"
