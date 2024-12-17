@@ -4,6 +4,7 @@ use std::time::{Duration, SystemTime};
 use fuser::FileAttr as FuseFileAttr;
 use fuser::{FileType, Request, TimeOrNow};
 
+use super::FileHandle;
 use super::LockType;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -18,23 +19,6 @@ impl From<u64> for Inode {
 
 impl From<Inode> for u64 {
     fn from(value: Inode) -> Self {
-        value.0
-    }
-}
-
-/// Represents the file handle of an open file in fuse filesystem
-/// May not represent a valid file descriptor
-#[derive(Debug, Clone)]
-pub struct FileHandle(u64);
-
-impl From<u64> for FileHandle {
-    fn from(value: u64) -> Self {
-        FileHandle(value)
-    }
-}
-
-impl From<FileHandle> for u64 {
-    fn from(value: FileHandle) -> Self {
         value.0
     }
 }

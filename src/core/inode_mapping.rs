@@ -101,7 +101,8 @@ impl FileIdResolver for PathBufResolver {
     fn new() -> Self {
         let mut inodes = HashMap::new();
 
-        static ROOT_PATH: &str = "/";
+        // No leading slahs make it easier for path joining
+        static ROOT_PATH: &str = "";
 
         inodes.insert(
             ROOT_INODE,
@@ -138,10 +139,10 @@ impl FileIdResolver for PathBufResolver {
             } else {
                 result = name.to_path_buf();
             }
+            inode = parent;
             if inode == ROOT_INODE {
                 break;
             }
-            inode = parent;
         }
         result
     }
@@ -252,7 +253,7 @@ mod tests {
         let root_inode = inodes.get(&ROOT_INODE).unwrap();
         assert_eq!(root_inode.parent, ROOT_INODE);
         assert_eq!(root_inode.children.len(), 0);
-        assert_eq!(root_inode.name_ptr.get(), "/");
+        assert_eq!(root_inode.name_ptr.get(), "");
     }
 
     #[test]
@@ -275,11 +276,11 @@ mod tests {
 
         // Test shallow path
         let shallow_path = converter.resolve_id(shallow_attr.inode.into());
-        assert_eq!(shallow_path, PathBuf::from("/shallow_file"));
+        assert_eq!(shallow_path, PathBuf::from("shallow_file"));
 
         // Test nested path
         let nested_path = converter.resolve_id(nested_attr.inode.into());
-        assert_eq!(nested_path, PathBuf::from("/shallow_file/nested_file"));
+        assert_eq!(nested_path, PathBuf::from("shallow_file/nested_file"));
     }
 
     #[test]
@@ -345,11 +346,11 @@ mod tests {
             OsString::from("new_dir"),
         );
         let renamed_shallow_path = converter.resolve_id(shallow_ino);
-        assert_eq!(renamed_shallow_path, PathBuf::from("/new_dir"));
+        assert_eq!(renamed_shallow_path, PathBuf::from("new_dir"));
 
         // Verify nested path after rename
         let renamed_nested_path = converter.resolve_id(nested_attr.inode.into());
-        assert_eq!(renamed_nested_path, PathBuf::from("/new_dir/file"));
+        assert_eq!(renamed_nested_path, PathBuf::from("new_dir/file"));
     }
 
     #[test]

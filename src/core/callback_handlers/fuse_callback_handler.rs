@@ -1,9 +1,9 @@
-use std::{ffi::OsStr, io, path::Path, time::Duration};
+use std::{ffi::OsStr, path::Path, time::Duration};
 
 use crate::fuse_handler::FuseHandler;
 use crate::types::*;
 
-pub type ReplyCb<T> = Box<dyn FnOnce(Result<T, io::Error>) + Send>;
+pub type ReplyCb<T> = Box<dyn FnOnce(Result<T, PosixError>) + Send>;
 
 pub trait FuseCallbackHandler<T: FileIdType> {
     fn get_default_ttl() -> Duration {
@@ -12,7 +12,7 @@ pub trait FuseCallbackHandler<T: FileIdType> {
 
     fn get_fuse_handler(&self) -> &impl FuseHandler<T>;
 
-    fn init(&self, req: RequestInfo, config: &mut KernelConfig) -> Result<(), io::Error> {
+    fn init(&self, req: RequestInfo, config: &mut KernelConfig) -> Result<(), PosixError> {
         self.get_fuse_handler().init(req, config)
     }
 
@@ -48,7 +48,7 @@ pub trait FuseCallbackHandler<T: FileIdType> {
         &self,
         req: RequestInfo,
         file: T,
-        callback: Box<dyn FnOnce(Result<Vec<u8>, io::Error>) + Send>,
+        callback: Box<dyn FnOnce(Result<Vec<u8>, PosixError>) + Send>,
     ) {
         callback(self.get_fuse_handler().readlink(req, file));
     }

@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-easy_fuser = { path = ".." }
+easy_fuser = { path = "../.." }
+log = "0.4"
 tempfile = "3.14"
 env_logger = "0.11"

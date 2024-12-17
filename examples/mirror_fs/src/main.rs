@@ -1,9 +1,10 @@
 use std::path::PathBuf;
 
-use easy_fuser::templates::{MirrorFs, DefaultFuseHandler};
-use easy_fuser::*;
-
 use tempfile::TempDir;
+
+use easy_fuser::prelude::*;
+use easy_fuser::templates::DefaultFuseHandler;
+use easy_fuser::templates::MirrorFs;
 
 /*
 fn spawn_deadlock_checker() {
@@ -37,6 +38,7 @@ fn spawn_deadlock_checker() {
 }*/
 
 fn main() {
+    std::env::set_var("RUST_BACKTRACE", "1");
     let _ = env_logger::builder()
         .is_test(true)
         .filter_level(log::LevelFilter::Trace)
@@ -46,9 +48,8 @@ fn main() {
 
     let mntpoint = TempDir::new().unwrap();
     //let fs = FileDescriptorBridge::<PathBuf>::new(BaseFuse::new());
-    let fs = MirrorFs::new(PathBuf::from("/tmp/test"), DefaultFuseHandler::new_with_panic());
+    let fs = MirrorFs::new(PathBuf::from("/tmp/test"), DefaultFuseHandler::new());
     let fuse = new_serial_driver(fs);
-    println!("MOUNTPOINT={:?}", mntpoint.path());
     let r = mount(fuse, mntpoint.path(), &[]);
     print!("{:?}", r);
     drop(mntpoint);

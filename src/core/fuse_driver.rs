@@ -7,7 +7,7 @@ use std::{
 };
 
 use libc::c_int;
-use log::error;
+use log::{debug, error};
 
 use fuser::{
     self, KernelConfig, ReplyAttr, ReplyBmap, ReplyCreate, ReplyData, ReplyDirectory,
@@ -62,7 +62,10 @@ where
     fn init(&mut self, req: &Request, _config: &mut KernelConfig) -> Result<(), c_int> {
         match FuseCallbackHandler::init(&mut self.callback_handler, req.into(), _config) {
             Ok(()) => Ok(()),
-            Err(e) => Err(e.raw_os_error().unwrap()), // Convert io::Error to c_int
+            Err(e) => {
+                debug!("{:?}", e);
+                Err(e.raw_error())
+            } // Convert io::Error to c_int
         }
     }
 
@@ -81,7 +84,8 @@ where
                 );
             }
             Err(e) => {
-                reply.error(e.raw_os_error().unwrap());
+                debug!("{:?}", e);
+                reply.error(e.raw_error());
             }
         });
         FuseCallbackHandler::lookup(
@@ -107,12 +111,13 @@ where
         let resolver = Arc::clone(&self.id_resolver);
         let callback: ReplyCb<FileAttribute> = Box::new(move |result| match result {
             Ok(mut file_attr) => {
-                eprintln!("ACQUIRE LOCK: {:?}", file_attr);
                 resolver.assign_or_initialize_ino(ino, None, &mut file_attr.inode);
-                eprintln!("LOCK ACQUIRED: {:?}", file_attr);
                 reply.attr(&file_attr.ttl.unwrap_or(default_ttl), &file_attr.to_fuse());
             }
-            Err(e) => reply.error(e.raw_os_error().unwrap()),
+            Err(e) => {
+                debug!("{:?}", e);
+                reply.error(e.raw_error())
+            }
         });
         FuseCallbackHandler::getattr(
             &mut self.callback_handler,
@@ -163,7 +168,10 @@ where
                 resolver.assign_or_initialize_ino(ino, None, &mut file_attr.inode);
                 reply.attr(&file_attr.ttl.unwrap_or(default_ttl), &file_attr.to_fuse());
             }
-            Err(e) => reply.error(e.raw_os_error().unwrap()),
+            Err(e) => {
+                debug!("{:?}", e);
+                reply.error(e.raw_error())
+            }
         });
         FuseCallbackHandler::setattr(
             &mut self.callback_handler,
@@ -177,7 +185,10 @@ where
     fn readlink(&mut self, req: &Request, ino: u64, reply: ReplyData) {
         let callback: ReplyCb<Vec<u8>> = Box::new(move |result| match result {
             Ok(link) => reply.data(&link),
-            Err(e) => reply.error(e.raw_os_error().unwrap()),
+            Err(e) => {
+                debug!("{:?}", e);
+                reply.error(e.raw_error())
+            }
         });
         FuseCallbackHandler::readlink(
             &mut self.callback_handler,
@@ -210,7 +221,10 @@ where
                     generation,
                 );
             }
-            Err(e) => reply.error(e.raw_os_error().unwrap()),
+            Err(e) => {
+                debug!("{:?}", e);
+                reply.error(e.raw_error())
+            }
         });
         FuseCallbackHandler::mknod(
             &mut self.callback_handler,
@@ -246,7 +260,7 @@ where
                     generation,
                 );
             }
-            Err(e) => reply.error(e.raw_os_error().unwrap()),
+            Err(e) => reply.error(e.raw_error()),
         });
         FuseCallbackHandler::mkdir(
             &mut self.callback_handler,
@@ -268,7 +282,10 @@ where
                 resolver.unlink(parent, &name_owned);
                 reply.ok()
             }
-            Err(e) => reply.error(e.raw_os_error().unwrap()),
+            Err(e) => {
+                debug!("{:?}", e);
+                reply.error(e.raw_error())
+            }
         });
         FuseCallbackHandler::unlink(
             &mut self.callback_handler,
@@ -288,7 +305,10 @@ where
                 resolver.unlink(parent, &name_owned);
                 reply.ok()
             }
-            Err(e) => reply.error(e.raw_os_error().unwrap()),
+            Err(e) => {
+                debug!("{:?}", e);
+                reply.error(e.raw_error())
+            }
         });
         FuseCallbackHandler::rmdir(
             &mut self.callback_handler,
@@ -324,7 +344,10 @@ where
                     generation,
                 );
             }
-            Err(e) => reply.error(e.raw_os_error().unwrap()),
+            Err(e) => {
+                debug!("{:?}", e);
+                reply.error(e.raw_error())
+            }
         });
         FuseCallbackHandler::symlink(
             &mut self.callback_handler,
@@ -354,7 +377,10 @@ where
                 resolver.rename(parent, &name_owned, newparent, newname_cb);
                 reply.ok()
             }
-            Err(e) => reply.error(e.raw_os_error().unwrap()),
+            Err(e) => {
+                debug!("{:?}", e);
+                reply.error(e.raw_error())
+            }
         });
         FuseCallbackHandler::rename(
             &mut self.callback_handler,
@@ -393,7 +419,10 @@ where
                     generation,
                 );
             }
-            Err(e) => reply.error(e.raw_os_error().unwrap()),
+            Err(e) => {
+                debug!("{:?}", e);
+                reply.error(e.raw_error())
+            }
         });
         FuseCallbackHandler::link(
             &mut self.callback_handler,
@@ -411,7 +440,10 @@ where
                 Ok((file_handle, response_flags)) => {
                     reply.opened(file_handle.into(), response_flags.bits())
                 }
-                Err(e) => reply.error(e.raw_os_error().unwrap()),
+                Err(e) => {
+                    debug!("{:?}", e);
+                    reply.error(e.raw_error())
+                }
             });
         FuseCallbackHandler::open(
             &mut self.callback_handler,
@@ -435,7 +467,10 @@ where
     ) {
         let callback: ReplyCb<Vec<u8>> = Box::new(move |result| match result {
             Ok(data_reply) => reply.data(&data_reply),
-            Err(e) => reply.error(e.raw_os_error().unwrap()),
+            Err(e) => {
+                debug!("{:?}", e);
+                reply.error(e.raw_error())
+            }
         });
         FuseCallbackHandler::read(
             &mut self.callback_handler,
@@ -464,7 +499,10 @@ where
     ) {
         let callback: ReplyCb<u32> = Box::new(move |result| match result {
             Ok(bytes_written) => reply.written(bytes_written),
-            Err(e) => reply.error(e.raw_os_error().unwrap()),
+            Err(e) => {
+                debug!("{:?}", e);
+                reply.error(e.raw_error())
+            }
         });
         FuseCallbackHandler::write(
             &mut self.callback_handler,
@@ -483,7 +521,10 @@ where
     fn flush(&mut self, req: &Request, ino: u64, fh: u64, lock_owner: u64, reply: ReplyEmpty) {
         let callback: ReplyCb<()> = Box::new(move |result| match result {
             Ok(()) => reply.ok(),
-            Err(e) => reply.error(e.raw_os_error().unwrap()),
+            Err(e) => {
+                debug!("{:?}", e);
+                reply.error(e.raw_error())
+            }
         });
         FuseCallbackHandler::flush(
             &mut self.callback_handler,
@@ -498,7 +539,10 @@ where
     fn fsync(&mut self, req: &Request, ino: u64, fh: u64, datasync: bool, reply: ReplyEmpty) {
         let callback: ReplyCb<()> = Box::new(move |result| match result {
             Ok(()) => reply.ok(),
-            Err(e) => reply.error(e.raw_os_error().unwrap()),
+            Err(e) => {
+                debug!("{:?}", e);
+                reply.error(e.raw_error())
+            }
         });
         FuseCallbackHandler::fsync(
             &mut self.callback_handler,
@@ -516,7 +560,10 @@ where
                 Ok((file_handle, response_flags)) => {
                     reply.opened(file_handle.into(), response_flags.bits())
                 }
-                Err(e) => reply.error(e.raw_os_error().unwrap()),
+                Err(e) => {
+                    debug!("{:?}", e);
+                    reply.error(e.raw_error())
+                }
             });
         FuseCallbackHandler::opendir(
             &mut self.callback_handler,
@@ -530,7 +577,7 @@ where
     fn readdir(&mut self, req: &Request, ino: u64, fh: u64, offset: i64, reply: ReplyDirectory) {
         if offset < 0 {
             error!("readdir called with a negative offset");
-            reply.error(PosixError::INVALID_ARGUMENT.into());
+            reply.error(ErrorKind::InvalidArgument.into());
             return;
         }
         let resolver = self.id_resolver.clone();
@@ -568,10 +615,7 @@ where
                         reply.ok();
                     }
                     Err(e) => {
-                        reply.error(
-                            e.raw_os_error()
-                                .unwrap_or(PosixError::INPUT_OUTPUT_ERROR.into()),
-                        );
+                        reply.error(e.raw_error());
                     }
                 }
             })
@@ -620,7 +664,7 @@ where
         let resolver = self.id_resolver.clone();
         if offset < 0 {
             error!("readdirplus called with a negative offset");
-            reply.error(PosixError::INVALID_ARGUMENT.into());
+            reply.error(ErrorKind::InvalidArgument.into());
             return;
         }
 
@@ -664,10 +708,7 @@ where
                         reply.ok();
                     }
                     Err(e) => {
-                        reply.error(
-                            e.raw_os_error()
-                                .unwrap_or(PosixError::INPUT_OUTPUT_ERROR.into()),
-                        );
+                        reply.error(e.raw_error());
                     }
                 }
             })
@@ -716,7 +757,10 @@ where
     fn releasedir(&mut self, req: &Request, ino: u64, _fh: u64, _flags: i32, reply: ReplyEmpty) {
         let callback: ReplyCb<()> = Box::new(move |result| match result {
             Ok(()) => reply.ok(),
-            Err(e) => reply.error(e.raw_os_error().unwrap()),
+            Err(e) => {
+                debug!("{:?}", e);
+                reply.error(e.raw_error())
+            }
         });
         FuseCallbackHandler::releasedir(
             &mut self.callback_handler,
@@ -731,7 +775,10 @@ where
     fn fsyncdir(&mut self, req: &Request, ino: u64, fh: u64, datasync: bool, reply: ReplyEmpty) {
         let callback: ReplyCb<()> = Box::new(move |result| match result {
             Ok(()) => reply.ok(),
-            Err(e) => reply.error(e.raw_os_error().unwrap()),
+            Err(e) => {
+                debug!("{:?}", e);
+                reply.error(e.raw_error())
+            }
         });
         FuseCallbackHandler::fsyncdir(
             &mut self.callback_handler,
@@ -755,7 +802,10 @@ where
     ) {
         let callback: ReplyCb<()> = Box::new(move |result| match result {
             Ok(()) => reply.ok(),
-            Err(e) => reply.error(e.raw_os_error().unwrap()),
+            Err(e) => {
+                debug!("{:?}", e);
+                reply.error(e.raw_error())
+            }
         });
         FuseCallbackHandler::release(
             &mut self.callback_handler,
@@ -783,7 +833,10 @@ where
                     statfs.fragment_size,
                 );
             }
-            Err(e) => reply.error(e.raw_os_error().unwrap()),
+            Err(e) => {
+                debug!("{:?}", e);
+                reply.error(e.raw_error())
+            }
         });
         FuseCallbackHandler::statfs(
             &mut self.callback_handler,
@@ -805,7 +858,10 @@ where
     ) {
         let callback: ReplyCb<()> = Box::new(move |result| match result {
             Ok(()) => reply.ok(),
-            Err(e) => reply.error(e.raw_os_error().unwrap()),
+            Err(e) => {
+                debug!("{:?}", e);
+                reply.error(e.raw_error())
+            }
         });
         FuseCallbackHandler::setxattr(
             &mut self.callback_handler,
@@ -827,10 +883,13 @@ where
                 } else if size >= xattr_data.len() as u32 {
                     reply.data(&xattr_data);
                 } else {
-                    reply.error(PosixError::RESULT_TOO_LARGE.into());
+                    reply.error(ErrorKind::ResultTooLarge.into());
                 }
             }
-            Err(e) => reply.error(e.raw_os_error().unwrap()),
+            Err(e) => {
+                debug!("{:?}", e);
+                reply.error(e.raw_error())
+            }
         });
         FuseCallbackHandler::getxattr(
             &mut self.callback_handler,
@@ -850,10 +909,13 @@ where
                 } else if size >= xattr_data.len() as u32 {
                     reply.data(&xattr_data);
                 } else {
-                    reply.error(PosixError::RESULT_TOO_LARGE.into());
+                    reply.error(ErrorKind::ResultTooLarge.into());
                 }
             }
-            Err(e) => reply.error(e.raw_os_error().unwrap()),
+            Err(e) => {
+                debug!("{:?}", e);
+                reply.error(e.raw_error())
+            }
         });
         FuseCallbackHandler::listxattr(
             &mut self.callback_handler,
@@ -867,7 +929,10 @@ where
     fn removexattr(&mut self, req: &Request, ino: u64, name: &OsStr, reply: ReplyEmpty) {
         let callback: ReplyCb<()> = Box::new(move |result| match result {
             Ok(()) => reply.ok(),
-            Err(e) => reply.error(e.raw_os_error().unwrap()),
+            Err(e) => {
+                debug!("{:?}", e);
+                reply.error(e.raw_error())
+            }
         });
         FuseCallbackHandler::removexattr(
             &mut self.callback_handler,
@@ -881,7 +946,10 @@ where
     fn access(&mut self, req: &Request, ino: u64, mask: i32, reply: ReplyEmpty) {
         let callback: ReplyCb<()> = Box::new(move |result| match result {
             Ok(()) => reply.ok(),
-            Err(e) => reply.error(e.raw_os_error().unwrap()),
+            Err(e) => {
+                debug!("{:?}", e);
+                reply.error(e.raw_error())
+            }
         });
         FuseCallbackHandler::access(
             &mut self.callback_handler,
@@ -915,7 +983,10 @@ where
                         response_flags.bits(),
                     )
                 }
-                Err(e) => reply.error(e.raw_os_error().unwrap()),
+                Err(e) => {
+                    debug!("{:?}", e);
+                    reply.error(e.raw_error())
+                }
             });
         FuseCallbackHandler::create(
             &mut self.callback_handler,
@@ -960,7 +1031,10 @@ where
                 } = lock_info;
                 reply.locked(start, end, lock_type.bits(), pid)
             }
-            Err(e) => reply.error(e.raw_os_error().unwrap()),
+            Err(e) => {
+                debug!("{:?}", e);
+                reply.error(e.raw_error())
+            }
         });
         FuseCallbackHandler::getlk(
             &mut self.callback_handler,
@@ -997,7 +1071,10 @@ where
         // Call the high-level function in FuseCallbackAPI
         let callback: ReplyCb<()> = Box::new(move |result| match result {
             Ok(()) => reply.ok(),
-            Err(e) => reply.error(e.raw_os_error().unwrap()),
+            Err(e) => {
+                debug!("{:?}", e);
+                reply.error(e.raw_error())
+            }
         });
         FuseCallbackHandler::setlk(
             &mut self.callback_handler,
@@ -1015,7 +1092,10 @@ where
         // Call the high-level function in FuseCallbackAPI
         let callback: ReplyCb<u64> = Box::new(move |result| match result {
             Ok(block) => reply.bmap(block),
-            Err(e) => reply.error(e.raw_os_error().unwrap()),
+            Err(e) => {
+                debug!("{:?}", e);
+                reply.error(e.raw_error())
+            }
         });
         FuseCallbackHandler::bmap(
             &mut self.callback_handler,
@@ -1041,7 +1121,10 @@ where
         // Call the high-level function in FuseCallbackAPI
         let callback: ReplyCb<(i32, Vec<u8>)> = Box::new(move |result| match result {
             Ok((result, data)) => reply.ioctl(result, &data),
-            Err(e) => reply.error(e.raw_os_error().unwrap()),
+            Err(e) => {
+                debug!("{:?}", e);
+                reply.error(e.raw_error())
+            }
         });
         FuseCallbackHandler::ioctl(
             &mut self.callback_handler,
@@ -1068,7 +1151,10 @@ where
     ) {
         let callback: ReplyCb<()> = Box::new(move |result| match result {
             Ok(()) => reply.ok(),
-            Err(e) => reply.error(e.raw_os_error().unwrap()),
+            Err(e) => {
+                debug!("{:?}", e);
+                reply.error(e.raw_error())
+            }
         });
         FuseCallbackHandler::fallocate(
             &mut self.callback_handler,
@@ -1093,7 +1179,10 @@ where
     ) {
         let callback: ReplyCb<i64> = Box::new(move |result| match result {
             Ok(offset) => reply.offset(offset),
-            Err(e) => reply.error(e.raw_os_error().unwrap()),
+            Err(e) => {
+                debug!("{:?}", e);
+                reply.error(e.raw_error())
+            }
         });
         FuseCallbackHandler::lseek(
             &mut self.callback_handler,
@@ -1121,7 +1210,10 @@ where
     ) {
         let callback: ReplyCb<u32> = Box::new(move |result| match result {
             Ok(bytes_written) => reply.written(bytes_written),
-            Err(e) => reply.error(e.raw_os_error().unwrap()),
+            Err(e) => {
+                debug!("{:?}", e);
+                reply.error(e.raw_error())
+            }
         });
         FuseCallbackHandler::copy_file_range(
             &mut self.callback_handler,

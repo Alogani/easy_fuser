@@ -1,55 +1,68 @@
 use std::ffi::{OsStr, OsString};
 use std::path::PathBuf;
 
-use easy_fuser::types::*;
-use easy_fuser::templates::FdHandlerHelper;
-
+use crate::prelude::*;
+use crate::templates::FdHandlerHelper;
 
 pub struct MirrorFs {
     repo: PathBuf,
-    inner: Box<dyn FuseHandler<PathBuf>>
+    inner: Box<dyn FuseHandler<PathBuf>>,
 }
 
 impl MirrorFs {
     pub fn new<T: FuseHandler<PathBuf>>(repo: PathBuf, inner: T) -> Self {
         Self {
             repo,
-            inner: Box::new(FdHandlerHelper::new(inner))
+            inner: Box::new(FdHandlerHelper::new(inner)),
         }
     }
 }
-
 
 impl FuseHandler<PathBuf> for MirrorFs {
     fn get_inner(&self) -> &Box<(dyn FuseHandler<PathBuf>)> {
         &self.inner
     }
 
-    fn lookup(&self, _req: RequestInfo, parent_id: PathBuf, name: &OsStr)
-        -> FuseResult<FileAttribute> {
+    fn lookup(
+        &self,
+        _req: RequestInfo,
+        parent_id: PathBuf,
+        name: &OsStr,
+    ) -> FuseResult<FileAttribute> {
         let file_path = self.repo.join(parent_id).join(name);
+        eprintln!("{:?}", file_path);
         let fd = posix_fs::open(file_path.as_ref(), OpenFlags::empty())?;
         let result = posix_fs::getattr(&fd);
         result
     }
 
     fn open(
-            &self,
-            _req: RequestInfo,
-            file_id: PathBuf,
-            flags: OpenFlags,
-        ) -> FuseResult<(FileHandle, FUSEOpenResponseFlags)> {
+        &self,
+        _req: RequestInfo,
+        file_id: PathBuf,
+        flags: OpenFlags,
+    ) -> FuseResult<(FileHandle, FUSEOpenResponseFlags)> {
         let file_path = self.repo.join(file_id);
         let mut fd = posix_fs::open(file_path.as_ref(), flags)?;
         Ok((fd.take_to_file_handle()?, FUSEOpenResponseFlags::empty()))
     }
 
+    fn setattr(
+        &self,
+        _req: RequestInfo,
+        file_id: PathBuf,
+        attrs: SetAttrRequest,
+    ) -> FuseResult<FileAttribute> {
+        let file_path = self.repo.join(file_id);
+        posix_fs::setattr(&file_path, attrs)
+    }
+
     fn getattr(
-            &self,
-            _req: RequestInfo,
-            file_id: PathBuf,
-            _file_handle: Option<FileHandle>,
-        ) -> FuseResult<FileAttribute> {
+        &self,
+        _req: RequestInfo,
+        file_id: PathBuf,
+        _file_handle: Option<FileHandle>,
+    ) -> FuseResult<FileAttribute> {
         let file_path = self.repo.join(file_id);
         let fd = posix_fs::open(file_path.as_ref(), OpenFlags::empty())?;
         let result = posix_fs::getattr(&fd);
@@ -57,12 +70,13 @@ impl FuseHandler<PathBuf> for MirrorFs {
     }
 
     fn readdir(
-            &self,
-            _req: RequestInfo,
-            file_id: PathBuf,
-            _file_handle: FileHandle,
-        ) -> FuseResult<Vec<FuseDirEntry>> {
+        &self,
+        _req: RequestInfo,
+        file_id: PathBuf,
+        _file_handle: FileHandle,
+    ) -> FuseResult<Vec<FuseDirEntry>> {
         let folder_path = self.repo.join(file_id);
+        eprintln!("{:?}", folder_path);
         let children = posix_fs::readdir(folder_path.as_ref())?;
         let mut result = Vec::new();
         result.push(FuseDirEntry {
@@ -87,7 +101,30 @@ impl FuseHandler<PathBuf> for MirrorFs {
         Ok(result)
     }
 
-    
+    fn setxattr(
+        &self,
+        _req: RequestInfo,
+        file_id: PathBuf,
+        name: &OsStr,
+        value: &[u8],
+        _flags: FUSESetXAttrFlags,
+        position: u32,
+    ) -> FuseResult<()> {
+        let file_path = self.repo.join(file_id);
+        posix_fs::setxattr(&file_path, name, value, position)
+    }
+
+    fn getxattr(
+        &self,
+        _req: RequestInfo,
+        file_id: PathBuf,
+        name: &OsStr,
+        size: u32,
+    ) -> FuseResult<Vec<u8>> {
+        let file_path = self.repo.join(file_id);
+        posix_fs::getxattr(&file_path, name, size)
+    }
+
     fn listxattr(&self, _req: RequestInfo, file_id: PathBuf, size: u32) -> FuseResult<Vec<u8>> {
         let file_path = self.repo.join(file_id);
         posix_fs::listxattr(&file_path, size)
@@ -97,5 +134,4 @@ impl FuseHandler<PathBuf> for MirrorFs {
         let file_path = self.repo.join(file_id);
         posix_fs::access(&file_path, mask)
     }
-
 }

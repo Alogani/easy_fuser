@@ -21,22 +21,8 @@ impl<T: FileIdType> FdHandlerHelper<T> {
 
 impl<T: FileIdType> FuseHandler<T> for FdHandlerHelper<T> {
     fn get_inner(&self) -> &Box<(dyn FuseHandler<T>)> {
-        eprintln!("FdBridge getinner");
         &self.inner
     }
-
-    /*fn getattr(
-        &self,
-        _req: RequestInfo,
-        _file_id: T,
-        file_handle: Option<FileHandle>,
-    ) -> FuseResult<FileAttribute> {
-        let fh = file_handle.expect("getattr requires a file_handle");
-        match FileDescriptor::try_from(fh) {
-            Ok(fd) => posix_fs::getattr(&fd),
-            Err(e) => Err(e.into()),
-        }
-    }*/
 
     fn read(
         &self,

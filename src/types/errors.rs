@@ -1,114 +1,434 @@
-use std::{ffi::NulError, io};
+use std::fmt::{Debug, Display};
 
-pub type FuseResult<T> = Result<T, io::Error>;
+pub type FuseResult<T> = Result<T, PosixError>;
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub struct PosixError(i32);
+#[derive(Clone, PartialEq, Eq)]
+pub struct PosixError {
+    code: i32,
+    msg: String,
+}
 
 impl PosixError {
-    pub const PERMISSION_DENIED: PosixError = PosixError(libc::EPERM);
-    pub const FILE_NOT_FOUND: PosixError = PosixError(libc::ENOENT);
-    pub const NO_SUCH_PROCESS: PosixError = PosixError(libc::ESRCH);
-    pub const INTERRUPTED_SYSTEM_CALL: PosixError = PosixError(libc::EINTR);
-    pub const INPUT_OUTPUT_ERROR: PosixError = PosixError(libc::EIO);
-    pub const NO_SUCH_DEVICE_OR_ADDRESS: PosixError = PosixError(libc::ENXIO);
-    pub const ARGUMENT_LIST_TOO_LONG: PosixError = PosixError(libc::E2BIG);
-    pub const EXEC_FORMAT_ERROR: PosixError = PosixError(libc::ENOEXEC);
-    pub const BAD_FILE_DESCRIPTOR: PosixError = PosixError(libc::EBADF);
-    pub const NO_CHILD_PROCESSES: PosixError = PosixError(libc::ECHILD);
-    pub const RESOURCE_DEADLOCK_AVOIDED: PosixError = PosixError(libc::EDEADLK);
-    pub const OUT_OF_MEMORY: PosixError = PosixError(libc::ENOMEM);
-    pub const PERMISSION_DENIED_ACCESS: PosixError = PosixError(libc::EACCES);
-    pub const BAD_ADDRESS: PosixError = PosixError(libc::EFAULT);
-    pub const BLOCK_DEVICE_REQUIRED: PosixError = PosixError(libc::ENOTBLK);
-    pub const DEVICE_OR_RESOURCE_BUSY: PosixError = PosixError(libc::EBUSY);
-    pub const FILE_EXISTS: PosixError = PosixError(libc::EEXIST);
-    pub const INVALID_CROSS_DEVICE_LINK: PosixError = PosixError(libc::EXDEV);
-    pub const NO_SUCH_DEVICE: PosixError = PosixError(libc::ENODEV);
-    pub const NOT_A_DIRECTORY: PosixError = PosixError(libc::ENOTDIR);
-    pub const IS_A_DIRECTORY: PosixError = PosixError(libc::EISDIR);
-    pub const INVALID_ARGUMENT: PosixError = PosixError(libc::EINVAL);
-    pub const TOO_MANY_OPEN_FILES: PosixError = PosixError(libc::EMFILE);
-    pub const TOO_MANY_FILES_IN_SYSTEM: PosixError = PosixError(libc::ENFILE);
-    pub const INAPPROPRIATE_IOCTL_FOR_DEVICE: PosixError = PosixError(libc::ENOTTY);
-    pub const TEXT_FILE_BUSY: PosixError = PosixError(libc::ETXTBSY);
-    pub const FILE_TOO_LARGE: PosixError = PosixError(libc::EFBIG);
-    pub const NO_SPACE_LEFT_ON_DEVICE: PosixError = PosixError(libc::ENOSPC);
-    pub const ILLEGAL_SEEK: PosixError = PosixError(libc::ESPIPE);
-    pub const READ_ONLY_FILE_SYSTEM: PosixError = PosixError(libc::EROFS);
-    pub const TOO_MANY_LINKS: PosixError = PosixError(libc::EMLINK);
-    pub const BROKEN_PIPE: PosixError = PosixError(libc::EPIPE);
-    pub const DOMAIN_ERROR: PosixError = PosixError(libc::EDOM);
-    pub const RESULT_TOO_LARGE: PosixError = PosixError(libc::ERANGE);
-    pub const RESOURCE_UNAVAILABLE_TRY_AGAIN: PosixError = PosixError(libc::EAGAIN);
-    pub const OPERATION_WOULD_BLOCK: PosixError = PosixError(libc::EWOULDBLOCK);
-    pub const OPERATION_IN_PROGRESS: PosixError = PosixError(libc::EINPROGRESS);
-    pub const OPERATION_ALREADY_IN_PROGRESS: PosixError = PosixError(libc::EALREADY);
-    pub const NOT_A_SOCKET: PosixError = PosixError(libc::ENOTSOCK);
-    pub const MESSAGE_SIZE: PosixError = PosixError(libc::EMSGSIZE);
-    pub const PROTOCOL_WRONG_TYPE: PosixError = PosixError(libc::EPROTOTYPE);
-    pub const PROTOCOL_NOT_AVAILABLE: PosixError = PosixError(libc::ENOPROTOOPT);
-    pub const PROTOCOL_NOT_SUPPORTED: PosixError = PosixError(libc::EPROTONOSUPPORT);
-    pub const SOCKET_TYPE_NOT_SUPPORTED: PosixError = PosixError(libc::ESOCKTNOSUPPORT);
-    pub const OPERATION_NOT_SUPPORTED: PosixError = PosixError(libc::EOPNOTSUPP);
-    pub const PROTOCOL_FAMILY_NOT_SUPPORTED: PosixError = PosixError(libc::EPFNOSUPPORT);
-    pub const ADDRESS_FAMILY_NOT_SUPPORTED: PosixError = PosixError(libc::EAFNOSUPPORT);
-    pub const ADDRESS_IN_USE: PosixError = PosixError(libc::EADDRINUSE);
-    pub const ADDRESS_NOT_AVAILABLE: PosixError = PosixError(libc::EADDRNOTAVAIL);
-    pub const NETWORK_DOWN: PosixError = PosixError(libc::ENETDOWN);
-    pub const NETWORK_UNREACHABLE: PosixError = PosixError(libc::ENETUNREACH);
-    pub const NETWORK_RESET: PosixError = PosixError(libc::ENETRESET);
-    pub const CONNECTION_ABORTED: PosixError = PosixError(libc::ECONNABORTED);
-    pub const CONNECTION_RESET: PosixError = PosixError(libc::ECONNRESET);
-    pub const NO_BUFFER_SPACE_AVAILABLE: PosixError = PosixError(libc::ENOBUFS);
-    pub const ALREADY_CONNECTED: PosixError = PosixError(libc::EISCONN);
-    pub const NOT_CONNECTED: PosixError = PosixError(libc::ENOTCONN);
-    pub const DESTINATION_ADDRESS_REQUIRED: PosixError = PosixError(libc::EDESTADDRREQ);
-    pub const SHUTDOWN: PosixError = PosixError(libc::ESHUTDOWN);
-    pub const TOO_MANY_REFERENCES: PosixError = PosixError(libc::ETOOMANYREFS);
-    pub const TIMED_OUT: PosixError = PosixError(libc::ETIMEDOUT);
-    pub const CONNECTION_REFUSED: PosixError = PosixError(libc::ECONNREFUSED);
-    pub const TOO_MANY_SYMBOLIC_LINKS: PosixError = PosixError(libc::ELOOP);
-    pub const FILE_NAME_TOO_LONG: PosixError = PosixError(libc::ENAMETOOLONG);
-    pub const HOST_IS_DOWN: PosixError = PosixError(libc::EHOSTDOWN);
-    pub const NO_ROUTE_TO_HOST: PosixError = PosixError(libc::EHOSTUNREACH);
-    pub const DIRECTORY_NOT_EMPTY: PosixError = PosixError(libc::ENOTEMPTY);
-    pub const TOO_MANY_USERS: PosixError = PosixError(libc::EUSERS);
-    pub const QUOTA_EXCEEDED: PosixError = PosixError(libc::EDQUOT);
-    pub const STALE_FILE_HANDLE: PosixError = PosixError(libc::ESTALE);
-    pub const OBJECT_IS_REMOTE: PosixError = PosixError(libc::EREMOTE);
-    pub const NO_LOCKS_AVAILABLE: PosixError = PosixError(libc::ENOLCK);
-    pub const FUNCTION_NOT_IMPLEMENTED: PosixError = PosixError(libc::ENOSYS);
-    pub const LIBRARY_ERROR: PosixError = PosixError(libc::ELIBEXEC);
-    pub const NOT_SUPPORTED: PosixError = PosixError(libc::ENOTSUP);
-    pub const ILLEGAL_BYTE_SEQUENCE: PosixError = PosixError(libc::EILSEQ);
-    pub const BAD_MESSAGE: PosixError = PosixError(libc::EBADMSG);
-    pub const IDENTIFIER_REMOVED: PosixError = PosixError(libc::EIDRM);
-    pub const MULTIHOP_ATTEMPTED: PosixError = PosixError(libc::EMULTIHOP);
-    pub const NO_DATA_AVAILABLE: PosixError = PosixError(libc::ENODATA);
-    pub const LINK_HAS_BEEN_SEVERED: PosixError = PosixError(libc::ENOLINK);
-    pub const NO_MESSAGE: PosixError = PosixError(libc::ENOMSG);
-    pub const OUT_OF_STREAMS: PosixError = PosixError(libc::ENOSR);
-}
+    pub fn new<T, U>(code: T, msg: U) -> Self
+    where
+        T: Into<i32>,
+        U: ToString,
+    {
+        Self {
+            code: code.into(),
+            msg: msg.to_string(),
+        }
+    }
 
-impl From<PosixError> for io::Error {
-    fn from(value: PosixError) -> Self {
-        Self::from_raw_os_error(value.0)
+    pub fn last_error<U>(msg: U) -> Self
+    where
+        U: ToString,
+    {
+        Self {
+            code: unsafe { *libc::__errno_location() },
+            msg: msg.to_string(),
+        }
+    }
+
+    pub fn raw_error(&self) -> i32 {
+        self.code
     }
 }
 
-impl From<PosixError> for i32 {
-    fn from(value: PosixError) -> Self {
-        value.0
+impl From<std::io::Error> for PosixError {
+    fn from(value: std::io::Error) -> Self {
+        PosixError::new(value.raw_os_error().unwrap_or(0), format!("{}", value))
     }
 }
 
-impl From<NulError> for PosixError {
-    fn from(_value: NulError) -> Self {
-        PosixError::INVALID_ARGUMENT
+impl Debug for PosixError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PosixError")
+            .field("code", &self.code)
+            .field("kind", &ErrorKind::from(self.code))
+            .field("msg", &self.msg)
+            .finish()
     }
 }
 
-pub fn from_last_errno() -> io::Error {
-    std::io::Error::last_os_error()
+impl Display for PosixError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let kind = ErrorKind::from(self.code);
+        match self.msg.as_str() {
+            "" => write!(f, "{:?} (code {})", kind, self.code),
+            _ => write!(f, "{:?} (code {}): {}", kind, self.code, self.msg),
+        }
+    }
+}
+
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub enum ErrorKind {
+    PermissionDenied,
+    FileNotFound,
+    NoSuchProcess,
+    InterruptedSystemCall,
+    InputOutputError,
+    NoSuchDeviceOrAddress,
+    ArgumentListTooLong,
+    ExecFormatError,
+    BadFileDescriptor,
+    NoChildProcesses,
+    ResourceDeadlockAvoided,
+    OutOfMemory,
+    PermissionDeniedAccess,
+    BadAddress,
+    BlockDeviceRequired,
+    DeviceOrResourceBusy,
+    FileExists,
+    InvalidCrossDeviceLink,
+    NoSuchDevice,
+    NotADirectory,
+    IsADirectory,
+    InvalidArgument,
+    ValueTooLarge,
+    TooManyOpenFiles,
+    TooManyFilesInSystem,
+    InappropriateIoctlForDevice,
+    TextFileBusy,
+    FileTooLarge,
+    NoSpaceLeftOnDevice,
+    IllegalSeek,
+    ReadOnlyFileSystem,
+    TooManyLinks,
+    BrokenPipe,
+    DomainError,
+    ResultTooLarge,
+    ResourceUnavailableTryAgain,
+    OperationInProgress,
+    OperationAlreadyInProgress,
+    NotASocket,
+    MessageSize,
+    ProtocolWrongType,
+    ProtocolNotAvailable,
+    ProtocolNotSupported,
+    SocketTypeNotSupported,
+    ProtocolFamilyNotSupported,
+    AddressFamilyNotSupported,
+    AddressInUse,
+    AddressNotAvailable,
+    NetworkDown,
+    NetworkUnreachable,
+    NetworkReset,
+    ConnectionAborted,
+    ConnectionReset,
+    NoBufferSpaceAvailable,
+    AlreadyConnected,
+    NotConnected,
+    DestinationAddressRequired,
+    Shutdown,
+    TooManyReferences,
+    TimedOut,
+    ConnectionRefused,
+    TooManySymbolicLinks,
+    FileNameTooLong,
+    HostIsDown,
+    NoRouteToHost,
+    DirectoryNotEmpty,
+    TooManyUsers,
+    QuotaExceeded,
+    StaleFileHandle,
+    ObjectIsRemote,
+    NoLocksAvailable,
+    FunctionNotImplemented,
+    LibraryError,
+    NotSupported,
+    IllegalByteSequence,
+    BadMessage,
+    IdentifierRemoved,
+    MultihopAttempted,
+    NoDataAvailable,
+    LinkHasBeenSevered,
+    NoMessage,
+    OutOfStreams,
+    Unknown(i32),
+}
+
+impl From<i32> for ErrorKind {
+    fn from(code: i32) -> Self {
+        match code {
+            libc::EPERM => Self::PermissionDenied,
+            libc::ENOENT => Self::FileNotFound,
+            libc::ESRCH => Self::NoSuchProcess,
+            libc::EINTR => Self::InterruptedSystemCall,
+            libc::EIO => Self::InputOutputError,
+            libc::ENXIO => Self::NoSuchDeviceOrAddress,
+            libc::E2BIG => Self::ArgumentListTooLong,
+            libc::ENOEXEC => Self::ExecFormatError,
+            libc::EBADF => Self::BadFileDescriptor,
+            libc::ECHILD => Self::NoChildProcesses,
+            libc::EDEADLK => Self::ResourceDeadlockAvoided,
+            libc::ENOMEM => Self::OutOfMemory,
+            libc::EACCES => Self::PermissionDeniedAccess,
+            libc::EFAULT => Self::BadAddress,
+            libc::ENOTBLK => Self::BlockDeviceRequired,
+            libc::EBUSY => Self::DeviceOrResourceBusy,
+            libc::EEXIST => Self::FileExists,
+            libc::EXDEV => Self::InvalidCrossDeviceLink,
+            libc::ENODEV => Self::NoSuchDevice,
+            libc::ENOTDIR => Self::NotADirectory,
+            libc::EISDIR => Self::IsADirectory,
+            libc::EINVAL => Self::InvalidArgument,
+            libc::EOVERFLOW => Self::ValueTooLarge,
+            libc::EMFILE => Self::TooManyOpenFiles,
+            libc::ENFILE => Self::TooManyFilesInSystem,
+            libc::ENOTTY => Self::InappropriateIoctlForDevice,
+            libc::ETXTBSY => Self::TextFileBusy,
+            libc::EFBIG => Self::FileTooLarge,
+            libc::ENOSPC => Self::NoSpaceLeftOnDevice,
+            libc::ESPIPE => Self::IllegalSeek,
+            libc::EROFS => Self::ReadOnlyFileSystem,
+            libc::EMLINK => Self::TooManyLinks,
+            libc::EPIPE => Self::BrokenPipe,
+            libc::EDOM => Self::DomainError,
+            libc::ERANGE => Self::ResultTooLarge,
+            libc::EAGAIN => Self::ResourceUnavailableTryAgain,
+            libc::EINPROGRESS => Self::OperationInProgress,
+            libc::EALREADY => Self::OperationAlreadyInProgress,
+            libc::ENOTSOCK => Self::NotASocket,
+            libc::EMSGSIZE => Self::MessageSize,
+            libc::EPROTOTYPE => Self::ProtocolWrongType,
+            libc::ENOPROTOOPT => Self::ProtocolNotAvailable,
+            libc::EPROTONOSUPPORT => Self::ProtocolNotSupported,
+            libc::ESOCKTNOSUPPORT => Self::SocketTypeNotSupported,
+            libc::EPFNOSUPPORT => Self::ProtocolFamilyNotSupported,
+            libc::EAFNOSUPPORT => Self::AddressFamilyNotSupported,
+            libc::EADDRINUSE => Self::AddressInUse,
+            libc::EADDRNOTAVAIL => Self::AddressNotAvailable,
+            libc::ENETDOWN => Self::NetworkDown,
+            libc::ENETUNREACH => Self::NetworkUnreachable,
+            libc::ENETRESET => Self::NetworkReset,
+            libc::ECONNABORTED => Self::ConnectionAborted,
+            libc::ECONNRESET => Self::ConnectionReset,
+            libc::ENOBUFS => Self::NoBufferSpaceAvailable,
+            libc::EISCONN => Self::AlreadyConnected,
+            libc::ENOTCONN => Self::NotConnected,
+            libc::EDESTADDRREQ => Self::DestinationAddressRequired,
+            libc::ESHUTDOWN => Self::Shutdown,
+            libc::ETOOMANYREFS => Self::TooManyReferences,
+            libc::ETIMEDOUT => Self::TimedOut,
+            libc::ECONNREFUSED => Self::ConnectionRefused,
+            libc::ELOOP => Self::TooManySymbolicLinks,
+            libc::ENAMETOOLONG => Self::FileNameTooLong,
+            libc::EHOSTDOWN => Self::HostIsDown,
+            libc::EHOSTUNREACH => Self::NoRouteToHost,
+            libc::ENOTEMPTY => Self::DirectoryNotEmpty,
+            libc::EUSERS => Self::TooManyUsers,
+            libc::EDQUOT => Self::QuotaExceeded,
+            libc::ESTALE => Self::StaleFileHandle,
+            libc::EREMOTE => Self::ObjectIsRemote,
+            libc::ENOLCK => Self::NoLocksAvailable,
+            libc::ENOSYS => Self::FunctionNotImplemented,
+            libc::ELIBEXEC => Self::LibraryError,
+            libc::ENOTSUP => Self::NotSupported,
+            libc::EILSEQ => Self::IllegalByteSequence,
+            libc::EBADMSG => Self::BadMessage,
+            libc::EIDRM => Self::IdentifierRemoved,
+            libc::EMULTIHOP => Self::MultihopAttempted,
+            libc::ENODATA => Self::NoDataAvailable,
+            libc::ENOLINK => Self::LinkHasBeenSevered,
+            libc::ENOMSG => Self::NoMessage,
+            libc::ENOSR => Self::OutOfStreams,
+            _ => Self::Unknown(code),
+        }
+    }
+}
+
+impl From<ErrorKind> for i32 {
+    fn from(kind: ErrorKind) -> Self {
+        match kind {
+            ErrorKind::PermissionDenied => libc::EPERM,
+            ErrorKind::FileNotFound => libc::ENOENT,
+            ErrorKind::NoSuchProcess => libc::ESRCH,
+            ErrorKind::InterruptedSystemCall => libc::EINTR,
+            ErrorKind::InputOutputError => libc::EIO,
+            ErrorKind::NoSuchDeviceOrAddress => libc::ENXIO,
+            ErrorKind::ArgumentListTooLong => libc::E2BIG,
+            ErrorKind::ExecFormatError => libc::ENOEXEC,
+            ErrorKind::BadFileDescriptor => libc::EBADF,
+            ErrorKind::NoChildProcesses => libc::ECHILD,
+            ErrorKind::ResourceDeadlockAvoided => libc::EDEADLK,
+            ErrorKind::OutOfMemory => libc::ENOMEM,
+            ErrorKind::PermissionDeniedAccess => libc::EACCES,
+            ErrorKind::BadAddress => libc::EFAULT,
+            ErrorKind::BlockDeviceRequired => libc::ENOTBLK,
+            ErrorKind::DeviceOrResourceBusy => libc::EBUSY,
+            ErrorKind::FileExists => libc::EEXIST,
+            ErrorKind::InvalidCrossDeviceLink => libc::EXDEV,
+            ErrorKind::NoSuchDevice => libc::ENODEV,
+            ErrorKind::NotADirectory => libc::ENOTDIR,
+            ErrorKind::IsADirectory => libc::EISDIR,
+            ErrorKind::InvalidArgument => libc::EINVAL,
+            ErrorKind::ValueTooLarge => libc::EOVERFLOW,
+            ErrorKind::TooManyOpenFiles => libc::EMFILE,
+            ErrorKind::TooManyFilesInSystem => libc::ENFILE,
+            ErrorKind::InappropriateIoctlForDevice => libc::ENOTTY,
+            ErrorKind::TextFileBusy => libc::ETXTBSY,
+            ErrorKind::FileTooLarge => libc::EFBIG,
+            ErrorKind::NoSpaceLeftOnDevice => libc::ENOSPC,
+            ErrorKind::IllegalSeek => libc::ESPIPE,
+            ErrorKind::ReadOnlyFileSystem => libc::EROFS,
+            ErrorKind::TooManyLinks => libc::EMLINK,
+            ErrorKind::BrokenPipe => libc::EPIPE,
+            ErrorKind::DomainError => libc::EDOM,
+            ErrorKind::ResultTooLarge => libc::ERANGE,
+            ErrorKind::ResourceUnavailableTryAgain => libc::EAGAIN,
+            ErrorKind::OperationInProgress => libc::EINPROGRESS,
+            ErrorKind::OperationAlreadyInProgress => libc::EALREADY,
+            ErrorKind::NotASocket => libc::ENOTSOCK,
+            ErrorKind::MessageSize => libc::EMSGSIZE,
+            ErrorKind::ProtocolWrongType => libc::EPROTOTYPE,
+            ErrorKind::ProtocolNotAvailable => libc::ENOPROTOOPT,
+            ErrorKind::ProtocolNotSupported => libc::EPROTONOSUPPORT,
+            ErrorKind::SocketTypeNotSupported => libc::ESOCKTNOSUPPORT,
+            ErrorKind::ProtocolFamilyNotSupported => libc::EPFNOSUPPORT,
+            ErrorKind::AddressFamilyNotSupported => libc::EAFNOSUPPORT,
+            ErrorKind::AddressInUse => libc::EADDRINUSE,
+            ErrorKind::AddressNotAvailable => libc::EADDRNOTAVAIL,
+            ErrorKind::NetworkDown => libc::ENETDOWN,
+            ErrorKind::NetworkUnreachable => libc::ENETUNREACH,
+            ErrorKind::NetworkReset => libc::ENETRESET,
+            ErrorKind::ConnectionAborted => libc::ECONNABORTED,
+            ErrorKind::ConnectionReset => libc::ECONNRESET,
+            ErrorKind::NoBufferSpaceAvailable => libc::ENOBUFS,
+            ErrorKind::AlreadyConnected => libc::EISCONN,
+            ErrorKind::NotConnected => libc::ENOTCONN,
+            ErrorKind::DestinationAddressRequired => libc::EDESTADDRREQ,
+            ErrorKind::Shutdown => libc::ESHUTDOWN,
+            ErrorKind::TooManyReferences => libc::ETOOMANYREFS,
+            ErrorKind::TimedOut => libc::ETIMEDOUT,
+            ErrorKind::ConnectionRefused => libc::ECONNREFUSED,
+            ErrorKind::TooManySymbolicLinks => libc::ELOOP,
+            ErrorKind::FileNameTooLong => libc::ENAMETOOLONG,
+            ErrorKind::HostIsDown => libc::EHOSTDOWN,
+            ErrorKind::NoRouteToHost => libc::EHOSTUNREACH,
+            ErrorKind::DirectoryNotEmpty => libc::ENOTEMPTY,
+            ErrorKind::TooManyUsers => libc::EUSERS,
+            ErrorKind::QuotaExceeded => libc::EDQUOT,
+            ErrorKind::StaleFileHandle => libc::ESTALE,
+            ErrorKind::ObjectIsRemote => libc::EREMOTE,
+            ErrorKind::NoLocksAvailable => libc::ENOLCK,
+            ErrorKind::FunctionNotImplemented => libc::ENOSYS,
+            ErrorKind::LibraryError => libc::ELIBEXEC,
+            ErrorKind::NotSupported => libc::ENOTSUP,
+            ErrorKind::IllegalByteSequence => libc::EILSEQ,
+            ErrorKind::BadMessage => libc::EBADMSG,
+            ErrorKind::IdentifierRemoved => libc::EIDRM,
+            ErrorKind::MultihopAttempted => libc::EMULTIHOP,
+            ErrorKind::NoDataAvailable => libc::ENODATA,
+            ErrorKind::LinkHasBeenSevered => libc::ENOLINK,
+            ErrorKind::NoMessage => libc::ENOMSG,
+            ErrorKind::OutOfStreams => libc::ENOSR,
+            ErrorKind::Unknown(code) => code, // Unknown variant retains its i32 value
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_error_kind_roundtrip() {
+        // List of all ErrorKind variants except Unknown
+        let error_kinds = vec![
+            ErrorKind::PermissionDenied,
+            ErrorKind::FileNotFound,
+            ErrorKind::NoSuchProcess,
+            ErrorKind::InterruptedSystemCall,
+            ErrorKind::InputOutputError,
+            ErrorKind::NoSuchDeviceOrAddress,
+            ErrorKind::ArgumentListTooLong,
+            ErrorKind::ExecFormatError,
+            ErrorKind::BadFileDescriptor,
+            ErrorKind::NoChildProcesses,
+            ErrorKind::ResourceDeadlockAvoided,
+            ErrorKind::OutOfMemory,
+            ErrorKind::PermissionDeniedAccess,
+            ErrorKind::BadAddress,
+            ErrorKind::BlockDeviceRequired,
+            ErrorKind::DeviceOrResourceBusy,
+            ErrorKind::FileExists,
+            ErrorKind::InvalidCrossDeviceLink,
+            ErrorKind::NoSuchDevice,
+            ErrorKind::NotADirectory,
+            ErrorKind::IsADirectory,
+            ErrorKind::InvalidArgument,
+            ErrorKind::ValueTooLarge,
+            ErrorKind::TooManyOpenFiles,
+            ErrorKind::TooManyFilesInSystem,
+            ErrorKind::InappropriateIoctlForDevice,
+            ErrorKind::TextFileBusy,
+            ErrorKind::FileTooLarge,
+            ErrorKind::NoSpaceLeftOnDevice,
+            ErrorKind::IllegalSeek,
+            ErrorKind::ReadOnlyFileSystem,
+            ErrorKind::TooManyLinks,
+            ErrorKind::BrokenPipe,
+            ErrorKind::DomainError,
+            ErrorKind::ResultTooLarge,
+            ErrorKind::ResourceUnavailableTryAgain,
+            ErrorKind::OperationInProgress,
+            ErrorKind::OperationAlreadyInProgress,
+            ErrorKind::NotASocket,
+            ErrorKind::MessageSize,
+            ErrorKind::ProtocolWrongType,
+            ErrorKind::ProtocolNotAvailable,
+            ErrorKind::ProtocolNotSupported,
+            ErrorKind::SocketTypeNotSupported,
+            ErrorKind::ProtocolFamilyNotSupported,
+            ErrorKind::AddressFamilyNotSupported,
+            ErrorKind::AddressInUse,
+            ErrorKind::AddressNotAvailable,
+            ErrorKind::NetworkDown,
+            ErrorKind::NetworkUnreachable,
+            ErrorKind::NetworkReset,
+            ErrorKind::ConnectionAborted,
+            ErrorKind::ConnectionReset,
+            ErrorKind::NoBufferSpaceAvailable,
+            ErrorKind::AlreadyConnected,
+            ErrorKind::NotConnected,
+            ErrorKind::DestinationAddressRequired,
+            ErrorKind::Shutdown,
+            ErrorKind::TooManyReferences,
+            ErrorKind::TimedOut,
+            ErrorKind::ConnectionRefused,
+            ErrorKind::TooManySymbolicLinks,
+            ErrorKind::FileNameTooLong,
+            ErrorKind::HostIsDown,
+            ErrorKind::NoRouteToHost,
+            ErrorKind::DirectoryNotEmpty,
+            ErrorKind::TooManyUsers,
+            ErrorKind::QuotaExceeded,
+            ErrorKind::StaleFileHandle,
+            ErrorKind::ObjectIsRemote,
+            ErrorKind::NoLocksAvailable,
+            ErrorKind::FunctionNotImplemented,
+            ErrorKind::LibraryError,
+            ErrorKind::NotSupported,
+            ErrorKind::IllegalByteSequence,
+            ErrorKind::BadMessage,
+            ErrorKind::IdentifierRemoved,
+            ErrorKind::MultihopAttempted,
+            ErrorKind::NoDataAvailable,
+            ErrorKind::LinkHasBeenSevered,
+            ErrorKind::NoMessage,
+            ErrorKind::OutOfStreams,
+        ];
+
+        for kind in error_kinds {
+            let code: i32 = kind.into(); // Convert ErrorKind -> i32
+            let converted_kind = ErrorKind::from(code); // Convert i32 -> ErrorKind
+
+            assert_eq!(
+                kind, converted_kind,
+                "Failed for ErrorKind::{:?} with code {}",
+                kind, code
+            );
+        }
+    }
 }

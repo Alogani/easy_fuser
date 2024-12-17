@@ -2,9 +2,9 @@ use std::path::Path;
 use std::time::{Duration, SystemTime};
 
 use std::ffi::{CString, OsStr, OsString};
+use std::fs;
 use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::{self as unix_fs, *};
-use std::{fs, io};
 
 use crate::types::*;
 use libc::{c_char, c_void, timespec};
@@ -93,54 +93,77 @@ fn stat_to_kind(statbuf: libc::stat) -> Option<FileType> {
     })
 }
 
-fn system_time_to_timespec(time: SystemTime) -> Result<timespec, io::Error> {
-    let duration = time
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_err(|_| PosixError::INVALID_ARGUMENT)?;
+fn system_time_to_timespec(time: SystemTime) -> Result<timespec, PosixError> {
+    let duration = time.duration_since(std::time::UNIX_EPOCH).map_err(|_| {
+        PosixError::new(
+            ErrorKind::InvalidArgument,
+            "System time could not be converted to TimeSpec",
+        )
+    })?;
     Ok(timespec {
         tv_sec: duration.as_secs() as i64,
         tv_nsec: duration.subsec_nanos() as i64,
     })
 }
 
-fn cstring_from_path(path: &Path) -> Result<CString, io::Error> {
-    Ok(CString::new(path.as_os_str().as_bytes())?)
+fn cstring_from_path(path: &Path) -> Result<CString, PosixError> {
+    CString::new(path.as_os_str().as_bytes()).map_err(|_| {
+        PosixError::new(
+            ErrorKind::InvalidArgument,
+            format!("{:?}: Cstring conversion failed", path),
+        )
+    })
 }
 
 /// Equivalent to the fuse function of the same name
 /// Get the metadata associated with a path
 /// custom_inode is useful if user tracks its inode instead of wanting the one of the filesystem (which might be the case with fuse)
-pub fn lookup(path: &Path) -> Result<FileAttribute, io::Error> {
+pub fn lookup(path: &Path) -> Result<FileAttribute, PosixError> {
     let c_path = cstring_from_path(path)?;
     let mut statbuf: libc::stat = unsafe { std::mem::zeroed() };
     let result = unsafe { libc::lstat(c_path.as_ptr(), &mut statbuf) };
     if result == -1 {
-        return Err(from_last_errno());
+        return Err(PosixError::last_error(format!(
+            "{:?}: lstat failed in lookup",
+            path
+        )));
     }
-    Ok(convert_stat_struct(statbuf).ok_or(PosixError::INVALID_ARGUMENT)?)
+    Ok(convert_stat_struct(statbuf).ok_or(PosixError::new(
+        ErrorKind::InvalidArgument,
+        format!("{:?}: statbuf conversion failed {:?}", path, statbuf),
+    ))?)
 }
 
 /// Equivalent to the fuse function of the same name
 /// Get the metadata associated with a FileDescriptor
 /// custom_inode is useful if user tracks its inode instead of wanting the one of the filesystem (which might be the case with fuse)
-pub fn getattr(fd: &FileDescriptor) -> Result<FileAttribute, io::Error> {
+pub fn getattr(fd: &FileDescriptor) -> Result<FileAttribute, PosixError> {
     let mut statbuf: libc::stat = unsafe { std::mem::zeroed() };
     let result = unsafe { libc::fstat(fd.clone().into(), &mut statbuf) };
     if result == -1 {
-        return Err(from_last_errno());
+        return Err(PosixError::last_error(format!(
+            "{:?}: fstat failed in getattr",
+            fd
+        )));
     }
-    Ok(convert_stat_struct(statbuf).ok_or(PosixError::INVALID_ARGUMENT)?)
+    Ok(convert_stat_struct(statbuf).ok_or(PosixError::new(
+        ErrorKind::InvalidArgument,
+        format!("{:?}: statbuf conversion failed {:?}", fd, statbuf),
+    ))?)
 }
 
 /// Equivalent to the fuse function of the same name
-pub fn setattr(path: &Path, attrs: SetAttrRequest) -> Result<FileAttribute, io::Error> {
+pub fn setattr(path: &Path, attrs: SetAttrRequest) -> Result<FileAttribute, PosixError> {
     let c_path = cstring_from_path(path)?;
 
     // update permissions
     if let Some(mode) = attrs.mode {
         let result = unsafe { libc::chmod(c_path.as_ptr(), mode) };
         if result == -1 {
-            return Err(from_last_errno());
+            return Err(PosixError::last_error(format!(
+                "{:?}: chmod failed in setattr",
+                path
+            )));
         }
     }
 
@@ -151,7 +174,10 @@ pub fn setattr(path: &Path, attrs: SetAttrRequest) -> Result<FileAttribute, io::
 
         let result = unsafe { libc::chown(c_path.as_ptr(), uid, gid) };
         if result == -1 {
-            return Err(from_last_errno());
+            return Err(PosixError::last_error(format!(
+                "{:?}: chown failed in setattr",
+                path
+            )));
         }
     }
 
@@ -161,12 +187,23 @@ pub fn setattr(path: &Path, attrs: SetAttrRequest) -> Result<FileAttribute, io::
             // If we have no file handle, use `open` to get one, then `ftruncate`
             let fd = unsafe { libc::open(c_path.as_ptr(), libc::O_RDONLY) };
             if fd == -1 {
-                return Err(from_last_errno());
+                return Err(PosixError::last_error(format!(
+                    "{:?}: open failed in setattr",
+                    path
+                )));
             }
             let res = unsafe {
                 libc::ftruncate(
                     fd,
-                    i64::try_from(size).map_err(|_| PosixError::INVALID_ARGUMENT)?,
+                    i64::try_from(size).map_err(|_| {
+                        PosixError::new(
+                            ErrorKind::InvalidArgument,
+                            format!(
+                                "{:?}: ftruncate size ({}) out of bound in setattr",
+                                path, size
+                            ),
+                        )
+                    })?,
                 )
             };
             unsafe { libc::close(fd) };
@@ -174,7 +211,10 @@ pub fn setattr(path: &Path, attrs: SetAttrRequest) -> Result<FileAttribute, io::
         };
 
         if result == -1 {
-            return Err(from_last_errno());
+            return Err(PosixError::last_error(format!(
+                "{:?}: ftruncate failed on setattr",
+                path
+            )));
         }
     }
 
@@ -190,7 +230,12 @@ pub fn setattr(path: &Path, attrs: SetAttrRequest) -> Result<FileAttribute, io::
                 let mt_spec = system_time_to_timespec(mt)?;
                 [at_spec, mt_spec]
             }
-            _ => return Err(PosixError::INVALID_ARGUMENT.into()),
+            _ => {
+                return Err(PosixError::new(
+                    ErrorKind::InvalidArgument,
+                    "Could not convert timespec to TimeOrNow in setattr",
+                ))
+            }
         };
         let result = unsafe {
             libc::utimensat(
@@ -201,7 +246,10 @@ pub fn setattr(path: &Path, attrs: SetAttrRequest) -> Result<FileAttribute, io::
             )
         };
         if result == -1 {
-            return Err(from_last_errno());
+            return Err(PosixError::last_error(format!(
+                "{:?}: utimensat failed in setattr",
+                path
+            )));
         }
     }
 
@@ -209,56 +257,59 @@ pub fn setattr(path: &Path, attrs: SetAttrRequest) -> Result<FileAttribute, io::
 }
 
 /// Equivalent to the fuse function of the same name
-pub fn readlink(path: &Path) -> Result<Vec<u8>, io::Error> {
+pub fn readlink(path: &Path) -> Result<Vec<u8>, PosixError> {
     let c_path = cstring_from_path(path)?;
     let mut buf = vec![0u8; 1024]; // Initial buffer size
     let ret =
         unsafe { libc::readlink(c_path.as_ptr(), buf.as_mut_ptr() as *mut c_char, buf.len()) };
     if ret == -1 {
-        return Err(from_last_errno());
+        return Err(PosixError::last_error(format!("{:?}: readlink", path)));
     }
     buf.truncate(ret as usize);
     Ok(buf)
 }
 
 /// Equivalent to the fuse function of the same name
-pub fn mknod(path: &Path, mode: u32, rdev: DeviceType) -> Result<FileAttribute, io::Error> {
+pub fn mknod(path: &Path, mode: u32, rdev: DeviceType) -> Result<FileAttribute, PosixError> {
     let c_path = cstring_from_path(path)?;
     let ret = unsafe { libc::mknod(c_path.as_ptr(), mode, rdev.to_rdev() as libc::dev_t) };
     if ret == -1 {
-        return Err(from_last_errno());
+        return Err(PosixError::last_error(format!("{:?}: mknod failed", path)));
     }
     lookup(path)
 }
 
 /// Equivalent to the fuse function of the same name
-pub fn mkdir(path: &Path, mode: u32) -> Result<FileAttribute, io::Error> {
+pub fn mkdir(path: &Path, mode: u32) -> Result<FileAttribute, PosixError> {
     let c_path = cstring_from_path(path)?;
     let ret = unsafe { libc::mkdir(c_path.as_ptr(), mode) };
     if ret == -1 {
-        return Err(from_last_errno());
+        return Err(PosixError::last_error(format!(
+            "{:?}: mkdir failed in setattr",
+            path
+        )));
     }
     lookup(path)
 }
 
 /// Equivalent to the fuse function of the same name
-pub fn unlink(path: &Path) -> Result<(), io::Error> {
+pub fn unlink(path: &Path) -> Result<(), PosixError> {
     Ok(fs::remove_file(path)?)
 }
 
 /// Equivalent to the fuse function of the same name
-pub fn rmdir(path: &Path) -> Result<(), io::Error> {
+pub fn rmdir(path: &Path) -> Result<(), PosixError> {
     Ok(fs::remove_dir(path)?)
 }
 
 /// Equivalent to the fuse function of the same name
-pub fn symlink(path: &Path, target: &Path) -> Result<FileAttribute, io::Error> {
+pub fn symlink(path: &Path, target: &Path) -> Result<FileAttribute, PosixError> {
     unix_fs::symlink(target, path)?;
     lookup(path)
 }
 
 /// Equivalent to the fuse function of the same name
-pub fn rename(oldpath: &Path, newpath: &Path, flags: RenameFlags) -> Result<(), io::Error> {
+pub fn rename(oldpath: &Path, newpath: &Path, flags: RenameFlags) -> Result<(), PosixError> {
     let old_cstr = cstring_from_path(oldpath)?;
     let new_cstr = cstring_from_path(newpath)?;
     let result = unsafe {
@@ -273,22 +324,25 @@ pub fn rename(oldpath: &Path, newpath: &Path, flags: RenameFlags) -> Result<(), 
     if result == 0 {
         return Ok(());
     }
-    Err(io::Error::last_os_error())
+    Err(PosixError::last_error(format!(
+        "{:?}: rename failed into {:?}",
+        oldpath, newpath
+    )))
 }
 
 /// Equivalent to the fuse function of the same name
 /// Return a file descriptor (fuse doesn't assume it necessarly equivalent to its file handle)
-pub fn open(path: &Path, flags: OpenFlags) -> Result<FileDescriptorGuard, io::Error> {
+pub fn open(path: &Path, flags: OpenFlags) -> Result<FileDescriptorGuard, PosixError> {
     let c_path = cstring_from_path(path)?;
     let fd = unsafe { libc::open(c_path.as_ptr(), flags.bits()) };
     if fd == -1 {
-        return Err(from_last_errno());
+        return Err(PosixError::last_error(format!("{:?}: open failed", path)));
     }
     Ok(FileDescriptorGuard::new(fd.into()))
 }
 
 /// Equivalent to the fuse function of the same name
-pub fn read(fd: &FileDescriptor, offset: i64, size: u32) -> Result<Vec<u8>, io::Error> {
+pub fn read(fd: &FileDescriptor, offset: i64, size: u32) -> Result<Vec<u8>, PosixError> {
     let mut buffer = vec![0; size as usize];
     let bytes_read = unsafe {
         libc::pread(
@@ -299,14 +353,14 @@ pub fn read(fd: &FileDescriptor, offset: i64, size: u32) -> Result<Vec<u8>, io::
         )
     };
     if bytes_read == -1 {
-        return Err(from_last_errno());
+        return Err(PosixError::last_error(format!("{:?}: read failed", fd)));
     }
     buffer.truncate(bytes_read as usize);
     Ok(buffer)
 }
 
 /// Equivalent to the fuse function of the same name
-pub fn write(fd: &FileDescriptor, offset: i64, data: &[u8]) -> Result<u32, io::Error> {
+pub fn write(fd: &FileDescriptor, offset: i64, data: &[u8]) -> Result<u32, PosixError> {
     let bytes_to_write = data.len() as usize;
 
     let bytes_written = unsafe {
@@ -318,24 +372,24 @@ pub fn write(fd: &FileDescriptor, offset: i64, data: &[u8]) -> Result<u32, io::E
         )
     };
     if bytes_written == -1 {
-        return Err(from_last_errno());
+        return Err(PosixError::last_error(format!("{:?}: write failed", fd)));
     }
 
     Ok(bytes_written as u32)
 }
 
 /// Equivalent to the fuse function of the same name
-pub fn flush(fd: &FileDescriptor) -> Result<(), io::Error> {
+pub fn flush(fd: &FileDescriptor) -> Result<(), PosixError> {
     let result = unsafe { libc::fdatasync(fd.clone().into()) };
     if result == -1 {
-        return Err(from_last_errno());
+        return Err(PosixError::last_error(format!("{:?}: flush failed", fd)));
     }
 
     Ok(())
 }
 
 /// Equivalent to the fuse function of the same name
-pub fn fsync(fd: &FileDescriptor, datasync: bool) -> Result<(), io::Error> {
+pub fn fsync(fd: &FileDescriptor, datasync: bool) -> Result<(), PosixError> {
     let fd = fd.clone().into();
     let result = unsafe {
         if datasync {
@@ -346,14 +400,14 @@ pub fn fsync(fd: &FileDescriptor, datasync: bool) -> Result<(), io::Error> {
     };
 
     if result == -1 {
-        return Err(from_last_errno());
+        return Err(PosixError::last_error(format!("{:?}: fsync failed", fd)));
     }
 
     Ok(())
 }
 
 /// Equivalent to the fuse function of the same name
-pub fn readdir(path: &Path) -> Result<Vec<(OsString, FileType)>, io::Error> {
+pub fn readdir(path: &Path) -> Result<Vec<(OsString, FileType)>, PosixError> {
     let entries = fs::read_dir(path)?;
     let mut result = Vec::new();
     for entry in entries {
@@ -364,7 +418,7 @@ pub fn readdir(path: &Path) -> Result<Vec<(OsString, FileType)>, io::Error> {
 }
 
 /// Equivalent to the fuse function of the same name
-pub fn readdirplus(path: &Path) -> Result<Vec<(OsString, FileType, FileAttribute)>, io::Error> {
+pub fn readdirplus(path: &Path) -> Result<Vec<(OsString, FileType, FileAttribute)>, PosixError> {
     let entries = fs::read_dir(path)?;
     let mut result = Vec::new();
     for entry in entries {
@@ -381,26 +435,26 @@ pub fn readdirplus(path: &Path) -> Result<Vec<(OsString, FileType, FileAttribute
 /// Equivalent to the fuse function of the same name
 /// Integrated automatically into fuse_api (so file_handle as fd transmitted to it doesn't need to be released)
 /// Useless to call for FileDescriptorGuard
-pub fn release(fd: FileDescriptor) -> Result<(), io::Error> {
+pub fn release(fd: FileDescriptor) -> Result<(), PosixError> {
     // Attempt to close the file descriptor.
-    let result = unsafe { libc::close(fd.into()) };
+    let result = unsafe { libc::close(fd.clone().into()) };
 
     if result == -1 {
         // Handle errors from the close system call.
-        return Err(from_last_errno());
+        return Err(PosixError::last_error(format!("{:?}: release failed", fd)));
     }
     Ok(())
 }
 
 /// Equivalent to the fuse function of the same name
-pub fn statfs(path: &Path) -> Result<StatFs, io::Error> {
+pub fn statfs(path: &Path) -> Result<StatFs, PosixError> {
     let c_path = cstring_from_path(path)?;
     let mut stat: libc::statvfs64 = unsafe { std::mem::zeroed() };
 
     // Use statvfs64 to get file system stats
     let result = unsafe { libc::statvfs64(c_path.as_ptr(), &mut stat) };
     if result != 0 {
-        return Err(from_last_errno());
+        return Err(PosixError::last_error(format!("{:?}: statfs failed", path)));
     }
 
     Ok(StatFs {
@@ -416,29 +470,50 @@ pub fn statfs(path: &Path) -> Result<StatFs, io::Error> {
 }
 
 /// Equivalent to the fuse function of the same name
-pub fn setxattr(path: &Path, name: &OsStr, value: &[u8], position: u32) -> Result<(), io::Error> {
+pub fn setxattr(path: &Path, name: &OsStr, value: &[u8], position: u32) -> Result<(), PosixError> {
     let c_path = cstring_from_path(path)?;
-    let c_name = CString::new(name.as_bytes()).map_err(|_| PosixError::INVALID_ARGUMENT)?;
+    let c_name = CString::new(name.as_bytes()).map_err(|_| {
+        PosixError::new(
+            ErrorKind::InvalidArgument,
+            format!("{:?}: Cstring conversion failed in setxattr", name),
+        )
+    })?;
     let ret = unsafe {
         libc::setxattr(
             c_path.as_ptr(),
             c_name.as_ptr(),
             value.as_ptr() as *const c_void,
             value.len(),
-            i32::try_from(position).map_err(|_| PosixError::INVALID_ARGUMENT)?,
+            i32::try_from(position).map_err(|_| {
+                PosixError::new(
+                    ErrorKind::InvalidArgument,
+                    format!(
+                        "{:?}: Out-of-bound position argument ({}) in setxattr",
+                        path, position
+                    ),
+                )
+            })?,
         )
     };
 
     if ret == -1 {
-        return Err(from_last_errno());
+        return Err(PosixError::last_error(format!(
+            "{:?}: setxattr failed. Name: {:?}, value: {:?}, position: {:?}",
+            path, name, value, position
+        )));
     }
     Ok(())
 }
 
 /// Equivalent to the fuse function of the same name
-pub fn getxattr(path: &Path, name: &OsStr, size: u32) -> Result<Vec<u8>, io::Error> {
+pub fn getxattr(path: &Path, name: &OsStr, size: u32) -> Result<Vec<u8>, PosixError> {
     let c_path = cstring_from_path(path)?;
-    let c_name = CString::new(name.as_bytes()).map_err(|_| PosixError::INVALID_ARGUMENT)?;
+    let c_name = CString::new(name.as_bytes()).map_err(|_| {
+        PosixError::new(
+            ErrorKind::InvalidArgument,
+            format!("{:?}: Cstring conversion failed in getxattr", name),
+        )
+    })?;
 
     let mut buf = vec![0u8; size as usize];
     let ret = unsafe {
@@ -451,7 +526,10 @@ pub fn getxattr(path: &Path, name: &OsStr, size: u32) -> Result<Vec<u8>, io::Err
     };
 
     if ret == -1 {
-        return Err(from_last_errno());
+        return Err(PosixError::last_error(format!(
+            "{:?}: getxattr failed. Name: {:?}, Size: {:?}",
+            path, name, size
+        )));
     }
 
     buf.truncate(ret as usize);
@@ -459,13 +537,16 @@ pub fn getxattr(path: &Path, name: &OsStr, size: u32) -> Result<Vec<u8>, io::Err
 }
 
 /// Equivalent to the fuse function of the same name
-pub fn listxattr(path: &Path, size: u32) -> Result<Vec<u8>, io::Error> {
+pub fn listxattr(path: &Path, size: u32) -> Result<Vec<u8>, PosixError> {
     let c_path = cstring_from_path(path)?;
     let mut buf = vec![0u8; size as usize];
     let ret = unsafe { libc::listxattr(c_path.as_ptr(), buf.as_mut_ptr() as *mut i8, buf.len()) };
 
     if ret == -1 {
-        return Err(from_last_errno());
+        return Err(PosixError::last_error(format!(
+            "{:?}: listxattr failed",
+            path
+        )));
     }
 
     buf.truncate(ret as usize);
@@ -473,11 +554,14 @@ pub fn listxattr(path: &Path, size: u32) -> Result<Vec<u8>, io::Error> {
 }
 
 /// Equivalent to the fuse function of the same name
-pub fn access(path: &Path, mask: AccessMask) -> Result<(), io::Error> {
+pub fn access(path: &Path, mask: AccessMask) -> Result<(), PosixError> {
     let c_path = cstring_from_path(path)?;
     let ret = unsafe { libc::access(c_path.as_ptr(), mask.bits()) };
     if ret == -1 {
-        return Err(from_last_errno());
+        return Err(PosixError::last_error(format!(
+            "{:?}: access failed. Mask {:?}",
+            path, mask
+        )));
     }
     Ok(())
 }
@@ -485,7 +569,7 @@ pub fn access(path: &Path, mask: AccessMask) -> Result<(), io::Error> {
 /// Equivalent to the fuse function of the same name
 /// The doc of `open` apply
 /// Return a file handle with write flag. Return an error if file already exists
-pub fn create(path: &Path, mode: u32) -> Result<(FileDescriptorGuard, FileAttribute), io::Error> {
+pub fn create(path: &Path, mode: u32) -> Result<(FileDescriptorGuard, FileAttribute), PosixError> {
     let c_path = cstring_from_path(path)?;
 
     // Open the file with O_CREAT (create if it does not exist) and O_WRONLY (write only)
@@ -498,7 +582,7 @@ pub fn create(path: &Path, mode: u32) -> Result<(FileDescriptorGuard, FileAttrib
     };
 
     if fd == -1 {
-        return Err(from_last_errno());
+        return Err(PosixError::last_error(format!("{:?}: create failed", path)));
     }
 
     Ok((FileDescriptorGuard::new(fd.into()), lookup(path)?))
@@ -510,19 +594,25 @@ pub fn fallocate(
     offset: i64,
     length: i64,
     mode: i32,
-) -> Result<(), io::Error> {
+) -> Result<(), PosixError> {
     let result = unsafe { libc::fallocate(fd.clone().into(), mode, offset, length) };
     if result == -1 {
-        return Err(from_last_errno());
+        return Err(PosixError::last_error(format!(
+            "{:?}: fallocate failed",
+            fd
+        )));
     }
     Ok(())
 }
 
 /// Equivalent to the fuse function of the same name
-pub fn lseek(fd: &FileDescriptor, offset: i64, whence: Whence) -> Result<i64, io::Error> {
+pub fn lseek(fd: &FileDescriptor, offset: i64, whence: Whence) -> Result<i64, PosixError> {
     let result = unsafe { libc::lseek(fd.clone().into(), offset, whence.into()) };
     if result == -1 {
-        return Err(from_last_errno());
+        return Err(PosixError::last_error(format!(
+            "{:?}: lseek failed. Offset: {:?}, whence: {:?}",
+            fd, offset, whence
+        )));
     }
     Ok(result)
 }
@@ -534,7 +624,7 @@ pub fn copy_file_range(
     fd_out: &FileDescriptor,
     offset_out: i64,
     len: u64,
-) -> Result<u32, io::Error> {
+) -> Result<u32, PosixError> {
     let result = unsafe {
         libc::copy_file_range(
             fd_in.clone().into(),
@@ -546,7 +636,7 @@ pub fn copy_file_range(
         )
     };
     if result == -1 {
-        return Err(from_last_errno());
+        return Err(PosixError::last_error("copyfilerange failed"));
     }
     Ok(result as u32)
 }

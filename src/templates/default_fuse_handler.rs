@@ -49,7 +49,7 @@ impl<T: FileIdType> FuseHandler<T> for DefaultFuseHandler {
         if self.panic {
             panic!("Function not implemented")
         } else {
-            Err(PosixError::FUNCTION_NOT_IMPLEMENTED.into())
+            Err(PosixError::new(ErrorKind::FunctionNotImplemented, ""))
         }
     }
 
@@ -68,7 +68,7 @@ impl<T: FileIdType> FuseHandler<T> for DefaultFuseHandler {
         if self.panic {
             panic!("Function not implemented")
         } else {
-            Err(PosixError::FUNCTION_NOT_IMPLEMENTED.into())
+            Err(PosixError::new(ErrorKind::FunctionNotImplemented, ""))
         }
     }
 
@@ -85,7 +85,7 @@ impl<T: FileIdType> FuseHandler<T> for DefaultFuseHandler {
         if self.panic {
             panic!("Function not implemented")
         } else {
-            Err(PosixError::FUNCTION_NOT_IMPLEMENTED.into())
+            Err(PosixError::new(ErrorKind::FunctionNotImplemented, ""))
         }
     }
 
@@ -94,7 +94,7 @@ impl<T: FileIdType> FuseHandler<T> for DefaultFuseHandler {
         if self.panic {
             panic!("Function not implemented")
         } else {
-            Err(PosixError::FUNCTION_NOT_IMPLEMENTED.into())
+            Err(PosixError::new(ErrorKind::FunctionNotImplemented, ""))
         }
     }
 
@@ -115,7 +115,7 @@ impl<T: FileIdType> FuseHandler<T> for DefaultFuseHandler {
         if self.panic {
             panic!("Function not implemented")
         } else {
-            Err(PosixError::FUNCTION_NOT_IMPLEMENTED.into())
+            Err(PosixError::new(ErrorKind::FunctionNotImplemented, ""))
         }
     }
 
@@ -134,7 +134,7 @@ impl<T: FileIdType> FuseHandler<T> for DefaultFuseHandler {
         if self.panic {
             panic!("Function not implemented")
         } else {
-            Err(PosixError::FUNCTION_NOT_IMPLEMENTED.into())
+            Err(PosixError::new(ErrorKind::FunctionNotImplemented, ""))
         }
     }
 
@@ -146,7 +146,7 @@ impl<T: FileIdType> FuseHandler<T> for DefaultFuseHandler {
         if self.panic {
             panic!("Function not implemented")
         } else {
-            Err(PosixError::FUNCTION_NOT_IMPLEMENTED.into())
+            Err(PosixError::new(ErrorKind::FunctionNotImplemented, ""))
         }
     }
 
@@ -158,7 +158,7 @@ impl<T: FileIdType> FuseHandler<T> for DefaultFuseHandler {
         if self.panic {
             panic!("Function not implemented")
         } else {
-            Err(PosixError::FUNCTION_NOT_IMPLEMENTED.into())
+            Err(PosixError::new(ErrorKind::FunctionNotImplemented, ""))
         }
     }
 
@@ -176,7 +176,7 @@ impl<T: FileIdType> FuseHandler<T> for DefaultFuseHandler {
         if self.panic {
             panic!("Function not implemented")
         } else {
-            Err(PosixError::FUNCTION_NOT_IMPLEMENTED.into())
+            Err(PosixError::new(ErrorKind::FunctionNotImplemented, ""))
         }
     }
 
@@ -197,7 +197,7 @@ impl<T: FileIdType> FuseHandler<T> for DefaultFuseHandler {
         if self.panic {
             panic!("Function not implemented")
         } else {
-            Err(PosixError::FUNCTION_NOT_IMPLEMENTED.into())
+            Err(PosixError::new(ErrorKind::FunctionNotImplemented, ""))
         }
     }
 
@@ -215,7 +215,7 @@ impl<T: FileIdType> FuseHandler<T> for DefaultFuseHandler {
         if self.panic {
             panic!("Function not implemented")
         } else {
-            Err(PosixError::FUNCTION_NOT_IMPLEMENTED.into())
+            Err(PosixError::new(ErrorKind::FunctionNotImplemented, ""))
         }
     }
 
@@ -232,7 +232,7 @@ impl<T: FileIdType> FuseHandler<T> for DefaultFuseHandler {
         if self.panic {
             panic!("Function not implemented")
         } else {
-            Err(PosixError::FUNCTION_NOT_IMPLEMENTED.into())
+            Err(PosixError::new(ErrorKind::FunctionNotImplemented, ""))
         }
     }
 
@@ -253,7 +253,7 @@ impl<T: FileIdType> FuseHandler<T> for DefaultFuseHandler {
         if self.panic {
             panic!("Function not implemented")
         } else {
-            Err(PosixError::FUNCTION_NOT_IMPLEMENTED.into())
+            Err(PosixError::new(ErrorKind::FunctionNotImplemented, ""))
         }
     }
 
@@ -275,7 +275,7 @@ impl<T: FileIdType> FuseHandler<T> for DefaultFuseHandler {
         if self.panic {
             panic!("Function not implemented")
         } else {
-            Err(PosixError::FUNCTION_NOT_IMPLEMENTED.into())
+            Err(PosixError::new(ErrorKind::FunctionNotImplemented, ""))
         }
     }
 
@@ -293,7 +293,7 @@ impl<T: FileIdType> FuseHandler<T> for DefaultFuseHandler {
         if self.panic {
             panic!("Function not implemented")
         } else {
-            Err(PosixError::FUNCTION_NOT_IMPLEMENTED.into())
+            Err(PosixError::new(ErrorKind::FunctionNotImplemented, ""))
         }
     }
 
@@ -311,7 +311,7 @@ impl<T: FileIdType> FuseHandler<T> for DefaultFuseHandler {
         if self.panic {
             panic!("Function not implemented")
         } else {
-            Err(PosixError::FUNCTION_NOT_IMPLEMENTED.into())
+            Err(PosixError::new(ErrorKind::FunctionNotImplemented, ""))
         }
     }
 
@@ -337,7 +337,7 @@ impl<T: FileIdType> FuseHandler<T> for DefaultFuseHandler {
         if self.panic {
             panic!("Function not implemented")
         } else {
-            Err(PosixError::FUNCTION_NOT_IMPLEMENTED.into())
+            Err(PosixError::new(ErrorKind::FunctionNotImplemented, ""))
         }
     }
 
@@ -354,7 +354,7 @@ impl<T: FileIdType> FuseHandler<T> for DefaultFuseHandler {
         if self.panic {
             panic!("Function not implemented")
         } else {
-            Err(PosixError::FUNCTION_NOT_IMPLEMENTED.into())
+            Err(PosixError::new(ErrorKind::FunctionNotImplemented, ""))
         }
     }
 
@@ -394,7 +394,7 @@ impl<T: FileIdType> FuseHandler<T> for DefaultFuseHandler {
         if self.panic {
             panic!("Function not implemented")
         } else {
-            Err(PosixError::FUNCTION_NOT_IMPLEMENTED.into())
+            Err(PosixError::new(ErrorKind::FunctionNotImplemented, ""))
         }
     }
 
@@ -418,7 +418,7 @@ impl<T: FileIdType> FuseHandler<T> for DefaultFuseHandler {
         if self.panic {
             panic!("Function not implemented")
         } else {
-            Err(PosixError::FUNCTION_NOT_IMPLEMENTED.into())
+            Err(PosixError::new(ErrorKind::FunctionNotImplemented, ""))
         }
     }
 
@@ -436,7 +436,7 @@ impl<T: FileIdType> FuseHandler<T> for DefaultFuseHandler {
         if self.panic {
             panic!("Function not implemented")
         } else {
-            Err(PosixError::FUNCTION_NOT_IMPLEMENTED.into())
+            Err(PosixError::new(ErrorKind::FunctionNotImplemented, ""))
         }
     }
 
@@ -448,7 +448,7 @@ impl<T: FileIdType> FuseHandler<T> for DefaultFuseHandler {
         if self.panic {
             panic!("Function not implemented")
         } else {
-            Err(PosixError::FUNCTION_NOT_IMPLEMENTED.into())
+            Err(PosixError::new(ErrorKind::FunctionNotImplemented, ""))
         }
     }
 
@@ -460,7 +460,7 @@ impl<T: FileIdType> FuseHandler<T> for DefaultFuseHandler {
         if self.panic {
             panic!("Function not implemented")
         } else {
-            Err(PosixError::FUNCTION_NOT_IMPLEMENTED.into())
+            Err(PosixError::new(ErrorKind::FunctionNotImplemented, ""))
         }
     }
 
@@ -472,7 +472,7 @@ impl<T: FileIdType> FuseHandler<T> for DefaultFuseHandler {
         if self.panic {
             panic!("Function not implemented")
         } else {
-            Err(PosixError::FUNCTION_NOT_IMPLEMENTED.into())
+            Err(PosixError::new(ErrorKind::FunctionNotImplemented, ""))
         }
     }
 
@@ -491,7 +491,7 @@ impl<T: FileIdType> FuseHandler<T> for DefaultFuseHandler {
         if self.panic {
             panic!("Function not implemented")
         } else {
-            Err(PosixError::FUNCTION_NOT_IMPLEMENTED.into())
+            Err(PosixError::new(ErrorKind::FunctionNotImplemented, ""))
         }
     }
 
@@ -511,7 +511,7 @@ impl<T: FileIdType> FuseHandler<T> for DefaultFuseHandler {
         if self.panic {
             panic!("Function not implemented")
         } else {
-            Err(PosixError::FUNCTION_NOT_IMPLEMENTED.into())
+            Err(PosixError::new(ErrorKind::FunctionNotImplemented, ""))
         }
     }
 
@@ -523,7 +523,7 @@ impl<T: FileIdType> FuseHandler<T> for DefaultFuseHandler {
         if self.panic {
             panic!("Function not implemented")
         } else {
-            Err(PosixError::FUNCTION_NOT_IMPLEMENTED.into())
+            Err(PosixError::new(ErrorKind::FunctionNotImplemented, ""))
         }
     }
 
@@ -544,7 +544,7 @@ impl<T: FileIdType> FuseHandler<T> for DefaultFuseHandler {
         if self.panic {
             panic!("Function not implemented")
         } else {
-            Err(PosixError::FUNCTION_NOT_IMPLEMENTED.into())
+            Err(PosixError::new(ErrorKind::FunctionNotImplemented, ""))
         }
     }
 
@@ -565,7 +565,7 @@ impl<T: FileIdType> FuseHandler<T> for DefaultFuseHandler {
         if self.panic {
             panic!("Function not implemented")
         } else {
-            Err(PosixError::FUNCTION_NOT_IMPLEMENTED.into())
+            Err(PosixError::new(ErrorKind::FunctionNotImplemented, ""))
         }
     }
 
@@ -585,7 +585,7 @@ impl<T: FileIdType> FuseHandler<T> for DefaultFuseHandler {
         if self.panic {
             panic!("Function not implemented")
         } else {
-            Err(PosixError::FUNCTION_NOT_IMPLEMENTED.into())
+            Err(PosixError::new(ErrorKind::FunctionNotImplemented, ""))
         }
     }
 
@@ -604,7 +604,7 @@ impl<T: FileIdType> FuseHandler<T> for DefaultFuseHandler {
         if self.panic {
             panic!("Function not implemented")
         } else {
-            Err(PosixError::FUNCTION_NOT_IMPLEMENTED.into())
+            Err(PosixError::new(ErrorKind::FunctionNotImplemented, ""))
         }
     }
 
@@ -627,7 +627,7 @@ impl<T: FileIdType> FuseHandler<T> for DefaultFuseHandler {
         if self.panic {
             panic!("Function not implemented")
         } else {
-            Err(PosixError::FUNCTION_NOT_IMPLEMENTED.into())
+            Err(PosixError::new(ErrorKind::FunctionNotImplemented, ""))
         }
     }
 }
