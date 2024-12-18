@@ -7,7 +7,7 @@ use std::{
 };
 
 use libc::c_int;
-use log::{debug, error};
+use log::{warn, error};
 
 use fuser::{
     self, KernelConfig, ReplyAttr, ReplyBmap, ReplyCreate, ReplyData, ReplyDirectory,
@@ -60,16 +60,24 @@ where
     R: FileIdResolver<Output = T>,
 {
     fn init(&mut self, req: &Request, _config: &mut KernelConfig) -> Result<(), c_int> {
-        match FuseCallbackHandler::init(&mut self.callback_handler, req.into(), _config) {
+        let req_info = RequestInfo::from(req);
+        let req_cb = req_info.clone();
+        match FuseCallbackHandler::init(&mut self.callback_handler, req_cb, _config) {
             Ok(()) => Ok(()),
             Err(e) => {
-                debug!("{:?}", e);
+                warn!("init {:?}: {:?}", req_info, e);
                 Err(e.raw_error())
             } // Convert io::Error to c_int
         }
     }
 
+    fn destroy(&mut self) {
+        FuseCallbackHandler::destroy(&mut self.callback_handler)
+    }
+
     fn lookup(&mut self, req: &Request, parent: u64, name: &OsStr, reply: ReplyEntry) {
+        let req_info = RequestInfo::from(req);
+        let req_cb = req_info.clone();
         let default_ttl = U::get_default_ttl();
         let resolver = Arc::clone(&self.id_resolver);
         let name_owned = name.to_owned();
@@ -84,13 +92,13 @@ where
                 );
             }
             Err(e) => {
-                debug!("{:?}", e);
+                warn!("lookup {:?}: {:?}", req_cb, e);
                 reply.error(e.raw_error());
             }
         });
         FuseCallbackHandler::lookup(
             &mut self.callback_handler,
-            req.into(),
+            req_info,
             self.id_resolver.resolve_id(parent),
             name,
             callback,
@@ -107,6 +115,8 @@ where
     }
 
     fn getattr(&mut self, req: &Request, ino: u64, fh: Option<u64>, reply: ReplyAttr) {
+        let req_info = RequestInfo::from(req);
+        let req_cb = req_info.clone();
         let default_ttl = U::get_default_ttl();
         let resolver = Arc::clone(&self.id_resolver);
         let callback: ReplyCb<FileAttribute> = Box::new(move |result| match result {
@@ -115,13 +125,13 @@ where
                 reply.attr(&file_attr.ttl.unwrap_or(default_ttl), &file_attr.to_fuse());
             }
             Err(e) => {
-                debug!("{:?}", e);
+                warn!("getattr {:?}: {:?}", req_cb, e);
                 reply.error(e.raw_error())
             }
         });
         FuseCallbackHandler::getattr(
             &mut self.callback_handler,
-            req.into(),
+            req_info,
             self.id_resolver.resolve_id(ino),
             fh.map(FileHandle::from),
             callback,
@@ -161,6 +171,8 @@ where
             flags: None,
             file_handle: fh.map(FileHandle::from),
         };
+        let req_info = RequestInfo::from(req);
+        let req_cb = req_info.clone();
         let default_ttl = U::get_default_ttl();
         let resolver = Arc::clone(&self.id_resolver);
         let callback: ReplyCb<FileAttribute> = Box::new(move |result| match result {
@@ -169,13 +181,13 @@ where
                 reply.attr(&file_attr.ttl.unwrap_or(default_ttl), &file_attr.to_fuse());
             }
             Err(e) => {
-                debug!("{:?}", e);
+                warn!("setattr {:?}: {:?}", req_cb, e);
                 reply.error(e.raw_error())
             }
         });
         FuseCallbackHandler::setattr(
             &mut self.callback_handler,
-            req.into(),
+            req_info,
             self.id_resolver.resolve_id(ino),
             attrs,
             callback,
@@ -183,16 +195,18 @@ where
     }
 
     fn readlink(&mut self, req: &Request, ino: u64, reply: ReplyData) {
+        let req_info = RequestInfo::from(req);
+        let req_cb = req_info.clone();
         let callback: ReplyCb<Vec<u8>> = Box::new(move |result| match result {
             Ok(link) => reply.data(&link),
             Err(e) => {
-                debug!("{:?}", e);
+                warn!("readlink {:?}: {:?}", req_cb, e);
                 reply.error(e.raw_error())
             }
         });
         FuseCallbackHandler::readlink(
             &mut self.callback_handler,
-            req.into(),
+            req_info,
             self.id_resolver.resolve_id(ino),
             callback,
         );
@@ -208,6 +222,8 @@ where
         rdev: u32,
         reply: ReplyEntry,
     ) {
+        let req_info = RequestInfo::from(req);
+        let req_cb = req_info.clone();
         let default_ttl = U::get_default_ttl();
         let resolver = Arc::clone(&self.id_resolver);
         let owned_name = name.to_owned();
@@ -222,13 +238,13 @@ where
                 );
             }
             Err(e) => {
-                debug!("{:?}", e);
+                warn!("mknod {:?}: {:?}", req_cb, e);
                 reply.error(e.raw_error())
             }
         });
         FuseCallbackHandler::mknod(
             &mut self.callback_handler,
-            req.into(),
+            req_info,
             self.id_resolver.resolve_id(parent),
             name,
             mode,
@@ -247,6 +263,8 @@ where
         umask: u32,
         reply: ReplyEntry,
     ) {
+        let req_info = RequestInfo::from(req);
+        let req_cb = req_info.clone();
         let default_ttl = U::get_default_ttl();
         let resolver = Arc::clone(&self.id_resolver);
         let owned_name = name.to_owned();
@@ -260,11 +278,14 @@ where
                     generation,
                 );
             }
-            Err(e) => reply.error(e.raw_error()),
+            Err(e) => {
+                warn!("mkdir {:?}: {:?}", req_cb, e);
+                reply.error(e.raw_error())
+            }
         });
         FuseCallbackHandler::mkdir(
             &mut self.callback_handler,
-            req.into(),
+            req_info,
             self.id_resolver.resolve_id(parent),
             name,
             mode,
@@ -274,7 +295,8 @@ where
     }
 
     fn unlink(&mut self, req: &Request, parent: u64, name: &OsStr, reply: ReplyEmpty) {
-        let request_info: RequestInfo = req.into();
+        let req_info = RequestInfo::from(req);
+        let req_cb = req_info.clone();
         let resolver = Arc::clone(&self.id_resolver);
         let name_owned = name.to_owned();
         let callback: ReplyCb<()> = Box::new(move |result| match result {
@@ -283,13 +305,13 @@ where
                 reply.ok()
             }
             Err(e) => {
-                debug!("{:?}", e);
+                warn!("unlink {:?}: {:?}", req_cb, e);
                 reply.error(e.raw_error())
             }
         });
         FuseCallbackHandler::unlink(
             &mut self.callback_handler,
-            request_info,
+            req_info,
             self.id_resolver.resolve_id(parent),
             &name,
             callback,
@@ -297,7 +319,8 @@ where
     }
 
     fn rmdir(&mut self, req: &Request, parent: u64, name: &OsStr, reply: ReplyEmpty) {
-        let request_info: RequestInfo = req.into();
+        let req_info = RequestInfo::from(req);
+        let req_cb = req_info.clone();
         let resolver = self.id_resolver.clone();
         let name_owned = name.to_owned();
         let callback: ReplyCb<()> = Box::new(move |result| match result {
@@ -306,13 +329,13 @@ where
                 reply.ok()
             }
             Err(e) => {
-                debug!("{:?}", e);
+                warn!("rmdir {:?}: {:?}", req_cb, e);
                 reply.error(e.raw_error())
             }
         });
         FuseCallbackHandler::rmdir(
             &mut self.callback_handler,
-            request_info,
+            req_info,
             self.id_resolver.resolve_id(parent),
             name,
             callback,
@@ -327,6 +350,8 @@ where
         target: &Path,
         reply: ReplyEntry,
     ) {
+        let req_info = RequestInfo::from(req);
+        let req_cb = req_info.clone();
         let default_ttl = U::get_default_ttl();
         let resolver = self.id_resolver.clone();
         let link_name_owned = link_name.to_os_string();
@@ -345,13 +370,13 @@ where
                 );
             }
             Err(e) => {
-                debug!("{:?}", e);
+                warn!("symlink {:?}: {:?}", req_cb, e);
                 reply.error(e.raw_error())
             }
         });
         FuseCallbackHandler::symlink(
             &mut self.callback_handler,
-            req.into(),
+            req_info,
             self.id_resolver.resolve_id(parent),
             link_name,
             target,
@@ -369,6 +394,8 @@ where
         flags: u32,
         reply: ReplyEmpty,
     ) {
+        let req_info = RequestInfo::from(req);
+        let req_cb = req_info.clone();
         let resolver = self.id_resolver.clone();
         let name_owned = name.to_owned();
         let newname_cb = newname.to_os_string();
@@ -378,13 +405,13 @@ where
                 reply.ok()
             }
             Err(e) => {
-                debug!("{:?}", e);
+                warn!("rename {:?}: {:?}", req_cb, e);
                 reply.error(e.raw_error())
             }
         });
         FuseCallbackHandler::rename(
             &mut self.callback_handler,
-            req.into(),
+            req_info,
             self.id_resolver.resolve_id(parent),
             name,
             self.id_resolver.resolve_id(newparent),
@@ -402,6 +429,8 @@ where
         newname: &OsStr,
         reply: ReplyEntry,
     ) {
+        let req_info = RequestInfo::from(req);
+        let req_cb = req_info.clone();
         let default_ttl = U::get_default_ttl();
         let resolver = self.id_resolver.clone();
         let newname_owned = newname.to_owned();
@@ -420,13 +449,13 @@ where
                 );
             }
             Err(e) => {
-                debug!("{:?}", e);
+                warn!("link {:?}: {:?}", req_cb, e);
                 reply.error(e.raw_error())
             }
         });
         FuseCallbackHandler::link(
             &mut self.callback_handler,
-            req.into(),
+            req_info,
             self.id_resolver.resolve_id(ino),
             self.id_resolver.resolve_id(newparent),
             newname,
@@ -435,19 +464,21 @@ where
     }
 
     fn open(&mut self, req: &Request, ino: u64, _flags: i32, reply: ReplyOpen) {
+        let req_info = RequestInfo::from(req);
+        let req_cb = req_info.clone();
         let callback: ReplyCb<(FileHandle, FUSEOpenResponseFlags)> =
             Box::new(move |result| match result {
                 Ok((file_handle, response_flags)) => {
                     reply.opened(file_handle.into(), response_flags.bits())
                 }
                 Err(e) => {
-                    debug!("{:?}", e);
+                    warn!("open {:?}: {:?}", req_cb, e);
                     reply.error(e.raw_error())
                 }
             });
         FuseCallbackHandler::open(
             &mut self.callback_handler,
-            req.into(),
+            req_info,
             self.id_resolver.resolve_id(ino),
             OpenFlags::from_bits_retain(_flags),
             callback,
@@ -465,21 +496,23 @@ where
         lock_owner: Option<u64>,
         reply: ReplyData,
     ) {
+        let req_info = RequestInfo::from(req);
+        let req_cb = req_info.clone();
         let callback: ReplyCb<Vec<u8>> = Box::new(move |result| match result {
             Ok(data_reply) => reply.data(&data_reply),
             Err(e) => {
-                debug!("{:?}", e);
+                warn!("read {:?}: {:?}", req_cb, e);
                 reply.error(e.raw_error())
             }
         });
         FuseCallbackHandler::read(
             &mut self.callback_handler,
-            req.into(),
+            req_info,
             self.id_resolver.resolve_id(ino),
             fh.into(),
             offset,
             size,
-            FUSEReadFlags::from_bits_retain(flags),
+            FUSEOpenFlags::from_bits_retain(flags),
             lock_owner,
             callback,
         )
@@ -497,16 +530,18 @@ where
         lock_owner: Option<u64>,
         reply: ReplyWrite,
     ) {
+        let req_info = RequestInfo::from(req);
+        let req_cb = req_info.clone();
         let callback: ReplyCb<u32> = Box::new(move |result| match result {
             Ok(bytes_written) => reply.written(bytes_written),
             Err(e) => {
-                debug!("{:?}", e);
+                warn!("write {:?}: {:?}", req_cb, e);
                 reply.error(e.raw_error())
             }
         });
         FuseCallbackHandler::write(
             &mut self.callback_handler,
-            req.into(),
+            req_info,
             self.id_resolver.resolve_id(ino),
             FileHandle::from(fh),
             offset,
@@ -519,16 +554,18 @@ where
     }
 
     fn flush(&mut self, req: &Request, ino: u64, fh: u64, lock_owner: u64, reply: ReplyEmpty) {
+        let req_info = RequestInfo::from(req);
+        let req_cb = req_info.clone();
         let callback: ReplyCb<()> = Box::new(move |result| match result {
             Ok(()) => reply.ok(),
             Err(e) => {
-                debug!("{:?}", e);
+                warn!("flush {:?}: {:?}", req_cb, e);
                 reply.error(e.raw_error())
             }
         });
         FuseCallbackHandler::flush(
             &mut self.callback_handler,
-            req.into(),
+            req_info,
             self.id_resolver.resolve_id(ino),
             FileHandle::from(fh),
             lock_owner,
@@ -536,17 +573,50 @@ where
         );
     }
 
-    fn fsync(&mut self, req: &Request, ino: u64, fh: u64, datasync: bool, reply: ReplyEmpty) {
+    fn release(
+        &mut self,
+        req: &Request,
+        ino: u64,
+        _fh: u64,
+        _flags: i32,
+        _lock_owner: Option<u64>,
+        _flush: bool,
+        reply: ReplyEmpty,
+    ) {
+        let req_info = RequestInfo::from(req);
+        let req_cb = req_info.clone();
         let callback: ReplyCb<()> = Box::new(move |result| match result {
             Ok(()) => reply.ok(),
             Err(e) => {
-                debug!("{:?}", e);
+                warn!("release {:?}: {:?}", req_cb, e);
+                reply.error(e.raw_error())
+            }
+        });
+        FuseCallbackHandler::release(
+            &mut self.callback_handler,
+            req_info,
+            self.id_resolver.resolve_id(ino),
+            _fh.into(),
+            OpenFlags::from_bits_retain(_flags),
+            _lock_owner,
+            _flush,
+            callback,
+        );
+    }
+
+    fn fsync(&mut self, req: &Request, ino: u64, fh: u64, datasync: bool, reply: ReplyEmpty) {
+        let req_info = RequestInfo::from(req);
+        let req_cb = req_info.clone();
+        let callback: ReplyCb<()> = Box::new(move |result| match result {
+            Ok(()) => reply.ok(),
+            Err(e) => {
+                warn!("fsync {:?}: {:?}", req_cb, e);
                 reply.error(e.raw_error())
             }
         });
         FuseCallbackHandler::fsync(
             &mut self.callback_handler,
-            req.into(),
+            req_info,
             self.id_resolver.resolve_id(ino),
             FileHandle::from(fh),
             datasync,
@@ -555,19 +625,21 @@ where
     }
 
     fn opendir(&mut self, req: &Request, ino: u64, _flags: i32, reply: ReplyOpen) {
+        let req_info = RequestInfo::from(req);
+        let req_cb = req_info.clone();
         let callback: ReplyCb<(FileHandle, FUSEOpenResponseFlags)> =
             Box::new(move |result| match result {
                 Ok((file_handle, response_flags)) => {
                     reply.opened(file_handle.into(), response_flags.bits())
                 }
                 Err(e) => {
-                    debug!("{:?}", e);
+                    warn!("opendir {:?}: {:?}", req_cb, e);
                     reply.error(e.raw_error())
                 }
             });
         FuseCallbackHandler::opendir(
             &mut self.callback_handler,
-            req.into(),
+            req_info,
             self.id_resolver.resolve_id(ino),
             OpenFlags::from_bits_retain(_flags),
             callback,
@@ -575,6 +647,8 @@ where
     }
 
     fn readdir(&mut self, req: &Request, ino: u64, fh: u64, offset: i64, reply: ReplyDirectory) {
+        let req_info = RequestInfo::from(req);
+        let req_cb = req_info.clone();
         if offset < 0 {
             error!("readdir called with a negative offset");
             reply.error(ErrorKind::InvalidArgument.into());
@@ -585,6 +659,7 @@ where
         // Helper function to create the callback
         fn create_callback<R: FileIdResolver>(
             mut reply: ReplyDirectory,
+            req_cb: RequestInfo,
             dirmap_iter: Arc<Mutex<HashMap<u64, DirIter<FuseDirEntry>>>>,
             ino: u64,
             offset: i64,
@@ -615,7 +690,8 @@ where
                         reply.ok();
                     }
                     Err(e) => {
-                        reply.error(e.raw_error());
+                        warn!("readdir {:?}: {:?}", req_cb, e);
+                        reply.error(e.raw_error())
                     }
                 }
             })
@@ -623,9 +699,9 @@ where
 
         if offset == 0 {
             // Call the high-level readdir function with the callback
-            let callback = create_callback(reply, self.dirmap_iter.clone(), ino, offset, resolver);
+            let callback = create_callback(reply, req_cb, self.dirmap_iter.clone(), ino, offset, resolver);
             self.callback_handler.readdir(
-                req.into(),
+                req_info,
                 self.id_resolver.resolve_id(ino),
                 FileHandle::from(fh),
                 Box::new(|result| match result {
@@ -639,6 +715,7 @@ where
                 Some(entries) => {
                     let callback = create_callback(
                         reply,
+                        req_cb,
                         Arc::clone(&self.dirmap_iter),
                         ino,
                         offset,
@@ -661,6 +738,8 @@ where
         offset: i64,
         reply: ReplyDirectoryPlus,
     ) {
+        let req_info = RequestInfo::from(req);
+        let req_cb = req_info.clone();
         let resolver = self.id_resolver.clone();
         if offset < 0 {
             error!("readdirplus called with a negative offset");
@@ -670,6 +749,7 @@ where
 
         fn create_callback<R: FileIdResolver>(
             mut reply: ReplyDirectoryPlus,
+            req_cb: RequestInfo,
             dirplus_iter_map: Arc<Mutex<HashMap<u64, DirIter<FuseDirEntryPlus>>>>,
             ino: u64,
             offset: i64,
@@ -708,7 +788,8 @@ where
                         reply.ok();
                     }
                     Err(e) => {
-                        reply.error(e.raw_error());
+                        warn!("readdirplus {:?}: {:?}", req_cb, e);
+                        reply.error(e.raw_error())
                     }
                 }
             })
@@ -718,6 +799,7 @@ where
             // Call the high-level readdirplus function with the callback
             let callback = create_callback(
                 reply,
+                req_cb,
                 self.dirplus_iter.clone(),
                 ino,
                 offset,
@@ -725,7 +807,7 @@ where
                 resolver,
             );
             self.callback_handler.readdirplus(
-                req.into(),
+                req_info,
                 self.id_resolver.resolve_id(ino),
                 FileHandle::from(fh),
                 Box::new(|result| match result {
@@ -739,6 +821,7 @@ where
                 Some(entries) => {
                     let callback = create_callback(
                         reply,
+                        req_cb,
                         Arc::clone(&self.dirplus_iter),
                         ino,
                         offset,
@@ -755,16 +838,18 @@ where
     }
 
     fn releasedir(&mut self, req: &Request, ino: u64, _fh: u64, _flags: i32, reply: ReplyEmpty) {
+        let req_info = RequestInfo::from(req);
+        let req_cb = req_info.clone();
         let callback: ReplyCb<()> = Box::new(move |result| match result {
             Ok(()) => reply.ok(),
             Err(e) => {
-                debug!("{:?}", e);
+                warn!("releasedir {:?}: {:?}", req_cb, e);
                 reply.error(e.raw_error())
             }
         });
         FuseCallbackHandler::releasedir(
             &mut self.callback_handler,
-            req.into(),
+            req_info,
             self.id_resolver.resolve_id(ino),
             FileHandle::from(_fh),
             OpenFlags::from_bits_retain(_flags),
@@ -773,16 +858,18 @@ where
     }
 
     fn fsyncdir(&mut self, req: &Request, ino: u64, fh: u64, datasync: bool, reply: ReplyEmpty) {
+        let req_info = RequestInfo::from(req);
+        let req_cb = req_info.clone();
         let callback: ReplyCb<()> = Box::new(move |result| match result {
             Ok(()) => reply.ok(),
             Err(e) => {
-                debug!("{:?}", e);
+                warn!("fsyncdir {:?}: {:?}", req_cb, e);
                 reply.error(e.raw_error())
             }
         });
         FuseCallbackHandler::fsyncdir(
             &mut self.callback_handler,
-            req.into(),
+            req_info,
             self.id_resolver.resolve_id(ino),
             FileHandle::from(fh),
             datasync,
@@ -790,36 +877,9 @@ where
         );
     }
 
-    fn release(
-        &mut self,
-        req: &Request,
-        ino: u64,
-        _fh: u64,
-        _flags: i32,
-        _lock_owner: Option<u64>,
-        _flush: bool,
-        reply: ReplyEmpty,
-    ) {
-        let callback: ReplyCb<()> = Box::new(move |result| match result {
-            Ok(()) => reply.ok(),
-            Err(e) => {
-                debug!("{:?}", e);
-                reply.error(e.raw_error())
-            }
-        });
-        FuseCallbackHandler::release(
-            &mut self.callback_handler,
-            req.into(),
-            self.id_resolver.resolve_id(ino),
-            _fh.into(),
-            OpenFlags::from_bits_retain(_flags),
-            _lock_owner,
-            _flush,
-            callback,
-        );
-    }
-
     fn statfs(&mut self, req: &Request, ino: u64, reply: ReplyStatfs) {
+        let req_info = RequestInfo::from(req);
+        let req_cb = req_info.clone();
         let callback: ReplyCb<StatFs> = Box::new(move |result| match result {
             Ok(statfs) => {
                 reply.statfs(
@@ -834,13 +894,13 @@ where
                 );
             }
             Err(e) => {
-                debug!("{:?}", e);
+                warn!("statfs {:?}: {:?}", req_cb, e);
                 reply.error(e.raw_error())
             }
         });
         FuseCallbackHandler::statfs(
             &mut self.callback_handler,
-            req.into(),
+            req_info,
             self.id_resolver.resolve_id(ino),
             callback,
         );
@@ -856,16 +916,18 @@ where
         position: u32,
         reply: ReplyEmpty,
     ) {
+        let req_info = RequestInfo::from(req);
+        let req_cb = req_info.clone();
         let callback: ReplyCb<()> = Box::new(move |result| match result {
             Ok(()) => reply.ok(),
             Err(e) => {
-                debug!("{:?}", e);
+                warn!("setxattr {:?}: {:?}", req_cb, e);
                 reply.error(e.raw_error())
             }
         });
         FuseCallbackHandler::setxattr(
             &mut self.callback_handler,
-            req.into(),
+            req_info,
             self.id_resolver.resolve_id(ino),
             name,
             _value,
@@ -876,6 +938,8 @@ where
     }
 
     fn getxattr(&mut self, req: &Request, ino: u64, name: &OsStr, size: u32, reply: ReplyXattr) {
+        let req_info = RequestInfo::from(req);
+        let req_cb = req_info.clone();
         let callback: ReplyCb<Vec<u8>> = Box::new(move |result| match result {
             Ok(xattr_data) => {
                 if size == 0 {
@@ -887,13 +951,13 @@ where
                 }
             }
             Err(e) => {
-                debug!("{:?}", e);
+                warn!("getxattr {:?}: {:?}", req_cb, e);
                 reply.error(e.raw_error())
             }
         });
         FuseCallbackHandler::getxattr(
             &mut self.callback_handler,
-            req.into(),
+            req_info,
             self.id_resolver.resolve_id(ino),
             name,
             size,
@@ -902,6 +966,8 @@ where
     }
 
     fn listxattr(&mut self, req: &Request, ino: u64, size: u32, reply: ReplyXattr) {
+        let req_info = RequestInfo::from(req);
+        let req_cb = req_info.clone();
         let callback: ReplyCb<Vec<u8>> = Box::new(move |result| match result {
             Ok(xattr_data) => {
                 if size == 0 {
@@ -913,13 +979,13 @@ where
                 }
             }
             Err(e) => {
-                debug!("{:?}", e);
+                warn!("listxattr {:?}: {:?}", req_cb, e);
                 reply.error(e.raw_error())
             }
         });
         FuseCallbackHandler::listxattr(
             &mut self.callback_handler,
-            req.into(),
+            req_info,
             self.id_resolver.resolve_id(ino),
             size,
             callback,
@@ -927,16 +993,18 @@ where
     }
 
     fn removexattr(&mut self, req: &Request, ino: u64, name: &OsStr, reply: ReplyEmpty) {
+        let req_info = RequestInfo::from(req);
+        let req_cb = req_info.clone();
         let callback: ReplyCb<()> = Box::new(move |result| match result {
             Ok(()) => reply.ok(),
             Err(e) => {
-                debug!("{:?}", e);
+                warn!("removexattr {:?}: {:?}", req_cb, e);
                 reply.error(e.raw_error())
             }
         });
         FuseCallbackHandler::removexattr(
             &mut self.callback_handler,
-            req.into(),
+            req_info,
             self.id_resolver.resolve_id(ino),
             name,
             callback,
@@ -944,16 +1012,18 @@ where
     }
 
     fn access(&mut self, req: &Request, ino: u64, mask: i32, reply: ReplyEmpty) {
+        let req_info = RequestInfo::from(req);
+        let req_cb = req_info.clone();
         let callback: ReplyCb<()> = Box::new(move |result| match result {
             Ok(()) => reply.ok(),
             Err(e) => {
-                debug!("{:?}", e);
+                warn!("access {:?}: {:?}", req_cb, e);
                 reply.error(e.raw_error())
             }
         });
         FuseCallbackHandler::access(
             &mut self.callback_handler,
-            req.into(),
+            req_info,
             self.id_resolver.resolve_id(ino),
             AccessMask::from_bits_retain(mask),
             callback,
@@ -970,6 +1040,8 @@ where
         flags: i32,
         reply: ReplyCreate,
     ) {
+        let req_info = RequestInfo::from(req);
+        let req_cb = req_info.clone();
         let default_ttl = U::get_default_ttl();
         let callback: ReplyCb<(FileHandle, FileAttribute, FUSEOpenResponseFlags)> =
             Box::new(move |result| match result {
@@ -984,13 +1056,13 @@ where
                     )
                 }
                 Err(e) => {
-                    debug!("{:?}", e);
+                    warn!("create {:?}: {:?}", req_cb, e);
                     reply.error(e.raw_error())
                 }
             });
         FuseCallbackHandler::create(
             &mut self.callback_handler,
-            req.into(),
+            req_info,
             self.id_resolver.resolve_id(parent),
             name,
             mode,
@@ -1012,6 +1084,8 @@ where
         pid: u32,
         reply: ReplyLock,
     ) {
+        let req_info = RequestInfo::from(req);
+        let req_cb = req_info.clone();
         // Creating the LockInfo struct
         let lock_info = LockInfo {
             start,
@@ -1032,13 +1106,13 @@ where
                 reply.locked(start, end, lock_type.bits(), pid)
             }
             Err(e) => {
-                debug!("{:?}", e);
+                warn!("getlk {:?}: {:?}", req_cb, e);
                 reply.error(e.raw_error())
             }
         });
         FuseCallbackHandler::getlk(
             &mut self.callback_handler,
-            req.into(),
+            req_info,
             self.id_resolver.resolve_id(ino),
             FileHandle::from(fh),
             lock_owner,
@@ -1060,6 +1134,8 @@ where
         sleep: bool,
         reply: ReplyEmpty,
     ) {
+        let req_info = RequestInfo::from(req);
+        let req_cb = req_info.clone();
         // Creating the LockInfo struct
         let lock_info = LockInfo {
             start,
@@ -1072,13 +1148,13 @@ where
         let callback: ReplyCb<()> = Box::new(move |result| match result {
             Ok(()) => reply.ok(),
             Err(e) => {
-                debug!("{:?}", e);
+                warn!("setlk {:?}: {:?}", req_cb, e);
                 reply.error(e.raw_error())
             }
         });
         FuseCallbackHandler::setlk(
             &mut self.callback_handler,
-            req.into(),
+            req_info,
             self.id_resolver.resolve_id(ino),
             FileHandle::from(fh),
             lock_owner,
@@ -1089,17 +1165,19 @@ where
     }
 
     fn bmap(&mut self, req: &Request<'_>, ino: u64, blocksize: u32, idx: u64, reply: ReplyBmap) {
+        let req_info = RequestInfo::from(req);
+        let req_cb = req_info.clone();
         // Call the high-level function in FuseCallbackAPI
         let callback: ReplyCb<u64> = Box::new(move |result| match result {
             Ok(block) => reply.bmap(block),
             Err(e) => {
-                debug!("{:?}", e);
+                warn!("bmap {:?}: {:?}", req_cb, e);
                 reply.error(e.raw_error())
             }
         });
         FuseCallbackHandler::bmap(
             &mut self.callback_handler,
-            req.into(),
+            req_info,
             self.id_resolver.resolve_id(ino),
             blocksize,
             idx,
@@ -1118,17 +1196,19 @@ where
         out_size: u32,
         reply: ReplyIoctl,
     ) {
+        let req_info = RequestInfo::from(req);
+        let req_cb = req_info.clone();
         // Call the high-level function in FuseCallbackAPI
         let callback: ReplyCb<(i32, Vec<u8>)> = Box::new(move |result| match result {
             Ok((result, data)) => reply.ioctl(result, &data),
             Err(e) => {
-                debug!("{:?}", e);
+                warn!("ioctl {:?}: {:?}", req_cb, e);
                 reply.error(e.raw_error())
             }
         });
         FuseCallbackHandler::ioctl(
             &mut self.callback_handler,
-            req.into(),
+            req_info,
             self.id_resolver.resolve_id(ino),
             FileHandle::from(fh),
             IOCtlFlags::from_bits_retain(flags),
@@ -1149,16 +1229,18 @@ where
         mode: i32,
         reply: ReplyEmpty,
     ) {
+        let req_info = RequestInfo::from(req);
+        let req_cb = req_info.clone();
         let callback: ReplyCb<()> = Box::new(move |result| match result {
             Ok(()) => reply.ok(),
             Err(e) => {
-                debug!("{:?}", e);
+                warn!("fallocate {:?}: {:?}", req_cb, e);
                 reply.error(e.raw_error())
             }
         });
         FuseCallbackHandler::fallocate(
             &mut self.callback_handler,
-            req.into(),
+            req_info,
             self.id_resolver.resolve_id(ino),
             FileHandle::from(fh),
             offset,
@@ -1177,16 +1259,18 @@ where
         whence: i32,
         reply: ReplyLseek,
     ) {
+        let req_info = RequestInfo::from(req);
+        let req_cb = req_info.clone();
         let callback: ReplyCb<i64> = Box::new(move |result| match result {
             Ok(offset) => reply.offset(offset),
             Err(e) => {
-                debug!("{:?}", e);
+                warn!("lseek {:?}: {:?}", req_cb, e);
                 reply.error(e.raw_error())
             }
         });
         FuseCallbackHandler::lseek(
             &mut self.callback_handler,
-            req.into(),
+            req_info,
             self.id_resolver.resolve_id(ino),
             FileHandle::from(fh),
             offset,
@@ -1208,16 +1292,18 @@ where
         flags: u32,
         reply: ReplyWrite,
     ) {
+        let req_info = RequestInfo::from(req);
+        let req_cb = req_info.clone();
         let callback: ReplyCb<u32> = Box::new(move |result| match result {
             Ok(bytes_written) => reply.written(bytes_written),
             Err(e) => {
-                debug!("{:?}", e);
+                warn!("copyfilerange {:?}: {:?}", req_cb, e);
                 reply.error(e.raw_error())
             }
         });
         FuseCallbackHandler::copy_file_range(
             &mut self.callback_handler,
-            req.into(),
+            req_info,
             self.id_resolver.resolve_id(ino_in),
             FileHandle::from(fh_in),
             offset_in,

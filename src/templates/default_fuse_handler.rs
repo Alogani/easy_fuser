@@ -1,7 +1,6 @@
 use std::{ffi::OsStr, path::Path, time::Duration};
 
 use fuser::KernelConfig;
-use log::{debug, warn};
 
 use crate::prelude::*;
 
@@ -41,15 +40,18 @@ impl<T: FileIdType> FuseHandler<T> for DefaultFuseHandler {
         Ok(())
     }
 
+    fn destroy(&self) { }
+
     fn lookup(&self, _req: RequestInfo, parent_id: T, name: &OsStr) -> FuseResult<FileAttribute> {
-        warn!(
-            "[Not Implemented] lookup(parent_file: {:?}, name {:?})",
-            parent_id, name
+        let msg = format!(
+            "[Not Implemented] lookup(parent_file: {}, name {:?})",
+            parent_id.display(),
+            Path::display(name.as_ref())
         );
         if self.panic {
-            panic!("Function not implemented")
+            panic!("{}", msg);
         } else {
-            Err(PosixError::new(ErrorKind::FunctionNotImplemented, ""))
+            Err(PosixError::new(ErrorKind::FunctionNotImplemented, msg))
         }
     }
 
@@ -61,14 +63,15 @@ impl<T: FileIdType> FuseHandler<T> for DefaultFuseHandler {
         file_id: T,
         file_handle: Option<FileHandle>,
     ) -> FuseResult<FileAttribute> {
-        warn!(
-            "[Not Implemented] getattr(file_id: {:?}, file_handle {:?})",
-            file_id, file_handle
+        let msg = format!(
+            "[Not Implemented] getattr(file_id: {}, file_handle {:?})",
+            file_id.display(),
+            file_handle
         );
         if self.panic {
-            panic!("Function not implemented")
+            panic!("{}", msg);
         } else {
-            Err(PosixError::new(ErrorKind::FunctionNotImplemented, ""))
+            Err(PosixError::new(ErrorKind::FunctionNotImplemented, msg))
         }
     }
 
@@ -78,23 +81,25 @@ impl<T: FileIdType> FuseHandler<T> for DefaultFuseHandler {
         file_id: T,
         attrs: SetAttrRequest,
     ) -> FuseResult<FileAttribute> {
-        debug!(
-            "[Not Implemented] setattr(file_id: {:?}, _req: {:?}, attrs: {:?}",
-            file_id, _req, attrs
+        let msg = format!(
+            "[Not Implemented] setattr(file_id: {}, _req: {:?}, attrs: {:?}",
+            file_id.display(),
+            _req,
+            attrs
         );
         if self.panic {
-            panic!("Function not implemented")
+            panic!("{}", msg);
         } else {
-            Err(PosixError::new(ErrorKind::FunctionNotImplemented, ""))
+            Err(PosixError::new(ErrorKind::FunctionNotImplemented, msg))
         }
     }
 
     fn readlink(&self, _req: RequestInfo, file_id: T) -> FuseResult<Vec<u8>> {
-        debug!("[Not Implemented] readlink(file_id: {:?})", file_id);
+        let msg = format!("[Not Implemented] readlink(file_id: {})", file_id.display());
         if self.panic {
-            panic!("Function not implemented")
+            panic!("{}", msg);
         } else {
-            Err(PosixError::new(ErrorKind::FunctionNotImplemented, ""))
+            Err(PosixError::new(ErrorKind::FunctionNotImplemented, msg))
         }
     }
 
@@ -107,15 +112,15 @@ impl<T: FileIdType> FuseHandler<T> for DefaultFuseHandler {
         umask: u32,
         rdev: DeviceType,
     ) -> FuseResult<FileAttribute> {
-        debug!(
+        let msg = format!(
             "[Not Implemented] mknod(parent_id: {:?}, name: {:?}, mode: {}, \
             umask: {:?}, rdev: {:?})",
             parent_id, name, mode, umask, rdev
         );
         if self.panic {
-            panic!("Function not implemented")
+            panic!("{}", msg);
         } else {
-            Err(PosixError::new(ErrorKind::FunctionNotImplemented, ""))
+            Err(PosixError::new(ErrorKind::FunctionNotImplemented, msg))
         }
     }
 
@@ -127,38 +132,38 @@ impl<T: FileIdType> FuseHandler<T> for DefaultFuseHandler {
         mode: u32,
         umask: u32,
     ) -> FuseResult<FileAttribute> {
-        debug!(
+        let msg = format!(
             "[Not Implemented] mkdir(parent_id: {:?}, name: {:?}, mode: {}, umask: {:?})",
             parent_id, name, mode, umask
         );
         if self.panic {
-            panic!("Function not implemented")
+            panic!("{}", msg);
         } else {
-            Err(PosixError::new(ErrorKind::FunctionNotImplemented, ""))
+            Err(PosixError::new(ErrorKind::FunctionNotImplemented, msg))
         }
     }
 
     fn unlink(&self, _req: RequestInfo, parent_id: T, name: &OsStr) -> FuseResult<()> {
-        debug!(
+        let msg = format!(
             "[Not Implemented] unlink(parent_id: {:?}, name: {:?})",
             parent_id, name,
         );
         if self.panic {
-            panic!("Function not implemented")
+            panic!("{}", msg);
         } else {
-            Err(PosixError::new(ErrorKind::FunctionNotImplemented, ""))
+            Err(PosixError::new(ErrorKind::FunctionNotImplemented, msg))
         }
     }
 
     fn rmdir(&self, _req: RequestInfo, parent_id: T, name: &OsStr) -> FuseResult<()> {
-        debug!(
+        let msg = format!(
             "[Not Implemented] rmdir(parent_id: {:?}, name: {:?})",
             parent_id, name,
         );
         if self.panic {
-            panic!("Function not implemented")
+            panic!("{}", msg);
         } else {
-            Err(PosixError::new(ErrorKind::FunctionNotImplemented, ""))
+            Err(PosixError::new(ErrorKind::FunctionNotImplemented, msg))
         }
     }
 
@@ -169,14 +174,14 @@ impl<T: FileIdType> FuseHandler<T> for DefaultFuseHandler {
         link_name: &OsStr,
         target: &Path,
     ) -> FuseResult<FileAttribute> {
-        debug!(
+        let msg = format!(
             "[Not Implemented] symlink(parent_id: {:?}, link_name: {:?}, target: {:?})",
             parent_id, link_name, target,
         );
         if self.panic {
-            panic!("Function not implemented")
+            panic!("{}", msg);
         } else {
-            Err(PosixError::new(ErrorKind::FunctionNotImplemented, ""))
+            Err(PosixError::new(ErrorKind::FunctionNotImplemented, msg))
         }
     }
 
@@ -189,15 +194,15 @@ impl<T: FileIdType> FuseHandler<T> for DefaultFuseHandler {
         newname: &OsStr,
         flags: RenameFlags,
     ) -> FuseResult<()> {
-        debug!(
+        let msg = format!(
             "[Not Implemented] rename(parent_id: {:?}, name: {:?}, newparent: {:?}, \
             newname: {:?}, flags: {:?})",
             parent_id, name, newparent, newname, flags,
         );
         if self.panic {
-            panic!("Function not implemented")
+            panic!("{}", msg);
         } else {
-            Err(PosixError::new(ErrorKind::FunctionNotImplemented, ""))
+            Err(PosixError::new(ErrorKind::FunctionNotImplemented, msg))
         }
     }
 
@@ -208,14 +213,16 @@ impl<T: FileIdType> FuseHandler<T> for DefaultFuseHandler {
         newparent: T,
         newname: &OsStr,
     ) -> FuseResult<FileAttribute> {
-        debug!(
-            "[Not Implemented] link(file_id: {:?}, newparent: {:?}, newname: {:?})",
-            file_id, newparent, newname
+        let msg = format!(
+            "[Not Implemented] link(file_id: {}, newparent: {:?}, newname: {:?})",
+            file_id.display(),
+            newparent,
+            newname
         );
         if self.panic {
-            panic!("Function not implemented")
+            panic!("{}", msg);
         } else {
-            Err(PosixError::new(ErrorKind::FunctionNotImplemented, ""))
+            Err(PosixError::new(ErrorKind::FunctionNotImplemented, msg))
         }
     }
 
@@ -225,14 +232,15 @@ impl<T: FileIdType> FuseHandler<T> for DefaultFuseHandler {
         file_id: T,
         flags: OpenFlags,
     ) -> FuseResult<(FileHandle, FUSEOpenResponseFlags)> {
-        debug!(
-            "[Not Implemented] open(file_id: {:?}, flags: {:?})",
-            file_id, flags
+        let msg = format!(
+            "[Not Implemented] open(file_id: {}, flags: {:?})",
+            file_id.display(),
+            flags
         );
         if self.panic {
-            panic!("Function not implemented")
+            panic!("{}", msg);
         } else {
-            Err(PosixError::new(ErrorKind::FunctionNotImplemented, ""))
+            Err(PosixError::new(ErrorKind::FunctionNotImplemented, msg))
         }
     }
 
@@ -243,17 +251,17 @@ impl<T: FileIdType> FuseHandler<T> for DefaultFuseHandler {
         file_handle: FileHandle,
         offset: i64,
         size: u32,
-        flags: FUSEReadFlags,
+        flags: FUSEOpenFlags,
         lock_owner: Option<u64>,
     ) -> FuseResult<Vec<u8>> {
-        debug!(
-            "[Not Implemented] read(file_id: {:?}, file_handle: {:?}, offset: {}, size: {}, flags: {:?}, lock_owner: {:?})",
-            file_id, file_handle, offset, size, flags, lock_owner
+        let msg = format!(
+            "[Not Implemented] read(file_id: {}, file_handle: {:?}, offset: {}, size: {}, flags: {:?}, lock_owner: {:?})",
+            file_id.display(), file_handle, offset, size, flags, lock_owner
         );
         if self.panic {
-            panic!("Function not implemented")
+            panic!("{}", msg);
         } else {
-            Err(PosixError::new(ErrorKind::FunctionNotImplemented, ""))
+            Err(PosixError::new(ErrorKind::FunctionNotImplemented, msg))
         }
     }
 
@@ -268,14 +276,14 @@ impl<T: FileIdType> FuseHandler<T> for DefaultFuseHandler {
         flags: OpenFlags,
         lock_owner: Option<u64>,
     ) -> FuseResult<u32> {
-        debug!(
-            "[Not Implemented] write(file_id: {:?}, file_handle: {:?}, offset: {}, data_len: {}, write_flags: {:?}, flags: {:?}, lock_owner: {:?})",
-            file_id, file_handle, offset, data.len(), write_flags, flags, lock_owner
+        let msg = format!(
+            "[Not Implemented] write(file_id: {}, file_handle: {:?}, offset: {}, data_len: {}, write_flags: {:?}, flags: {:?}, lock_owner: {:?})",
+            file_id.display(), file_handle, offset, data.len(), write_flags, flags, lock_owner
         );
         if self.panic {
-            panic!("Function not implemented")
+            panic!("{}", msg);
         } else {
-            Err(PosixError::new(ErrorKind::FunctionNotImplemented, ""))
+            Err(PosixError::new(ErrorKind::FunctionNotImplemented, msg))
         }
     }
 
@@ -286,14 +294,36 @@ impl<T: FileIdType> FuseHandler<T> for DefaultFuseHandler {
         file_handle: FileHandle,
         lock_owner: u64,
     ) -> FuseResult<()> {
-        debug!(
-            "[Not Implemented] flush(file_id: {:?}, file_handle: {:?}, lock_owner: {})",
-            file_id, file_handle, lock_owner
+        let msg = format!(
+            "[Not Implemented] flush(file_id: {}, file_handle: {:?}, lock_owner: {})",
+            file_id.display(),
+            file_handle,
+            lock_owner
         );
         if self.panic {
-            panic!("Function not implemented")
+            panic!("{}", msg);
         } else {
-            Err(PosixError::new(ErrorKind::FunctionNotImplemented, ""))
+            Err(PosixError::new(ErrorKind::FunctionNotImplemented, msg))
+        }
+    }
+
+    fn release(
+        &self,
+        _req: RequestInfo,
+        file_id: T,
+        file_handle: FileHandle,
+        flags: OpenFlags,
+        lock_owner: Option<u64>,
+        flush: bool,
+    ) -> FuseResult<()> {
+        let msg = format!(
+            "[Not Implemented] release(file_id: {}, file_handle: {:?}, flags: {:?}, lock_owner: {:?}, flush: {:?})",
+            file_id.display(), file_handle, flags, lock_owner, flush
+        );
+        if self.panic {
+            panic!("{}", msg);
+        } else {
+            Err(PosixError::new(ErrorKind::FunctionNotImplemented, msg))
         }
     }
 
@@ -304,14 +334,16 @@ impl<T: FileIdType> FuseHandler<T> for DefaultFuseHandler {
         file_handle: FileHandle,
         datasync: bool,
     ) -> FuseResult<()> {
-        debug!(
-            "[Not Implemented] fsync(file_id: {:?}, file_handle: {:?}, datasync: {})",
-            file_id, file_handle, datasync
+        let msg = format!(
+            "[Not Implemented] fsync(file_id: {}, file_handle: {:?}, datasync: {})",
+            file_id.display(),
+            file_handle,
+            datasync
         );
         if self.panic {
-            panic!("Function not implemented")
+            panic!("{}", msg);
         } else {
-            Err(PosixError::new(ErrorKind::FunctionNotImplemented, ""))
+            Err(PosixError::new(ErrorKind::FunctionNotImplemented, msg))
         }
     }
 
@@ -330,14 +362,15 @@ impl<T: FileIdType> FuseHandler<T> for DefaultFuseHandler {
         file_id: T,
         file_handle: FileHandle,
     ) -> FuseResult<Vec<FuseDirEntry>> {
-        warn!(
-            "[Not Implemented] readdir(file_id: {:?}, fh: {:?})",
-            file_id, file_handle
+        let msg = format!(
+            "[Not Implemented] readdir(file_id: {}, fh: {:?})",
+            file_id.display(),
+            file_handle
         );
         if self.panic {
-            panic!("Function not implemented")
+            panic!("{}", msg);
         } else {
-            Err(PosixError::new(ErrorKind::FunctionNotImplemented, ""))
+            Err(PosixError::new(ErrorKind::FunctionNotImplemented, msg))
         }
     }
 
@@ -347,14 +380,15 @@ impl<T: FileIdType> FuseHandler<T> for DefaultFuseHandler {
         file_id: T,
         file_handle: FileHandle,
     ) -> FuseResult<Vec<FuseDirEntryPlus>> {
-        warn!(
-            "[Not Implemented] readdirplus(file_id: {:?}, fh: {:?})",
-            file_id, file_handle
+        let msg = format!(
+            "[Not Implemented] readdirplus(file_id: {}, fh: {:?})",
+            file_id.display(),
+            file_handle
         );
         if self.panic {
-            panic!("Function not implemented")
+            panic!("{}", msg);
         } else {
-            Err(PosixError::new(ErrorKind::FunctionNotImplemented, ""))
+            Err(PosixError::new(ErrorKind::FunctionNotImplemented, msg))
         }
     }
 
@@ -378,26 +412,6 @@ impl<T: FileIdType> FuseHandler<T> for DefaultFuseHandler {
         Ok(())
     }
 
-    fn release(
-        &self,
-        _req: RequestInfo,
-        file_id: T,
-        file_handle: FileHandle,
-        flags: OpenFlags,
-        lock_owner: Option<u64>,
-        flush: bool,
-    ) -> FuseResult<()> {
-        debug!(
-            "[Not Implemented] release(file_id: {:?}, file_handle: {:?}, flags: {:?}, lock_owner: {:?}, flush: {:?})",
-            file_id, file_handle, flags, lock_owner, flush
-        );
-        if self.panic {
-            panic!("Function not implemented")
-        } else {
-            Err(PosixError::new(ErrorKind::FunctionNotImplemented, ""))
-        }
-    }
-
     fn statfs(&self, _req: RequestInfo, _file_id: T) -> FuseResult<StatFs> {
         Ok(StatFs::default())
     }
@@ -411,14 +425,17 @@ impl<T: FileIdType> FuseHandler<T> for DefaultFuseHandler {
         flags: FUSESetXAttrFlags,
         position: u32,
     ) -> FuseResult<()> {
-        debug!(
-            "[Not Implemented] setxattr(file_id: {:?}, name: {:?}, flags: {:?}, position: {})",
-            file_id, name, flags, position
+        let msg = format!(
+            "[Not Implemented] setxattr(file_id: {}, name: {:?}, flags: {:?}, position: {})",
+            file_id.display(),
+            name,
+            flags,
+            position
         );
         if self.panic {
-            panic!("Function not implemented")
+            panic!("{}", msg);
         } else {
-            Err(PosixError::new(ErrorKind::FunctionNotImplemented, ""))
+            Err(PosixError::new(ErrorKind::FunctionNotImplemented, msg))
         }
     }
 
@@ -429,50 +446,55 @@ impl<T: FileIdType> FuseHandler<T> for DefaultFuseHandler {
         name: &OsStr,
         size: u32,
     ) -> FuseResult<Vec<u8>> {
-        debug!(
-            "[Not Implemented] getxattr(file_id: {:?}, name: {:?}, size: {})",
-            file_id, name, size
+        let msg = format!(
+            "[Not Implemented] getxattr(file_id: {}, name: {:?}, size: {})",
+            file_id.display(),
+            name,
+            size
         );
         if self.panic {
-            panic!("Function not implemented")
+            panic!("{}", msg);
         } else {
-            Err(PosixError::new(ErrorKind::FunctionNotImplemented, ""))
+            Err(PosixError::new(ErrorKind::FunctionNotImplemented, msg))
         }
     }
 
     fn listxattr(&self, _req: RequestInfo, file_id: T, size: u32) -> FuseResult<Vec<u8>> {
-        debug!(
-            "[Not Implemented] listxattr(file_id: {:?}, size: {})",
-            file_id, size
+        let msg = format!(
+            "[Not Implemented] listxattr(file_id: {}, size: {})",
+            file_id.display(),
+            size
         );
         if self.panic {
-            panic!("Function not implemented")
+            panic!("{}", msg);
         } else {
-            Err(PosixError::new(ErrorKind::FunctionNotImplemented, ""))
+            Err(PosixError::new(ErrorKind::FunctionNotImplemented, msg))
         }
     }
 
     fn removexattr(&self, _req: RequestInfo, file_id: T, name: &OsStr) -> FuseResult<()> {
-        debug!(
-            "[Not Implemented] removexattr(file_id: {:?}, name: {:?})",
-            file_id, name
+        let msg = format!(
+            "[Not Implemented] removexattr(file_id: {}, name: {:?})",
+            file_id.display(),
+            name
         );
         if self.panic {
-            panic!("Function not implemented")
+            panic!("{}", msg);
         } else {
-            Err(PosixError::new(ErrorKind::FunctionNotImplemented, ""))
+            Err(PosixError::new(ErrorKind::FunctionNotImplemented, msg))
         }
     }
 
     fn access(&self, _req: RequestInfo, file_id: T, mask: AccessMask) -> FuseResult<()> {
-        debug!(
-            "[Not Implemented] access(file_id: {:?}, mask: {:?})",
-            file_id, mask
+        let msg = format!(
+            "[Not Implemented] access(file_id: {}, mask: {:?})",
+            file_id.display(),
+            mask
         );
         if self.panic {
-            panic!("Function not implemented")
+            panic!("{}", msg);
         } else {
-            Err(PosixError::new(ErrorKind::FunctionNotImplemented, ""))
+            Err(PosixError::new(ErrorKind::FunctionNotImplemented, msg))
         }
     }
 
@@ -484,14 +506,17 @@ impl<T: FileIdType> FuseHandler<T> for DefaultFuseHandler {
         lock_owner: u64,
         lock_info: LockInfo,
     ) -> FuseResult<LockInfo> {
-        debug!(
-            "[Not Implemented] getlk(file_id: {:?}, fh: {:?}, lock_owner, {:?}, lock_info: {:?})",
-            file_id, file_handle, lock_owner, lock_info
+        let msg = format!(
+            "[Not Implemented] getlk(file_id: {}, fh: {:?}, lock_owner, {:?}, lock_info: {:?})",
+            file_id.display(),
+            file_handle,
+            lock_owner,
+            lock_info
         );
         if self.panic {
-            panic!("Function not implemented")
+            panic!("{}", msg);
         } else {
-            Err(PosixError::new(ErrorKind::FunctionNotImplemented, ""))
+            Err(PosixError::new(ErrorKind::FunctionNotImplemented, msg))
         }
     }
 
@@ -504,26 +529,28 @@ impl<T: FileIdType> FuseHandler<T> for DefaultFuseHandler {
         lock_info: LockInfo,
         sleep: bool,
     ) -> FuseResult<()> {
-        debug!(
-            "[Not Implemented] setlk(file_id: {:?}, fh: {:?}, lock_owner, {:?}, lock_info: {:?}, sleep: {:?})",
-            file_id, file_handle, lock_owner, lock_info, sleep
+        let msg = format!(
+            "[Not Implemented] setlk(file_id: {}, fh: {:?}, lock_owner, {:?}, lock_info: {:?}, sleep: {:?})",
+            file_id.display(), file_handle, lock_owner, lock_info, sleep
         );
         if self.panic {
-            panic!("Function not implemented")
+            panic!("{}", msg);
         } else {
-            Err(PosixError::new(ErrorKind::FunctionNotImplemented, ""))
+            Err(PosixError::new(ErrorKind::FunctionNotImplemented, msg))
         }
     }
 
     fn bmap(&self, _req: RequestInfo, file_id: T, blocksize: u32, idx: u64) -> FuseResult<u64> {
-        debug!(
-            "[Not Implemented] bmap(file_id: {:?}, blocksize: {:?}, idx: {:?})",
-            file_id, blocksize, idx
+        let msg = format!(
+            "[Not Implemented] bmap(file_id: {}, blocksize: {:?}, idx: {:?})",
+            file_id.display(),
+            blocksize,
+            idx
         );
         if self.panic {
-            panic!("Function not implemented")
+            panic!("{}", msg);
         } else {
-            Err(PosixError::new(ErrorKind::FunctionNotImplemented, ""))
+            Err(PosixError::new(ErrorKind::FunctionNotImplemented, msg))
         }
     }
 
@@ -537,14 +564,14 @@ impl<T: FileIdType> FuseHandler<T> for DefaultFuseHandler {
         in_data: &[u8],
         out_size: u32,
     ) -> FuseResult<(i32, Vec<u8>)> {
-        debug!(
-            "[Not Implemented] ioctl(file_id: {:?}, fh: {:?}, flags: {:?}, cmd: {:?}, in_data: {:?}, out_size: {:?})",
-            file_id, file_handle, flags, cmd, in_data, out_size
+        let msg = format!(
+            "[Not Implemented] ioctl(file_id: {}, fh: {:?}, flags: {:?}, cmd: {:?}, in_data: {:?}, out_size: {:?})",
+            file_id.display(), file_handle, flags, cmd, in_data, out_size
         );
         if self.panic {
-            panic!("Function not implemented")
+            panic!("{}", msg);
         } else {
-            Err(PosixError::new(ErrorKind::FunctionNotImplemented, ""))
+            Err(PosixError::new(ErrorKind::FunctionNotImplemented, msg))
         }
     }
 
@@ -557,15 +584,15 @@ impl<T: FileIdType> FuseHandler<T> for DefaultFuseHandler {
         umask: u32,
         flags: OpenFlags,
     ) -> FuseResult<(FileHandle, FileAttribute, FUSEOpenResponseFlags)> {
-        debug!(
+        let msg = format!(
             "[Not Implemented] create(parent_id: {:?}, name: {:?}, mode: {}, umask: {:?}, \
             flags: {:?})",
             parent_id, name, mode, umask, flags
         );
         if self.panic {
-            panic!("Function not implemented")
+            panic!("{}", msg);
         } else {
-            Err(PosixError::new(ErrorKind::FunctionNotImplemented, ""))
+            Err(PosixError::new(ErrorKind::FunctionNotImplemented, msg))
         }
     }
 
@@ -578,14 +605,14 @@ impl<T: FileIdType> FuseHandler<T> for DefaultFuseHandler {
         length: i64,
         mode: i32,
     ) -> FuseResult<()> {
-        debug!(
-            "[Not Implemented] fallocate(file_id: {:?}, file_handle: {:?} offset: {}, length: {}, mode: {})",
-            file_id, file_handle, offset, length, mode
+        let msg = format!(
+            "[Not Implemented] fallocate(file_id: {}, file_handle: {:?} offset: {}, length: {}, mode: {})",
+            file_id.display(), file_handle, offset, length, mode
         );
         if self.panic {
-            panic!("Function not implemented")
+            panic!("{}", msg);
         } else {
-            Err(PosixError::new(ErrorKind::FunctionNotImplemented, ""))
+            Err(PosixError::new(ErrorKind::FunctionNotImplemented, msg))
         }
     }
 
@@ -597,14 +624,17 @@ impl<T: FileIdType> FuseHandler<T> for DefaultFuseHandler {
         offset: i64,
         whence: Whence,
     ) -> FuseResult<i64> {
-        debug!(
-            "[Not Implemented] lseek(file_id: {:?}, file_handle: {:?}, offset: {}, whence: {:?})",
-            file_id, file_handle, offset, whence
+        let msg = format!(
+            "[Not Implemented] lseek(file_id: {}, file_handle: {:?}, offset: {}, whence: {:?})",
+            file_id.display(),
+            file_handle,
+            offset,
+            whence
         );
         if self.panic {
-            panic!("Function not implemented")
+            panic!("{}", msg);
         } else {
-            Err(PosixError::new(ErrorKind::FunctionNotImplemented, ""))
+            Err(PosixError::new(ErrorKind::FunctionNotImplemented, msg))
         }
     }
 
@@ -620,14 +650,14 @@ impl<T: FileIdType> FuseHandler<T> for DefaultFuseHandler {
         len: u64,
         flags: u32, // Not implemented yet in standard
     ) -> FuseResult<u32> {
-        debug!(
+        let msg = format!(
             "[Not Implemented] copy_file_range(file_in: {:?}, file_handle_in: {:?}, offset_in: {}, file_out: {:?}, file_handle_out: {:?}, offset_out: {}, len: {}, flags: {})",
             file_in, file_handle_in, offset_in, file_out, file_handle_out, offset_out, len, flags
         );
         if self.panic {
-            panic!("Function not implemented")
+            panic!("{}", msg);
         } else {
-            Err(PosixError::new(ErrorKind::FunctionNotImplemented, ""))
+            Err(PosixError::new(ErrorKind::FunctionNotImplemented, msg))
         }
     }
 }

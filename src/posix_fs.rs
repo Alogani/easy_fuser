@@ -110,7 +110,7 @@ fn cstring_from_path(path: &Path) -> Result<CString, PosixError> {
     CString::new(path.as_os_str().as_bytes()).map_err(|_| {
         PosixError::new(
             ErrorKind::InvalidArgument,
-            format!("{:?}: Cstring conversion failed", path),
+            format!("{}: Cstring conversion failed", path.display()),
         )
     })
 }
@@ -124,13 +124,17 @@ pub fn lookup(path: &Path) -> Result<FileAttribute, PosixError> {
     let result = unsafe { libc::lstat(c_path.as_ptr(), &mut statbuf) };
     if result == -1 {
         return Err(PosixError::last_error(format!(
-            "{:?}: lstat failed in lookup",
-            path
+            "{}: lstat failed in lookup",
+            path.display()
         )));
     }
     Ok(convert_stat_struct(statbuf).ok_or(PosixError::new(
         ErrorKind::InvalidArgument,
-        format!("{:?}: statbuf conversion failed {:?}", path, statbuf),
+        format!(
+            "{}: statbuf conversion failed {:?}",
+            path.display(),
+            statbuf
+        ),
     ))?)
 }
 
@@ -161,8 +165,8 @@ pub fn setattr(path: &Path, attrs: SetAttrRequest) -> Result<FileAttribute, Posi
         let result = unsafe { libc::chmod(c_path.as_ptr(), mode) };
         if result == -1 {
             return Err(PosixError::last_error(format!(
-                "{:?}: chmod failed in setattr",
-                path
+                "{}: chmod failed in setattr",
+                path.display()
             )));
         }
     }
@@ -175,8 +179,8 @@ pub fn setattr(path: &Path, attrs: SetAttrRequest) -> Result<FileAttribute, Posi
         let result = unsafe { libc::chown(c_path.as_ptr(), uid, gid) };
         if result == -1 {
             return Err(PosixError::last_error(format!(
-                "{:?}: chown failed in setattr",
-                path
+                "{}: chown failed in setattr",
+                path.display()
             )));
         }
     }
@@ -185,11 +189,11 @@ pub fn setattr(path: &Path, attrs: SetAttrRequest) -> Result<FileAttribute, Posi
     if let Some(size) = attrs.size {
         let result = {
             // If we have no file handle, use `open` to get one, then `ftruncate`
-            let fd = unsafe { libc::open(c_path.as_ptr(), libc::O_RDONLY) };
+            let fd = unsafe { libc::open(c_path.as_ptr(), libc::O_WRONLY) };
             if fd == -1 {
                 return Err(PosixError::last_error(format!(
-                    "{:?}: open failed in setattr",
-                    path
+                    "{}: open failed in setattr",
+                    path.display()
                 )));
             }
             let res = unsafe {
@@ -199,8 +203,9 @@ pub fn setattr(path: &Path, attrs: SetAttrRequest) -> Result<FileAttribute, Posi
                         PosixError::new(
                             ErrorKind::InvalidArgument,
                             format!(
-                                "{:?}: ftruncate size ({}) out of bound in setattr",
-                                path, size
+                                "{}: ftruncate size ({}) out of bound in setattr",
+                                path.display(),
+                                size
                             ),
                         )
                     })?,
@@ -212,8 +217,8 @@ pub fn setattr(path: &Path, attrs: SetAttrRequest) -> Result<FileAttribute, Posi
 
         if result == -1 {
             return Err(PosixError::last_error(format!(
-                "{:?}: ftruncate failed on setattr",
-                path
+                "{}: ftruncate failed on setattr",
+                path.display()
             )));
         }
     }
@@ -247,8 +252,8 @@ pub fn setattr(path: &Path, attrs: SetAttrRequest) -> Result<FileAttribute, Posi
         };
         if result == -1 {
             return Err(PosixError::last_error(format!(
-                "{:?}: utimensat failed in setattr",
-                path
+                "{}: utimensat failed in setattr",
+                path.display()
             )));
         }
     }
@@ -263,30 +268,38 @@ pub fn readlink(path: &Path) -> Result<Vec<u8>, PosixError> {
     let ret =
         unsafe { libc::readlink(c_path.as_ptr(), buf.as_mut_ptr() as *mut c_char, buf.len()) };
     if ret == -1 {
-        return Err(PosixError::last_error(format!("{:?}: readlink", path)));
+        return Err(PosixError::last_error(format!(
+            "{}: readlink",
+            path.display()
+        )));
     }
     buf.truncate(ret as usize);
     Ok(buf)
 }
 
 /// Equivalent to the fuse function of the same name
-pub fn mknod(path: &Path, mode: u32, rdev: DeviceType) -> Result<FileAttribute, PosixError> {
+pub fn mknod(path: &Path, mode: u32, umask: u32, rdev: DeviceType) -> Result<FileAttribute, PosixError> {
     let c_path = cstring_from_path(path)?;
-    let ret = unsafe { libc::mknod(c_path.as_ptr(), mode, rdev.to_rdev() as libc::dev_t) };
+    let final_mode= mode & !umask;
+    let ret = unsafe { libc::mknod(c_path.as_ptr(), final_mode, rdev.to_rdev() as libc::dev_t) };
     if ret == -1 {
-        return Err(PosixError::last_error(format!("{:?}: mknod failed", path)));
+        return Err(PosixError::last_error(format!(
+            "{}: mknod failed",
+            path.display()
+        )));
     }
     lookup(path)
 }
 
 /// Equivalent to the fuse function of the same name
-pub fn mkdir(path: &Path, mode: u32) -> Result<FileAttribute, PosixError> {
+pub fn mkdir(path: &Path, mode: u32, umask: u32) -> Result<FileAttribute, PosixError> {
     let c_path = cstring_from_path(path)?;
-    let ret = unsafe { libc::mkdir(c_path.as_ptr(), mode) };
+    let final_mode = mode & !umask;
+    let ret = unsafe { libc::mkdir(c_path.as_ptr(), final_mode) };
     if ret == -1 {
         return Err(PosixError::last_error(format!(
-            "{:?}: mkdir failed in setattr",
-            path
+            "{}: mkdir failed in setattr",
+            path.display()
         )));
     }
     lookup(path)
@@ -325,8 +338,9 @@ pub fn rename(oldpath: &Path, newpath: &Path, flags: RenameFlags) -> Result<(), 
         return Ok(());
     }
     Err(PosixError::last_error(format!(
-        "{:?}: rename failed into {:?}",
-        oldpath, newpath
+        "{}: rename failed into {}",
+        oldpath.display(),
+        newpath.display()
     )))
 }
 
@@ -336,7 +350,10 @@ pub fn open(path: &Path, flags: OpenFlags) -> Result<FileDescriptorGuard, PosixE
     let c_path = cstring_from_path(path)?;
     let fd = unsafe { libc::open(c_path.as_ptr(), flags.bits()) };
     if fd == -1 {
-        return Err(PosixError::last_error(format!("{:?}: open failed", path)));
+        return Err(PosixError::last_error(format!(
+            "{}: open failed",
+            path.display()
+        )));
     }
     Ok(FileDescriptorGuard::new(fd.into()))
 }
@@ -454,7 +471,10 @@ pub fn statfs(path: &Path) -> Result<StatFs, PosixError> {
     // Use statvfs64 to get file system stats
     let result = unsafe { libc::statvfs64(c_path.as_ptr(), &mut stat) };
     if result != 0 {
-        return Err(PosixError::last_error(format!("{:?}: statfs failed", path)));
+        return Err(PosixError::last_error(format!(
+            "{}: statfs failed",
+            path.display()
+        )));
     }
 
     Ok(StatFs {
@@ -475,7 +495,10 @@ pub fn setxattr(path: &Path, name: &OsStr, value: &[u8], position: u32) -> Resul
     let c_name = CString::new(name.as_bytes()).map_err(|_| {
         PosixError::new(
             ErrorKind::InvalidArgument,
-            format!("{:?}: Cstring conversion failed in setxattr", name),
+            format!(
+                "{}: Cstring conversion failed in setxattr",
+                Path::display(name.as_ref())
+            ),
         )
     })?;
     let ret = unsafe {
@@ -488,8 +511,9 @@ pub fn setxattr(path: &Path, name: &OsStr, value: &[u8], position: u32) -> Resul
                 PosixError::new(
                     ErrorKind::InvalidArgument,
                     format!(
-                        "{:?}: Out-of-bound position argument ({}) in setxattr",
-                        path, position
+                        "{}: Out-of-bound position argument ({}) in setxattr",
+                        path.display(),
+                        position
                     ),
                 )
             })?,
@@ -498,8 +522,11 @@ pub fn setxattr(path: &Path, name: &OsStr, value: &[u8], position: u32) -> Resul
 
     if ret == -1 {
         return Err(PosixError::last_error(format!(
-            "{:?}: setxattr failed. Name: {:?}, value: {:?}, position: {:?}",
-            path, name, value, position
+            "{}: setxattr failed. Name: {}, value: {:?}, position: {}",
+            path.display(),
+            Path::display(name.as_ref()),
+            value,
+            position
         )));
     }
     Ok(())
@@ -511,7 +538,10 @@ pub fn getxattr(path: &Path, name: &OsStr, size: u32) -> Result<Vec<u8>, PosixEr
     let c_name = CString::new(name.as_bytes()).map_err(|_| {
         PosixError::new(
             ErrorKind::InvalidArgument,
-            format!("{:?}: Cstring conversion failed in getxattr", name),
+            format!(
+                "{}: Cstring conversion failed in getxattr",
+                Path::display(name.as_ref())
+            ),
         )
     })?;
 
@@ -527,8 +557,10 @@ pub fn getxattr(path: &Path, name: &OsStr, size: u32) -> Result<Vec<u8>, PosixEr
 
     if ret == -1 {
         return Err(PosixError::last_error(format!(
-            "{:?}: getxattr failed. Name: {:?}, Size: {:?}",
-            path, name, size
+            "{}: getxattr failed. Name: {}, Size: {}",
+            path.display(),
+            Path::display(name.as_ref()),
+            size
         )));
     }
 
@@ -544,8 +576,8 @@ pub fn listxattr(path: &Path, size: u32) -> Result<Vec<u8>, PosixError> {
 
     if ret == -1 {
         return Err(PosixError::last_error(format!(
-            "{:?}: listxattr failed",
-            path
+            "{}: listxattr failed",
+            path.display()
         )));
     }
 
@@ -559,8 +591,9 @@ pub fn access(path: &Path, mask: AccessMask) -> Result<(), PosixError> {
     let ret = unsafe { libc::access(c_path.as_ptr(), mask.bits()) };
     if ret == -1 {
         return Err(PosixError::last_error(format!(
-            "{:?}: access failed. Mask {:?}",
-            path, mask
+            "{}: access failed. Mask {:?}",
+            path.display(),
+            mask
         )));
     }
     Ok(())
@@ -569,20 +602,25 @@ pub fn access(path: &Path, mask: AccessMask) -> Result<(), PosixError> {
 /// Equivalent to the fuse function of the same name
 /// The doc of `open` apply
 /// Return a file handle with write flag. Return an error if file already exists
-pub fn create(path: &Path, mode: u32) -> Result<(FileDescriptorGuard, FileAttribute), PosixError> {
+pub fn create(path: &Path, mode: u32, umask: u32, flags: OpenFlags) -> Result<(FileDescriptorGuard, FileAttribute), PosixError> {
     let c_path = cstring_from_path(path)?;
+    let open_flags = flags.bits();
+    let final_mode = mode & !umask;
 
     // Open the file with O_CREAT (create if it does not exist) and O_WRONLY (write only)
     let fd = unsafe {
         libc::open(
             c_path.as_ptr(),
-            libc::O_CREAT | libc::O_WRONLY | libc::O_EXCL, // O_EXCL ensures the file is created if it doesn't exist
-            mode,
+            open_flags | libc::O_CREAT | libc::O_WRONLY | libc::O_EXCL, // O_EXCL ensures the file is created if it doesn't exist
+            final_mode,
         )
     };
 
     if fd == -1 {
-        return Err(PosixError::last_error(format!("{:?}: create failed", path)));
+        return Err(PosixError::last_error(format!(
+            "{}: create failed",
+            path.display()
+        )));
     }
 
     Ok((FileDescriptorGuard::new(fd.into()), lookup(path)?))
@@ -720,7 +758,7 @@ mod tests {
     fn test_mkdir_and_rmdir() {
         let tmpdir = TempDir::new().unwrap();
         let dir_path = tmpdir.path().join("dir");
-        mkdir(&dir_path, 0o755).unwrap();
+        mkdir(&dir_path, 0o755, 0).unwrap();
         assert!(dir_path.exists());
 
         rmdir(&dir_path).unwrap();

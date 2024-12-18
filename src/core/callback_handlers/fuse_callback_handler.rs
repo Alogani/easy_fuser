@@ -16,6 +16,10 @@ pub trait FuseCallbackHandler<T: FileIdType> {
         self.get_fuse_handler().init(req, config)
     }
 
+    fn destroy(&self) {
+        self.get_fuse_handler().destroy();
+    }
+
     fn lookup(&self, req: RequestInfo, parent: T, name: &OsStr, callback: ReplyCb<FileAttribute>) {
         callback(self.get_fuse_handler().lookup(req, parent, name));
     }
@@ -150,7 +154,7 @@ pub trait FuseCallbackHandler<T: FileIdType> {
         file_handle: FileHandle,
         offset: i64,
         size: u32,
-        flags: FUSEReadFlags,
+        flags: FUSEOpenFlags,
         lock_owner: Option<u64>,
         callback: ReplyCb<Vec<u8>>,
     ) {
@@ -200,6 +204,22 @@ pub trait FuseCallbackHandler<T: FileIdType> {
         callback(
             self.get_fuse_handler()
                 .flush(req, file, file_handle, lock_owner),
+        );
+    }
+
+    fn release(
+        &self,
+        req: RequestInfo,
+        file: T,
+        file_handle: FileHandle,
+        flags: OpenFlags,
+        lock_owner: Option<u64>,
+        flush: bool,
+        callback: ReplyCb<()>,
+    ) {
+        callback(
+            self.get_fuse_handler()
+                .release(req, file, file_handle, flags, lock_owner, flush),
         );
     }
 
@@ -272,22 +292,6 @@ pub trait FuseCallbackHandler<T: FileIdType> {
         callback(
             self.get_fuse_handler()
                 .fsyncdir(req, file, file_handle, datasync),
-        );
-    }
-
-    fn release(
-        &self,
-        req: RequestInfo,
-        file: T,
-        file_handle: FileHandle,
-        flags: OpenFlags,
-        lock_owner: Option<u64>,
-        flush: bool,
-        callback: ReplyCb<()>,
-    ) {
-        callback(
-            self.get_fuse_handler()
-                .release(req, file, file_handle, flags, lock_owner, flush),
         );
     }
 

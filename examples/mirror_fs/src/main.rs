@@ -41,12 +41,13 @@ fn main() {
     std::env::set_var("RUST_BACKTRACE", "1");
     let _ = env_logger::builder()
         .is_test(true)
-        .filter_level(log::LevelFilter::Trace)
+        .filter_level(log::LevelFilter::Info)
         .try_init();
 
     //spawn_deadlock_checker();
 
     let mntpoint = TempDir::new().unwrap();
+    println!("MOUNTPOINT=", mntpoint);
     //let fs = FileDescriptorBridge::<PathBuf>::new(BaseFuse::new());
     let fs = MirrorFs::new(PathBuf::from("/tmp/test"), DefaultFuseHandler::new());
     let fuse = new_serial_driver(fs);

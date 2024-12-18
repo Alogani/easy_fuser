@@ -31,7 +31,7 @@ impl<T: FileIdType> FuseHandler<T> for FdHandlerHelper<T> {
         file_handle: FileHandle,
         offset: i64,
         size: u32,
-        _flags: FUSEReadFlags,
+        _flags: FUSEOpenFlags,
         _lock_owner: Option<u64>,
     ) -> FuseResult<Vec<u8>> {
         match FileDescriptor::try_from(file_handle) {
@@ -70,19 +70,6 @@ impl<T: FileIdType> FuseHandler<T> for FdHandlerHelper<T> {
         }
     }
 
-    fn fsync(
-        &self,
-        _req: RequestInfo,
-        _file_id: T,
-        file_handle: FileHandle,
-        datasync: bool,
-    ) -> FuseResult<()> {
-        match FileDescriptor::try_from(file_handle) {
-            Ok(fd) => posix_fs::fsync(&fd, datasync),
-            Err(e) => Err(e.into()),
-        }
-    }
-
     fn release(
         &self,
         _req: RequestInfo,
@@ -94,6 +81,19 @@ impl<T: FileIdType> FuseHandler<T> for FdHandlerHelper<T> {
     ) -> FuseResult<()> {
         match FileDescriptor::try_from(file_handle) {
             Ok(fd) => posix_fs::release(fd),
+            Err(e) => Err(e.into()),
+        }
+    }
+    
+    fn fsync(
+        &self,
+        _req: RequestInfo,
+        _file_id: T,
+        file_handle: FileHandle,
+        datasync: bool,
+    ) -> FuseResult<()> {
+        match FileDescriptor::try_from(file_handle) {
+            Ok(fd) => posix_fs::fsync(&fd, datasync),
             Err(e) => Err(e.into()),
         }
     }

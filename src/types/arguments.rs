@@ -129,7 +129,7 @@ impl StatFs {
 }
 
 // Fuse related structs
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct RequestInfo {
     pub id: u64,
     pub uid: u32,

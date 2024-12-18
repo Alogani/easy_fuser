@@ -1,6 +1,7 @@
 use std::{
     collections::HashMap,
     ffi::{OsStr, OsString},
+    fmt::Display,
     path::{Path, PathBuf},
     sync::atomic::Ordering,
 };
@@ -19,6 +20,7 @@ pub trait FileIdType: Send + std::fmt::Debug + 'static {
     type Converter: FileIdResolver<Output = Self>;
 
     fn get_converter() -> Self::Converter;
+    fn display(&self) -> impl Display;
 }
 
 impl FileIdType for Inode {
@@ -27,12 +29,20 @@ impl FileIdType for Inode {
     fn get_converter() -> Self::Converter {
         InodeResolver::new()
     }
+
+    fn display(&self) -> impl Display {
+        format!("{:?}", self)
+    }
 }
 impl FileIdType for PathBuf {
     type Converter = PathBufResolver;
 
     fn get_converter() -> Self::Converter {
         PathBufResolver::new()
+    }
+
+    fn display(&self) -> impl Display {
+        Path::display(self)
     }
 }
 
