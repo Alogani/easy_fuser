@@ -1,143 +1,72 @@
-/*
-An example based on the an earlier version of the API
-
-#[cfg(feature = "threadpool")]
+#![cfg(feature = "threadpool")]
 use std::sync::Arc;
 
 use threadpool::ThreadPool;
-extern crate num_cpus;
 
-use crate::*;
-use crate::types::*;
+use std::marker::PhantomData;
 
-use fuse_api::ReplyCb;
+use crate::{
+    fuse_handler::FuseHandler,
+    types::{FUSEOpenFlags, FileHandle, RequestInfo},
+};
 
+use super::{FuseCallbackHandler, ReplyCb};
+use crate::types::FileIdType;
 
-
-
-// Make the read, write, flush and fsync functions run inside a threadpool
-pub struct ThreadPoolFuse<T>
+pub struct ParallelCallbackHandler<T, U>
 where
-    T: FuseAPI + Send + Sync + 'static,
+    T: FileIdType,
+    U: FuseHandler<T>,
 {
-    sublayer: Arc<T>,
+    phantom: PhantomData<T>,
+    fuse_api: U,
     threadpool: ThreadPool,
 }
 
-impl<T> ThreadPoolFuse<T>
+impl<T, U> ParallelCallbackHandler<T, U>
 where
-    T: FuseAPI + Send + Sync + 'static,
+    T: FileIdType,
+    U: FuseHandler<T>,
 {
-    /// Uses the
-    pub fn new(sublayer: T) -> Self {
+    pub fn new(fuse_api: U, num_cpus: u64) -> Self {
         Self {
-            sublayer: Arc::new(sublayer),
-            threadpool: ThreadPool::new(num_cpus::get()),
-        }
-    }
-
-    pub fn with_thread_count(sublayer: T, num_threads: usize) -> Self {
-        Self {
-            sublayer: Arc::new(sublayer),
-            threadpool: ThreadPool::new(num_threads),
+            phantom: PhantomData,
+            fuse_api,
+            threadpool: ThreadPool::new(num_cpus),
         }
     }
 }
 
-impl<T> FuseAPI for ThreadPoolFuse<T>
+impl<T, U> FuseCallbackHandler<T> for ParallelCallbackHandler<T, U>
 where
-    T: FuseAPI + Send + Sync + 'static,
+    T: FileIdType,
+    U: FuseHandler<T>,
 {
-    fn get_sublayer(&self) -> &impl FuseAPI {
-        self.sublayer.as_ref()
+    fn get_fuse_handler(&self) -> &impl FuseHandler<T> {
+        &self.fuse_api
     }
 
     fn read(
         &self,
         req: RequestInfo,
-        ino: u64,
+        file: T,
         file_handle: FileHandle,
         offset: i64,
         size: u32,
-        flags: FUSEReadFlags,
+        flags: FUSEOpenFlags,
         lock_owner: Option<u64>,
-        callback: fuse_api::ReplyCb<Vec<u8>>,
+        callback: ReplyCb<Vec<u8>>,
     ) {
-        let sublayer = Arc::clone(&self.sublayer);
-
         self.threadpool.execute(move || {
-            sublayer.read(
+            callback(self.get_fuse_handler().read(
                 req,
-                ino,
+                file,
                 file_handle,
                 offset,
                 size,
                 flags,
                 lock_owner,
-                callback,
-            );
-        });
-    }
-
-    fn write(
-        &self,
-        _req: RequestInfo,
-        ino: u64,
-        file_handle: FileHandle,
-        offset: i64,
-        data: &[u8],
-        write_flags: FUSEWriteFlags,
-        flags: OpenFlags,
-        lock_owner: Option<u64>,
-        callback: ReplyCb<u32>,
-    ) {
-        let sublayer = Arc::clone(&self.sublayer);
-        let data = Vec::from(data);
-
-        self.threadpool.execute(move || {
-            sublayer.write(
-                _req,
-                ino,
-                file_handle,
-                offset,
-                &data,
-                write_flags,
-                flags,
-                lock_owner,
-                callback,
-            );
-        });
-    }
-
-    fn flush(
-        &self,
-        _req: RequestInfo,
-        ino: u64,
-        file_handle: FileHandle,
-        lock_owner: u64,
-        callback: ReplyCb<()>,
-    ) {
-        let sublayer = Arc::clone(&self.sublayer);
-
-        self.threadpool.execute(move || {
-            sublayer.flush(_req, ino, file_handle, lock_owner, callback);
-        });
-    }
-
-    fn fsync(
-        &self,
-        _req: RequestInfo,
-        ino: u64,
-        file_handle: FileHandle,
-        datasync: bool,
-        callback: ReplyCb<()>,
-    ) {
-        let sublayer = Arc::clone(&self.sublayer);
-
-        self.threadpool.execute(move || {
-            sublayer.fsync(_req, ino, file_handle, datasync, callback);
+            ))
         });
     }
 }
-
-*/

@@ -1,9 +1,5 @@
 use std::{
-    collections::HashMap,
-    ffi::{OsStr, OsString},
-    fmt::Display,
-    path::{Path, PathBuf},
-    sync::atomic::Ordering,
+    collections::HashMap, ffi::{OsStr, OsString}, path::{Path, PathBuf}, sync::atomic::Ordering
 };
 
 use std::sync::{atomic::AtomicU64, RwLock};
@@ -12,37 +8,22 @@ use crate::types::*;
 
 pub const ROOT_INODE: u64 = 1;
 
-/// FileIdType can have two values:
-/// - Inode: in which case the user shall provide its own unique inode (at least a valid one)
-/// - PathBuf: in which the inode to path mapping will be done and cached automatically
-
-pub trait FileIdType: Send + std::fmt::Debug + 'static {
-    type Converter: FileIdResolver<Output = Self>;
-
-    fn get_converter() -> Self::Converter;
-    fn display(&self) -> impl Display;
+pub trait GetConverter {
+    type Resolver: FileIdResolver<FileIdType = Self>;
+    fn get_converter() -> Self::Resolver;
 }
 
-impl FileIdType for Inode {
-    type Converter = InodeResolver;
-
-    fn get_converter() -> Self::Converter {
+impl GetConverter for Inode {
+    type Resolver = InodeResolver;
+    fn get_converter() -> Self::Resolver {
         InodeResolver::new()
     }
-
-    fn display(&self) -> impl Display {
-        format!("{:?}", self)
-    }
 }
-impl FileIdType for PathBuf {
-    type Converter = PathBufResolver;
 
-    fn get_converter() -> Self::Converter {
+impl GetConverter for PathBuf {
+    type Resolver = PathBufResolver;
+    fn get_converter() -> Self::Resolver {
         PathBufResolver::new()
-    }
-
-    fn display(&self) -> impl Display {
-        Path::display(self)
     }
 }
 
@@ -50,34 +31,69 @@ impl FileIdType for PathBuf {
 /// FileIdResolver handles its data behind Locks if needed and should not be nested inside a Mutex
 
 pub trait FileIdResolver: Send + Sync + 'static {
-    type Output: FileIdType;
+    type FileIdType: FileIdType;
+
     fn new() -> Self;
-    fn resolve_id(&self, ino: u64) -> Self::Output;
-    fn assign_or_initialize_ino(&self, ino: u64, child: Option<&OsStr>, new_inode: &mut Inode);
-    fn rename(&self, parent: u64, name: &OsStr, newparent: u64, newname: OsString);
-    fn unlink(&self, parent: u64, name: &OsStr);
+    fn resolve_id(&self, ino: u64) -> Self::FileIdType;
+    fn lookup(
+        &self,
+        parent: u64,
+        child: &OsStr,
+        id: <Self::FileIdType as FileIdType>::Id,
+        increment: bool,
+    ) -> u64;
+    fn add_children(
+        &self,
+        parent: u64,
+        children: Vec<(OsString, <Self::FileIdType as FileIdType>::Id)>,
+        increment: bool,
+    ) -> Vec<(OsString, u64)>;
+    fn forget(&self, ino: u64, nlookup: u64);
+    fn rename(&self, parent: u64, name: &OsStr, newparent: u64, newname: &OsStr);
 }
 
 pub struct InodeResolver {}
 
 impl FileIdResolver for InodeResolver {
-    type Output = Inode;
+    type FileIdType = Inode;
+
     fn new() -> Self {
         Self {}
     }
 
-    fn resolve_id(&self, ino: u64) -> Self::Output {
+    fn resolve_id(&self, ino: u64) -> Self::FileIdType {
         Inode::from(ino)
     }
 
-    // Do nothing, user should provide its own inode
-    fn assign_or_initialize_ino(&self, _ino: u64, _child: Option<&OsStr>, new_inode: &mut Inode) {
-        if *new_inode == INVALID_INODE {
-            panic!("Provided inode should be valid (non zero)")
-        }
+    fn lookup(
+        &self,
+        _parent: u64,
+        _child: &OsStr,
+        id: Inode,
+        _increment: bool,
+    ) -> u64 {
+        id.into()
     }
-    fn rename(&self, _parent: u64, _name: &OsStr, _newparent: u64, _newname: OsString) {}
-    fn unlink(&self, _parent: u64, _name: &OsStr) {}
+
+    // Do nothing, user should provide its own inode
+    fn add_children(
+        &self,
+        parent: u64,
+        children: Vec<(OsString, Inode)>,
+        increment: bool,
+    ) -> Vec<(OsString, u64)>
+    {
+        children
+            .into_iter()
+            .map(|(name, inode)| {
+                (name, u64::from(inode))
+            })
+            .collect()
+    }
+
+    fn forget(&self, _ino: u64, _nlookup: u64) {}
+
+    fn rename(&self, _parent: u64, _name: &OsStr, _newparent: u64, _newname: &OsStr) {}
 }
 
 pub struct PathBufResolver {
@@ -87,10 +103,12 @@ pub struct PathBufResolver {
 
 struct InodeValue {
     name_ptr: SendOsStrPtr,
+    nlookup: u64,
     parent: u64,
     children: HashMap<OsString, u64>,
 }
 
+#[derive(Clone)]
 struct SendOsStrPtr(*const OsStr);
 unsafe impl Send for SendOsStrPtr {}
 unsafe impl Sync for SendOsStrPtr {}
@@ -106,7 +124,7 @@ impl SendOsStrPtr {
 }
 
 impl FileIdResolver for PathBufResolver {
-    type Output = PathBuf;
+    type FileIdType = PathBuf;
 
     fn new() -> Self {
         let mut inodes = HashMap::new();
@@ -120,6 +138,7 @@ impl FileIdResolver for PathBufResolver {
                 name_ptr: SendOsStrPtr::from(unsafe {
                     &*(ROOT_PATH as *const str as *const OsStr)
                 }),
+                nlookup: 0, // not used, root is never forget
                 parent: ROOT_INODE,
                 children: HashMap::new(),
             },
@@ -131,7 +150,7 @@ impl FileIdResolver for PathBufResolver {
         }
     }
 
-    fn resolve_id(&self, ino: u64) -> Self::Output {
+    fn resolve_id(&self, ino: u64) -> Self::FileIdType {
         let inodes = self.inodes.read().unwrap();
         let mut result = PathBuf::new();
         let mut inode = ino;
@@ -139,6 +158,7 @@ impl FileIdResolver for PathBufResolver {
             let (parent, name) = {
                 let InodeValue {
                     name_ptr,
+                    nlookup: _,
                     parent,
                     children: _,
                 } = inodes.get(&inode).unwrap();
@@ -154,23 +174,34 @@ impl FileIdResolver for PathBufResolver {
                 break;
             }
         }
+        drop(inodes);
         result
     }
 
-    fn assign_or_initialize_ino(&self, ino: u64, child: Option<&OsStr>, new_inode: &mut Inode) {
+    fn lookup(
+        &self,
+        parent: u64,
+        child: &OsStr,
+        _id: (),
+        increment: bool,
+    ) -> u64 {
         let mut inodes = self.inodes.write().unwrap();
         let correct_inode = match child {
-            None => ino,
-            Some(child_name) if child_name == "." => ino,
-            Some(child_name) if child_name == ".." => inodes.get(&ino).unwrap().parent,
-            Some(child_name) => match inodes.get(&ino).unwrap().children.get(child_name) {
-                Some(child_inode) => *child_inode,
+            os_str if os_str == "." => parent,
+            os_str if os_str == ".." => inodes.get(&parent).unwrap().parent,
+            _ => match inodes.get(&parent).unwrap().children.get(child) {
+                Some(&child_inode) => {
+                    if increment {
+                        inodes.get_mut(&child_inode).unwrap().nlookup += 1;
+                    }
+                    child_inode
+                }
                 None => {
                     let next_inode = self.next_inode.fetch_add(1, Ordering::SeqCst);
-                    let child_name = child_name.to_os_string();
+                    let child_name = child.to_os_string();
                     let child_ptr = SendOsStrPtr::from(&child_name);
                     inodes
-                        .get_mut(&ino)
+                        .get_mut(&parent)
                         .unwrap()
                         .children
                         .insert(child_name, next_inode);
@@ -178,7 +209,8 @@ impl FileIdResolver for PathBufResolver {
                         next_inode,
                         InodeValue {
                             name_ptr: child_ptr,
-                            parent: ino,
+                            nlookup: if increment { 1 } else { 0 },
+                            parent,
                             children: HashMap::new(),
                         },
                     );
@@ -186,73 +218,96 @@ impl FileIdResolver for PathBufResolver {
                 }
             },
         };
-        *new_inode = correct_inode.into();
+        correct_inode
     }
 
-    fn rename(&self, parent: u64, name: &OsStr, newparent: u64, newname: OsString) {
+    fn add_children(
+        &self,
+        parent: u64,
+        children: Vec<(OsString, ())>,
+        increment: bool,
+    ) -> Vec<(OsString, u64)>
+    {
         let mut inodes = self.inodes.write().unwrap();
-        let new_name_ptr = SendOsStrPtr::from(&newname);
-        let src_inode = match inodes.get_mut(&parent).unwrap().children.remove(name) {
-            Some(inode) => {
-                inodes.get_mut(&inode).unwrap().name_ptr = new_name_ptr;
-                inode
+        if inodes.get(&parent).unwrap().children.is_empty() {
+            let mut result = Vec::new();
+            for (child_name, _) in children {
+                let child_inode = match child_name.as_os_str() {
+                    child_name if child_name == "." => parent,
+                    child_name if child_name == ".." => inodes.get(&parent).unwrap().parent,
+                    _ => {
+                        let next_inode = self.next_inode.fetch_add(1, Ordering::SeqCst);
+                        let child_ptr = SendOsStrPtr::from(&child_name);
+                        inodes
+                            .get_mut(&parent)
+                            .unwrap()
+                            .children
+                            .insert(child_name.clone(), next_inode);
+                        inodes.insert(
+                            next_inode,
+                            InodeValue {
+                                name_ptr: child_ptr,
+                                nlookup: if increment { 1 } else { 0 },
+                                parent,
+                                children: HashMap::new(),
+                            },
+                        );
+                        next_inode
+                    }
+                };
+                result.push((child_name, child_inode));
             }
-            None => {
-                let new_inode = self.next_inode.fetch_add(1, Ordering::SeqCst);
-                inodes.insert(
-                    new_inode,
-                    InodeValue {
-                        name_ptr: new_name_ptr,
-                        parent,
-                        children: HashMap::new(),
-                    },
-                );
-                new_inode
-            }
-        };
+            result
+        } else {
+            children
+                .into_iter()
+                .map(|(child_name, metadata)| {
+                    let child_inode = self.lookup(parent, &child_name, metadata, increment);
+                    (child_name, child_inode)
+                })
+                .collect()
+        }
+    }
+
+    fn forget(&self, ino: u64, nlookup: u64) {
+        let mut inodes = self.inodes.write().unwrap();
+        let inode_value = inodes.get_mut(&ino).unwrap();
+
+        if inode_value.nlookup == nlookup {
+            let parent = inode_value.parent;
+            let name_ptr = inode_value.name_ptr.clone();
+            inodes
+                .get_mut(&parent)
+                .unwrap()
+                .children
+                .remove(name_ptr.get());
+            inodes.remove(&ino);
+        } else {
+            inode_value.nlookup -= nlookup;
+        }
+    }
+
+    fn rename(&self, parent: u64, name: &OsStr, newparent: u64, newname: &OsStr) {
+        let mut inodes = self.inodes.write().unwrap();
+        let new_name_ptr = SendOsStrPtr::from(newname);
+        let src_inode = inodes
+            .get_mut(&parent)
+            .unwrap()
+            .children
+            .remove(name)
+            .unwrap();
+        inodes.get_mut(&src_inode).unwrap().name_ptr = new_name_ptr;
         inodes
             .get_mut(&newparent)
             .unwrap()
             .children
-            .insert(newname, src_inode);
-    }
-
-    fn unlink(&self, parent: u64, name: &OsStr) {
-        let mut inodes = self.inodes.write().unwrap();
-        if let Some(inode) = inodes.get_mut(&parent).unwrap().children.remove(name) {
-            let _ = inodes.remove(&inode);
-        }
+            .insert(newname.to_owned(), src_inode);
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use std::time::SystemTime;
-
     use super::*;
-
-    fn new_default_attr() -> FileAttribute {
-        let now = SystemTime::now();
-        FileAttribute {
-            inode: Inode::from(0),
-            size: 0,
-            blocks: 0,
-            atime: now,
-            mtime: now,
-            ctime: now,
-            crtime: now,
-            kind: FileType::RegularFile,
-            perm: 0,
-            nlink: 0,
-            uid: 0,
-            gid: 0,
-            rdev: 0,
-            blksize: 0,
-            flags: 0,
-            ttl: None,
-            generation: None,
-        }
-    }
 
     #[test]
     fn test_new() {
@@ -269,47 +324,42 @@ mod tests {
     #[test]
     fn test_resolve_id() {
         let converter = PathBufResolver::new();
-        let mut shallow_attr = new_default_attr();
-        let mut nested_attr = new_default_attr();
 
         // Map shallow and nested paths
-        converter.assign_or_initialize_ino(
+        let shallow_ino = converter.lookup(
             ROOT_INODE,
-            Some(OsStr::new("shallow_file")),
-            &mut shallow_attr.inode,
+            OsStr::new("shallow_file"),
+            (),
+            true,
         );
-        converter.assign_or_initialize_ino(
-            shallow_attr.inode.clone().into(),
-            Some(OsStr::new("nested_file")),
-            &mut nested_attr.inode,
+        let nested_ino = converter.lookup(
+            shallow_ino,
+            OsStr::new("nested_file"),
+            (),
+            true,
         );
 
         // Test shallow path
-        let shallow_path = converter.resolve_id(shallow_attr.inode.into());
+        let shallow_path = converter.resolve_id(shallow_ino);
         assert_eq!(shallow_path, PathBuf::from("shallow_file"));
 
         // Test nested path
-        let nested_path = converter.resolve_id(nested_attr.inode.into());
+        let nested_path = converter.resolve_id(nested_ino);
         assert_eq!(nested_path, PathBuf::from("shallow_file/nested_file"));
     }
 
     #[test]
     fn test_get_or_create_inode() {
         let converter = PathBufResolver::new();
-        let mut shallow_attr = new_default_attr();
-        let mut nested_attr = new_default_attr();
 
         // Map shallow and nested paths
-        converter.assign_or_initialize_ino(
-            ROOT_INODE,
-            Some(OsStr::new("dir")),
-            &mut shallow_attr.inode,
-        );
-        let shallow_ino = shallow_attr.inode.clone().into();
-        converter.assign_or_initialize_ino(
+        let shallow_ino =
+            converter.lookup(ROOT_INODE, OsStr::new("dir"), (), true);
+        let nested_ino = converter.lookup(
             shallow_ino,
-            Some(OsStr::new("file")),
-            &mut nested_attr.inode,
+            OsStr::new("file"),
+            (),
+            true,
         );
 
         // Get inodes
@@ -322,30 +372,24 @@ mod tests {
         assert_eq!(shallow_inode.name_ptr.get(), "dir");
 
         // Verify nested path
-        let nested_attr_ino = nested_attr.inode.clone().into();
-        assert!(inodes.contains_key(&nested_attr_ino));
-        let nested_inode = inodes.get(&nested_attr_ino).unwrap();
-        assert_eq!(nested_inode.parent, shallow_attr.inode.into());
+        assert!(inodes.contains_key(&nested_ino));
+        let nested_inode = inodes.get(&nested_ino).unwrap();
+        assert_eq!(nested_inode.parent, shallow_ino);
         assert_eq!(nested_inode.name_ptr.get(), "file");
     }
 
     #[test]
     fn test_rename() {
         let converter = PathBufResolver::new();
-        let mut shallow_attr = new_default_attr();
-        let mut nested_attr = new_default_attr();
 
         // Map shallow and nested paths
-        converter.assign_or_initialize_ino(
-            ROOT_INODE,
-            Some(OsStr::new("dir")),
-            &mut shallow_attr.inode,
-        );
-        let shallow_ino = shallow_attr.inode.clone().into();
-        converter.assign_or_initialize_ino(
+        let shallow_ino =
+            converter.lookup(ROOT_INODE, OsStr::new("dir"), (), true);
+        let nested_ino = converter.lookup(
             shallow_ino,
-            Some(OsStr::new("file")),
-            &mut nested_attr.inode,
+            OsStr::new("file"),
+            (),
+            true,
         );
 
         // Rename shallow path
@@ -353,40 +397,34 @@ mod tests {
             ROOT_INODE,
             OsStr::new("dir"),
             ROOT_INODE,
-            OsString::from("new_dir"),
+            OsStr::new("new_dir"),
         );
         let renamed_shallow_path = converter.resolve_id(shallow_ino);
         assert_eq!(renamed_shallow_path, PathBuf::from("new_dir"));
 
         // Verify nested path after rename
-        let renamed_nested_path = converter.resolve_id(nested_attr.inode.into());
+        let renamed_nested_path = converter.resolve_id(nested_ino);
         assert_eq!(renamed_nested_path, PathBuf::from("new_dir/file"));
     }
 
     #[test]
-    fn test_remove() {
+    fn test_forget() {
         let converter = PathBufResolver::new();
-        let mut shallow_attr = new_default_attr();
-        let mut nested_attr = new_default_attr();
 
-        // Map shallow and nested paths
-        converter.assign_or_initialize_ino(
-            ROOT_INODE,
-            Some(OsStr::new("dir")),
-            &mut shallow_attr.inode,
-        );
-        let shallow_ino = shallow_attr.inode.clone().into();
-        converter.assign_or_initialize_ino(
+        let shallow_ino =
+            converter.lookup(ROOT_INODE, OsStr::new("dir"), (), true);
+        let nested_ino = converter.lookup(
             shallow_ino,
-            Some(OsStr::new("file")),
-            &mut nested_attr.inode,
+            OsStr::new("file"),
+            (),
+            true,
         );
 
         // Remove nested path
-        converter.unlink(shallow_ino, OsStr::new("file"));
+        converter.forget(nested_ino, 1);
         {
             let inodes = converter.inodes.read().unwrap();
-            assert!(!inodes.contains_key(&nested_attr.inode.into()));
+            assert!(!inodes.contains_key(&nested_ino));
             let shallow_inode = inodes.get(&shallow_ino).unwrap();
             assert!(!shallow_inode
                 .children
@@ -394,10 +432,10 @@ mod tests {
         }
 
         // Remove shallow path
-        converter.unlink(ROOT_INODE, OsStr::new("dir"));
+        converter.forget(shallow_ino, 1);
         {
             let inodes = converter.inodes.read().unwrap();
-            assert!(!inodes.contains_key(&shallow_attr.inode.into()));
+            assert!(!inodes.contains_key(&shallow_ino));
             let root_inode = inodes.get(&ROOT_INODE).unwrap();
             assert!(!root_inode.children.contains_key("dir".as_ref() as &OsStr));
         }

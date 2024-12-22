@@ -30,6 +30,10 @@ impl PosixError {
         }
     }
 
+    pub fn kind(&self) -> ErrorKind {
+        ErrorKind::from(self.code)
+    }
+
     pub fn raw_error(&self) -> i32 {
         self.code
     }

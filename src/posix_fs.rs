@@ -9,18 +9,18 @@ use std::os::unix::fs::{self as unix_fs, *};
 use crate::types::*;
 use libc::{c_char, c_void, timespec};
 
-/// Convert file type from fs::FileType to the one expected by fuse_api
+/// Convert file type from fs::FileKind to the one expected by fuse_api
 /// Be careful with symlinks
-pub fn convert_filetype(f: fs::FileType) -> FileType {
+pub fn convert_filetype(f: fs::FileType) -> FileKind {
     match f {
-        f if f.is_file() => FileType::RegularFile,
-        f if f.is_dir() => FileType::Directory,
-        f if f.is_symlink() => FileType::Symlink,
-        f if f.is_block_device() => FileType::BlockDevice,
-        f if f.is_char_device() => FileType::CharDevice,
-        f if f.is_fifo() => FileType::NamedPipe,
-        f if f.is_socket() => FileType::Socket,
-        _ => panic!("Unknown FileType"), // not possible in theory
+        f if f.is_file() => FileKind::RegularFile,
+        f if f.is_dir() => FileKind::Directory,
+        f if f.is_symlink() => FileKind::Symlink,
+        f if f.is_block_device() => FileKind::BlockDevice,
+        f if f.is_char_device() => FileKind::CharDevice,
+        f if f.is_fifo() => FileKind::NamedPipe,
+        f if f.is_socket() => FileKind::Socket,
+        _ => panic!("Unknown FileKind"), // not possible in theory
     }
 }
 
@@ -28,7 +28,6 @@ pub fn convert_filetype(f: fs::FileType) -> FileType {
 /// Be careful with symlink, use fs::symlink_metadata
 pub fn convert_fileattribute(metadata: fs::Metadata) -> FileAttribute {
     FileAttribute {
-        inode: INVALID_INODE,
         size: metadata.size(),
         blocks: metadata.blocks(),
         atime: SystemTime::UNIX_EPOCH + Duration::new(metadata.atime() as u64, 0),
@@ -59,7 +58,6 @@ fn convert_stat_struct(statbuf: libc::stat) -> Option<FileAttribute> {
     let flags = 0; // Update this if your system provides a way to get file flags
 
     Some(FileAttribute {
-        inode: INVALID_INODE,
         size: statbuf.st_size as u64,
         blocks: statbuf.st_blocks as u64,
         atime,
@@ -79,16 +77,16 @@ fn convert_stat_struct(statbuf: libc::stat) -> Option<FileAttribute> {
     })
 }
 
-fn stat_to_kind(statbuf: libc::stat) -> Option<FileType> {
+fn stat_to_kind(statbuf: libc::stat) -> Option<FileKind> {
     use libc::*;
     Some(match statbuf.st_mode & S_IFMT {
-        S_IFREG => FileType::RegularFile,
-        S_IFDIR => FileType::Directory,
-        S_IFCHR => FileType::CharDevice,
-        S_IFBLK => FileType::BlockDevice,
-        S_IFIFO => FileType::NamedPipe,
-        S_IFLNK => FileType::Symlink,
-        S_IFSOCK => FileType::Socket,
+        S_IFREG => FileKind::RegularFile,
+        S_IFDIR => FileKind::Directory,
+        S_IFCHR => FileKind::CharDevice,
+        S_IFBLK => FileKind::BlockDevice,
+        S_IFIFO => FileKind::NamedPipe,
+        S_IFLNK => FileKind::Symlink,
+        S_IFSOCK => FileKind::Socket,
         _ => return None, // Unsupported or unknown file type
     })
 }
@@ -278,9 +276,14 @@ pub fn readlink(path: &Path) -> Result<Vec<u8>, PosixError> {
 }
 
 /// Equivalent to the fuse function of the same name
-pub fn mknod(path: &Path, mode: u32, umask: u32, rdev: DeviceType) -> Result<FileAttribute, PosixError> {
+pub fn mknod(
+    path: &Path,
+    mode: u32,
+    umask: u32,
+    rdev: DeviceType,
+) -> Result<FileAttribute, PosixError> {
     let c_path = cstring_from_path(path)?;
-    let final_mode= mode & !umask;
+    let final_mode = mode & !umask;
     let ret = unsafe { libc::mknod(c_path.as_ptr(), final_mode, rdev.to_rdev() as libc::dev_t) };
     if ret == -1 {
         return Err(PosixError::last_error(format!(
@@ -424,27 +427,12 @@ pub fn fsync(fd: &FileDescriptor, datasync: bool) -> Result<(), PosixError> {
 }
 
 /// Equivalent to the fuse function of the same name
-pub fn readdir(path: &Path) -> Result<Vec<(OsString, FileType)>, PosixError> {
+pub fn readdir(path: &Path) -> Result<Vec<(OsString, FileKind)>, PosixError> {
     let entries = fs::read_dir(path)?;
     let mut result = Vec::new();
     for entry in entries {
         let entry = entry?;
         result.push((entry.file_name(), convert_filetype(entry.file_type()?)))
-    }
-    Ok(result)
-}
-
-/// Equivalent to the fuse function of the same name
-pub fn readdirplus(path: &Path) -> Result<Vec<(OsString, FileType, FileAttribute)>, PosixError> {
-    let entries = fs::read_dir(path)?;
-    let mut result = Vec::new();
-    for entry in entries {
-        let entry = entry?;
-        result.push((
-            entry.file_name(),
-            convert_filetype(entry.file_type()?),
-            convert_fileattribute(entry.metadata()?),
-        ))
     }
     Ok(result)
 }
@@ -602,7 +590,12 @@ pub fn access(path: &Path, mask: AccessMask) -> Result<(), PosixError> {
 /// Equivalent to the fuse function of the same name
 /// The doc of `open` apply
 /// Return a file handle with write flag. Return an error if file already exists
-pub fn create(path: &Path, mode: u32, umask: u32, flags: OpenFlags) -> Result<(FileDescriptorGuard, FileAttribute), PosixError> {
+pub fn create(
+    path: &Path,
+    mode: u32,
+    umask: u32,
+    flags: OpenFlags,
+) -> Result<(FileDescriptorGuard, FileAttribute), PosixError> {
     let c_path = cstring_from_path(path)?;
     let open_flags = flags.bits();
     let final_mode = mode & !umask;
@@ -692,7 +685,7 @@ mod tests {
     fn test_convert_filetype() {
         let tmpfile = NamedTempFile::new().unwrap();
         let filetype = convert_filetype(fs::metadata(&tmpfile.path()).unwrap().file_type());
-        assert_eq!(filetype, FileType::RegularFile);
+        assert_eq!(filetype, FileKind::RegularFile);
         drop(tmpfile);
     }
 
@@ -780,7 +773,7 @@ mod tests {
         fs::remove_file(&symlink_path).unwrap();
         drop(tmpdir);
 
-        assert_eq!(attr.kind, FileType::Symlink);
+        assert_eq!(attr.kind, FileKind::Symlink);
     }
 
     #[test]

@@ -17,6 +17,7 @@ pub struct MirrorFs {
     inner: Box<dyn FuseHandler<PathBuf>>,
 }
 
+/// Avoid recursivness or system could hang indefinitly on lstat (notably lookup+getattr/ls command) on a child being a parent
 impl MirrorFs {
     pub fn new<T: FuseHandler<PathBuf>>(repo: PathBuf, inner: T) -> Self {
         Self {
@@ -38,9 +39,7 @@ impl FuseHandler<PathBuf> for MirrorFs {
         name: &OsStr,
     ) -> FuseResult<FileAttribute> {
         let file_path = self.repo.join(parent_id).join(name);
-        let fd = posix_fs::open(file_path.as_ref(), OpenFlags::empty())?;
-        let result = posix_fs::getattr(&fd);
-        result
+        posix_fs::lookup(&file_path)
     }
 
     fn getattr(
@@ -71,26 +70,26 @@ impl FuseHandler<PathBuf> for MirrorFs {
     }
 
     fn mknod(
-            &self,
-            _req: RequestInfo,
-            parent_id: PathBuf,
-            name: &OsStr,
-            mode: u32,
-            umask: u32,
-            rdev: DeviceType,
-        ) -> FuseResult<FileAttribute> {
+        &self,
+        _req: RequestInfo,
+        parent_id: PathBuf,
+        name: &OsStr,
+        mode: u32,
+        umask: u32,
+        rdev: DeviceType,
+    ) -> FuseResult<FileAttribute> {
         let file_path = self.repo.join(parent_id).join(name);
         posix_fs::mknod(&file_path, mode, umask, rdev)
     }
 
     fn mkdir(
-            &self,
-            _req: RequestInfo,
-            parent_id: PathBuf,
-            name: &OsStr,
-            mode: u32,
-            umask: u32,
-        ) -> FuseResult<FileAttribute> {
+        &self,
+        _req: RequestInfo,
+        parent_id: PathBuf,
+        name: &OsStr,
+        mode: u32,
+        umask: u32,
+    ) -> FuseResult<FileAttribute> {
         let file_path = self.repo.join(parent_id).join(name);
         posix_fs::mkdir(&file_path, mode, umask)
     }
@@ -100,26 +99,31 @@ impl FuseHandler<PathBuf> for MirrorFs {
         posix_fs::unlink(&file_path)
     }
 
+    fn rmdir(&self, _req: RequestInfo, parent_id: PathBuf, name: &OsStr) -> FuseResult<()> {
+        let file_path = self.repo.join(parent_id).join(name);
+        posix_fs::rmdir(&file_path)
+    }
+
     fn symlink(
-            &self,
-            _req: RequestInfo,
-            parent_id: PathBuf,
-            link_name: &OsStr,
-            target: &std::path::Path,
-        ) -> FuseResult<FileAttribute> {
+        &self,
+        _req: RequestInfo,
+        parent_id: PathBuf,
+        link_name: &OsStr,
+        target: &std::path::Path,
+    ) -> FuseResult<FileAttribute> {
         let file_path = self.repo.join(parent_id).join(link_name);
         posix_fs::symlink(&file_path, target)
     }
 
     fn rename(
-            &self,
-            _req: RequestInfo,
-            parent_id: PathBuf,
-            name: &OsStr,
-            newparent: PathBuf,
-            newname: &OsStr,
-            flags: RenameFlags,
-        ) -> FuseResult<()> {
+        &self,
+        _req: RequestInfo,
+        parent_id: PathBuf,
+        name: &OsStr,
+        newparent: PathBuf,
+        newname: &OsStr,
+        flags: RenameFlags,
+    ) -> FuseResult<()> {
         let oldpath = self.repo.join(parent_id).join(name);
         let newpath = self.repo.join(newparent).join(newname);
         posix_fs::rename(&oldpath, &newpath, flags)
@@ -135,34 +139,19 @@ impl FuseHandler<PathBuf> for MirrorFs {
         let mut fd = posix_fs::open(file_path.as_ref(), flags)?;
         Ok((fd.take_to_file_handle()?, FUSEOpenResponseFlags::empty()))
     }
-
     fn readdir(
         &self,
         _req: RequestInfo,
         file_id: PathBuf,
         _file_handle: FileHandle,
-    ) -> FuseResult<Vec<FuseDirEntry>> {
+    ) -> FuseResult<Vec<(OsString, FileKind)>> {
         let folder_path = self.repo.join(file_id);
         let children = posix_fs::readdir(folder_path.as_ref())?;
         let mut result = Vec::new();
-        result.push(FuseDirEntry {
-            inode: INVALID_INODE,
-            name: OsString::from("."),
-            kind: FileType::Directory,
-        });
-        result.push(FuseDirEntry {
-            inode: INVALID_INODE,
-            name: OsString::from(".."),
-            kind: FileType::Directory,
-        });
+        result.push((OsString::from("."), FileKind::Directory));
+        result.push((OsString::from(".."), FileKind::Directory));
         for (child_name, child_kind) in children {
-            result.push({
-                FuseDirEntry {
-                    inode: INVALID_INODE,
-                    name: child_name,
-                    kind: child_kind,
-                }
-            })
+            result.push((child_name, child_kind));
         }
         Ok(result)
     }
@@ -207,16 +196,20 @@ impl FuseHandler<PathBuf> for MirrorFs {
     }
 
     fn create(
-            &self,
-            _req: RequestInfo,
-            parent_id: PathBuf,
-            name: &OsStr,
-            mode: u32,
-            umask: u32,
-            flags: OpenFlags,
-        ) -> FuseResult<(FileHandle, FileAttribute, FUSEOpenResponseFlags)> {
+        &self,
+        _req: RequestInfo,
+        parent_id: PathBuf,
+        name: &OsStr,
+        mode: u32,
+        umask: u32,
+        flags: OpenFlags,
+    ) -> FuseResult<(FileHandle, FileAttribute, FUSEOpenResponseFlags)> {
         let file_path = self.repo.join(parent_id).join(name);
         let (mut fd, file_attr) = posix_fs::create(&file_path, mode, umask, flags)?;
-        Ok((fd.take_to_file_handle()?, file_attr, FUSEOpenResponseFlags::empty()))
+        Ok((
+            fd.take_to_file_handle()?,
+            file_attr,
+            FUSEOpenResponseFlags::empty(),
+        ))
     }
 }

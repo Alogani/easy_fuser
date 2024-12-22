@@ -1,7 +1,7 @@
-use std::ffi::OsString;
+use std::fmt::Display;
+use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
-use fuser::FileAttr as FuseFileAttr;
 use fuser::{FileType, Request, TimeOrNow};
 
 use super::FileHandle;
@@ -9,7 +9,6 @@ use super::LockType;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Inode(u64);
-pub const INVALID_INODE: Inode = Inode(0);
 
 impl From<u64> for Inode {
     fn from(value: u64) -> Self {
@@ -150,9 +149,8 @@ impl<'a> From<&Request<'a>> for RequestInfo {
 
 /// Fuse can cache file attributes. AttributeResponse allow to fine tune the value
 /// Otherwise, ttl will be set by FilesystemAPI::get_default_ttl(), and generation will be random
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct FileAttribute {
-    pub inode: Inode,
     pub size: u64,
     pub blocks: u64,
     pub atime: SystemTime,
@@ -169,42 +167,6 @@ pub struct FileAttribute {
     pub flags: u32,
     pub ttl: Option<Duration>,
     pub generation: Option<u64>,
-}
-
-impl FileAttribute {
-    pub fn to_fuse(self) -> FuseFileAttr {
-        FuseFileAttr {
-            ino: self.inode.into(),
-            size: self.size,
-            blocks: self.blocks,
-            atime: self.atime,
-            mtime: self.mtime,
-            ctime: self.ctime,
-            crtime: self.crtime,
-            kind: self.kind,
-            perm: self.perm,
-            nlink: self.nlink,
-            uid: self.uid,
-            gid: self.gid,
-            rdev: self.rdev,
-            blksize: self.blksize,
-            flags: self.flags,
-        }
-    }
-}
-
-#[derive(Debug)]
-pub struct FuseDirEntry {
-    pub inode: Inode,
-    pub name: OsString,
-    pub kind: FileType,
-}
-
-#[derive(Debug)]
-pub struct FuseDirEntryPlus {
-    pub inode: Inode,
-    pub name: OsString,
-    pub attr: FileAttribute,
 }
 
 #[derive(Debug)]

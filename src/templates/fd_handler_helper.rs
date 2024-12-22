@@ -84,7 +84,7 @@ impl<T: FileIdType> FuseHandler<T> for FdHandlerHelper<T> {
             Err(e) => Err(e.into()),
         }
     }
-    
+
     fn fsync(
         &self,
         _req: RequestInfo,

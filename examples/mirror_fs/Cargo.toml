@@ -3,8 +3,13 @@ name = "mirror_fs"
 version = "0.1.0"
 edition = "2021"
 
+[features]
+#default = ["deadlock_detection"]
+#deadlock_detection = []
+
 [dependencies]
 easy_fuser = { path = "../.." }
+#parking_lot = { version = "0.12", features = ["deadlock_detection"] }
 log = "0.4"
 tempfile = "3.14"
 env_logger = "0.11"

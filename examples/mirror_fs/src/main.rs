@@ -1,13 +1,10 @@
 use std::path::PathBuf;
 
-use tempfile::TempDir;
-
 use easy_fuser::prelude::*;
 use easy_fuser::templates::DefaultFuseHandler;
 use easy_fuser::templates::MirrorFs;
 
-/*
-fn spawn_deadlock_checker() {
+/*fn spawn_deadlock_checker() {
     #[cfg(feature = "deadlock_detection")]
     { // only for #[cfg]
     use std::thread;
@@ -20,7 +17,7 @@ fn spawn_deadlock_checker() {
             thread::sleep(Duration::from_secs(10));
             let deadlocks = deadlock::check_deadlock();
             if deadlocks.is_empty() {
-                eprintln!("no deadlok");
+                eprintln!("no deadlock");
                 continue;
             }
 
@@ -41,17 +38,14 @@ fn main() {
     std::env::set_var("RUST_BACKTRACE", "1");
     let _ = env_logger::builder()
         .is_test(true)
-        .filter_level(log::LevelFilter::Info)
+        .filter_level(log::LevelFilter::Trace)
         .try_init();
 
     //spawn_deadlock_checker();
 
-    let mntpoint = TempDir::new().unwrap();
-    println!("MOUNTPOINT=", mntpoint);
-    //let fs = FileDescriptorBridge::<PathBuf>::new(BaseFuse::new());
-    let fs = MirrorFs::new(PathBuf::from("/tmp/test"), DefaultFuseHandler::new());
+    let mntpoint = PathBuf::from("/mnt/fuse");
+    let fs = MirrorFs::new(PathBuf::from("/tmp"), DefaultFuseHandler::new());
     let fuse = new_serial_driver(fs);
-    let r = mount(fuse, mntpoint.path(), &[]);
+    let r = mount(fuse, mntpoint, &[]);
     print!("{:?}", r);
-    drop(mntpoint);
 }

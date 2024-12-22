@@ -40,7 +40,7 @@ impl<T: FileIdType> FuseHandler<T> for DefaultFuseHandler {
         Ok(())
     }
 
-    fn destroy(&self) { }
+    fn destroy(&self) {}
 
     fn lookup(&self, _req: RequestInfo, parent_id: T, name: &OsStr) -> FuseResult<FileAttribute> {
         let msg = format!(
