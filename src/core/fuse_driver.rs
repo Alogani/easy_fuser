@@ -5,7 +5,7 @@ use std::{
 };
 
 use libc::c_int;
-use log::{error, warn};
+use log::{info, error, warn};
 
 use fuser::{
     self, KernelConfig, ReplyAttr, ReplyBmap, ReplyCreate, ReplyData, ReplyDirectory,

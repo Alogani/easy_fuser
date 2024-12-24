@@ -4,16 +4,30 @@ use std::path::PathBuf;
 use std::thread;
 use std::time::Duration;
 
+// cargo test --package easy_fuser --test debug_mirror_fs --features "parallel deadlock_detection" -- debug_mirror_fs_mount --nocapture --ignored
+
 #[test]
 #[ignore]
 fn debug_mirror_fs_mount() {
+    std::env::set_var("RUST_BACKTRACE", "1");
+    let _ = env_logger::builder()
+        .is_test(true)
+        .filter_level(log::LevelFilter::Trace)
+        .try_init();
+
     // Set up temporary directories for mount point and source
     let mount_dir = PathBuf::from("/tmp/easy_fuser_debug_mount");
     let source_dir = PathBuf::from("/tmp/easy_fuser_debug_source");
 
     // Create directories if they don't exist
-    std::fs::create_dir_all(&mount_dir).expect("Failed to create mount directory");
-    std::fs::create_dir_all(&source_dir).expect("Failed to create source directory");
+    let _ = std::process::Command::new("fusermount")
+        .arg("-u")
+        .arg(&mount_dir)
+        .status();
+    let _ = std::fs::create_dir(&mount_dir);
+    if !source_dir.exists() {
+        let _ = std::fs::create_dir(&source_dir);
+    }
 
     println!("Mount point: {:?}", mount_dir);
     println!("Source directory: {:?}", source_dir);

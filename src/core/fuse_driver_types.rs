@@ -74,8 +74,15 @@ mod serial {
 mod parallel {
     use super::*;
 
-    use std::sync::{Arc, Mutex, MutexGuard};
+    use std::sync::Arc;
+
     use threadpool::ThreadPool;
+
+    #[cfg(feature = "deadlock_detection")]
+    use parking_lot::{Mutex, MutexGuard};
+    #[cfg(not(feature = "deadlock_detection"))]
+    use std::sync::{Mutex, MutexGuard};
+
 
     pub struct FuseDriver<T, U, R>
     where
@@ -97,6 +104,8 @@ mod parallel {
         R: FileIdResolver<FileIdType = T>,
     {
         pub fn new(handler: U, resolver: R, num_threads: usize) -> FuseDriver<T, U, R> {
+            #[cfg(feature = "deadlock_detection")]
+            spawn_deadlock_checker();
             FuseDriver {
                 handler: Arc::new(handler),
                 resolver: Arc::new(resolver),
@@ -149,6 +158,34 @@ mod async_task {
     }
 
     pub(crate) use execute_task;
+}
+
+#[cfg(feature = "deadlock_detection")]
+fn spawn_deadlock_checker() {
+    use std::thread;
+    use std::time::Duration;
+    use parking_lot::deadlock;
+    use log::{info, error};
+
+    // Create a background thread which checks for deadlocks every 10s
+    thread::spawn(move || {
+        loop {
+            thread::sleep(Duration::from_secs(10));
+            let deadlocks = deadlock::check_deadlock();
+            if deadlocks.is_empty() {
+                info!("# No deadlock");
+                continue;
+            }
+
+            eprintln!("# {} deadlocks detected", deadlocks.len());
+            for (i, threads) in deadlocks.iter().enumerate() {
+                error!("Deadlock #{}", i);
+                for t in threads {
+                    error!("Thread Id {:#?}\n, {:#?}", t.thread_id(), t.backtrace());
+                }
+            }
+        }
+    });
 }
 
 #[cfg(feature = "serial")]

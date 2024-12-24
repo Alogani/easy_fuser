@@ -8,6 +8,8 @@ default = []
 serial = []
 parallel = ["dep:threadpool"]
 async = []
+deadlock_detection = ["dep:parking_lot"]
+
 
 [dependencies]
 log = "0.4"
@@ -15,6 +17,8 @@ libc = "0.2"
 fuser = "0.15"
 bitflags = "2.6.0"
 threadpool = { version = "1.8", optional = true }
+parking_lot = { version = "0.12", features = ["deadlock_detection"], optional = true }
 
 [dev-dependencies]
 tempfile = "3.14"
+env_logger = "0.11"

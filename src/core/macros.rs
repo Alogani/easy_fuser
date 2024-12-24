@@ -1,6 +1,15 @@
 macro_rules! handle_fuse_reply_entry {
     ($handler:expr, $resolver:expr, $req:expr, $parent:expr, $name:expr, $reply:expr,
     $function:ident, ($($args:expr),*)) => {
+        macro_rules! if_lookup {
+            (lookup, $choice1:tt, $choice2:tt) => {
+                $choice1
+            };
+            ($any:tt, $choice1:tt, $choice2:tt) => {
+                $choice2
+            };
+        }
+
         let handler = $handler;
         match handler.$function($($args),*) {
             Ok(metadata) => {
@@ -15,7 +24,17 @@ macro_rules! handle_fuse_reply_entry {
                 );
             }
             Err(e) => {
-                warn!("{} {:?} - {:?}", stringify!($function), e, $req);
+                if_lookup!($function, {
+                    if e.kind() == ErrorKind::FileNotFound {
+                        // Lookup is preemptivly done in normal situations, we don't need to log an error
+                        // eg: before creating a file
+                        info!("{} {:?} - {:?}", stringify!($function), e, $req);
+                    } else {
+                        warn!("{} {:?} - {:?}", stringify!($function), e, $req);
+                    };
+                }, {
+                    warn!("{} {:?} - {:?}", stringify!($function), e, $req);
+                });
                 $reply.error(e.raw_error())
             }
         }
@@ -126,12 +145,14 @@ macro_rules! handle_dir_read {
                     }
                 },
                 // Subsequent reads: retrieve saved iterator
-                _ => match dirmap_iter.safe_borrow_mut().remove(&($ino, $offset)) {
+                _ => match {
+                    dirmap_iter.safe_borrow_mut().remove(&($ino, $offset))
+                 } {
                     Some(dirmap_iter) => dirmap_iter,
                     None => {
-                        error!("readdir called with an unknown offset");
-                        $reply.error(ErrorKind::InvalidArgument.into());
-                        return;
+                        // Case when fuse tries to read again after the final item
+                        $reply.ok();
+                        return
                     }
                 },
             };
