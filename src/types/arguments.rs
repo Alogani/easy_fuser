@@ -5,21 +5,6 @@ use fuser::{FileType, Request, TimeOrNow};
 use super::FileHandle;
 use super::LockType;
 
-#[derive(Debug, Clone, PartialEq)]
-pub struct Inode(u64);
-
-impl From<u64> for Inode {
-    fn from(value: u64) -> Self {
-        Inode(value)
-    }
-}
-
-impl From<Inode> for u64 {
-    fn from(value: Inode) -> Self {
-        value.0
-    }
-}
-
 /// Abstraction for seek whence
 #[derive(Debug, Clone, Copy)]
 pub enum Whence {

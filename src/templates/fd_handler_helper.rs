@@ -13,7 +13,7 @@ Both helpers assume that file handles represent file descriptors on the filesyst
 
 ## Implementation Details
 
-### FdHandlerHelper<T>
+### `FdHandlerHelper<T>`
 
 Implements the following `FuseHandler<T>` methods:
 
@@ -26,7 +26,7 @@ Implements the following `FuseHandler<T>` methods:
 - `lseek`: Repositions the file offset of the file descriptor.
 - `copy_file_range`: Copies a range of data from one file to another.
 
-### FdHandlerHelperReadOnly<T>
+### `FdHandlerHelperReadOnly<T>`
 
 Implements a subset of `FuseHandler<T>` methods for read-only operations:
 

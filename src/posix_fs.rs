@@ -1,16 +1,45 @@
+//! # POSIX Filesystem Operations Module
+//!
+//! This module provides a set of functions that wrap POSIX filesystem operations,
+//! making them more convenient to use within a Rust-based FUSE (Filesystem in Userspace) implementation.
+//! It offers a layer of abstraction over low-level system calls, handling conversions between
+//! Rust types and C types, as well as error handling.
+//!
+//! ## Key Features:
+//!
+//! - File type and attribute conversions between standard Rust types and FUSE-specific types.
+//! - Bridge layer between POSIX-compliant system calls and libfuse filesystem operations.
+//! - Error handling using custom `PosixError` type.
+//! - Utilities for working with file descriptors, paths, and system time.
+//!
+//! ## Usage:
+//!
+//! This module is designed to be used as part of a larger FUSE implementation.
+//! It provides the necessary tools to interact with the underlying filesystem
+//! in a POSIX-compliant manner, while presenting the data in a format suitable
+//! for FUSE operations.
+//!
+//! Note: Some operations, especially those involving symlinks, may require
+//! special handling or additional considerations.
+
 use std::path::Path;
 use std::time::{Duration, SystemTime};
 
-use std::ffi::{CString, OsStr, OsString};
+use std::ffi::{CStr, CString, OsStr, OsString};
 use std::fs;
 use std::os::unix::ffi::OsStrExt;
-use std::os::unix::fs::{self as unix_fs, *};
+use std::os::unix::fs::*;
 
 use crate::types::*;
 use libc::{c_char, c_void, timespec};
 
-/// Convert file type from fs::FileKind to the one expected by fuse_api
-/// Be careful with symlinks
+/// Converts a `std::fs::FileType` to the corresponding `FileKind` expected by fuse_api.
+///
+/// This function is made public for specific use cases.
+/// 
+/// This function maps the file types provided by the standard library to the file kinds
+/// used in the FUSE API. It handles all common file types, including regular files,
+/// directories, symlinks, block devices, character devices, named pipes, and sockets.
 pub fn convert_filetype(f: fs::FileType) -> FileKind {
     match f {
         f if f.is_file() => FileKind::RegularFile,
@@ -24,8 +53,15 @@ pub fn convert_filetype(f: fs::FileType) -> FileKind {
     }
 }
 
-/// Convert file attribute obtained from fs::Metadata to the type expected by fuser
-/// Be careful with symlink, use fs::symlink_metadata
+/// Converts `std::fs::Metadata` to `FileAttribute` expected by fuser.
+///
+/// This function is made public for specific use cases.
+///
+/// It maps standard filesystem metadata to the `FileAttribute` struct used in the FUSE API.
+/// Handles file size, timestamps, permissions, ownership, and other attributes.
+///
+/// # Important
+/// For symlinks, use `fs::symlink_metadata` instead of regular `fs::metadata`.
 pub fn convert_fileattribute(metadata: fs::Metadata) -> FileAttribute {
     FileAttribute {
         size: metadata.size(),
@@ -45,6 +81,14 @@ pub fn convert_fileattribute(metadata: fs::Metadata) -> FileAttribute {
         ttl: None,
         generation: None,
     }
+}
+
+fn get_errno() -> i32 {
+    unsafe { *libc::__errno_location() }
+}
+
+fn set_errno(errno: i32) {
+    unsafe { *libc::__errno_location() = errno };
 }
 
 fn convert_stat_struct(statbuf: libc::stat) -> Option<FileAttribute> {
@@ -113,9 +157,9 @@ fn cstring_from_path(path: &Path) -> Result<CString, PosixError> {
     })
 }
 
-/// Equivalent to the fuse function of the same name
-/// Get the metadata associated with a path
-/// custom_inode is useful if user tracks its inode instead of wanting the one of the filesystem (which might be the case with fuse)
+/// Retrieves file attributes for a given path.
+///
+/// This function is equivalent to the FUSE `lookup` operation.
 pub fn lookup(path: &Path) -> Result<FileAttribute, PosixError> {
     let c_path = cstring_from_path(path)?;
     let mut statbuf: libc::stat = unsafe { std::mem::zeroed() };
@@ -136,9 +180,13 @@ pub fn lookup(path: &Path) -> Result<FileAttribute, PosixError> {
     ))?)
 }
 
-/// Equivalent to the fuse function of the same name
-/// Get the metadata associated with a FileDescriptor
-/// custom_inode is useful if user tracks its inode instead of wanting the one of the filesystem (which might be the case with fuse)
+/// Retrieves file attributes for a given file descriptor.
+///
+/// This function is equivalent to the FUSE `getattr` operation.
+///
+/// # Note
+/// This function uses the system's file descriptor. If tracking custom inodes, 
+/// additional handling may be required.
 pub fn getattr(fd: &FileDescriptor) -> Result<FileAttribute, PosixError> {
     let mut statbuf: libc::stat = unsafe { std::mem::zeroed() };
     let result = unsafe { libc::fstat(fd.clone().into(), &mut statbuf) };
@@ -154,7 +202,10 @@ pub fn getattr(fd: &FileDescriptor) -> Result<FileAttribute, PosixError> {
     ))?)
 }
 
-/// Equivalent to the fuse function of the same name
+/// Modifies file attributes for a given path.
+///
+/// This function is equivalent to the FUSE `setattr` operation. It handles changes
+/// to file permissions, ownership, size, and timestamps using system calls.
 pub fn setattr(path: &Path, attrs: SetAttrRequest) -> Result<FileAttribute, PosixError> {
     let c_path = cstring_from_path(path)?;
 
@@ -259,7 +310,9 @@ pub fn setattr(path: &Path, attrs: SetAttrRequest) -> Result<FileAttribute, Posi
     lookup(path)
 }
 
-/// Equivalent to the fuse function of the same name
+/// Reads the target of a symbolic link.
+///
+/// This function is equivalent to the FUSE `readlink` operation.
 pub fn readlink(path: &Path) -> Result<Vec<u8>, PosixError> {
     let c_path = cstring_from_path(path)?;
     let mut buf = vec![0u8; 1024]; // Initial buffer size
@@ -275,7 +328,9 @@ pub fn readlink(path: &Path) -> Result<Vec<u8>, PosixError> {
     Ok(buf)
 }
 
-/// Equivalent to the fuse function of the same name
+/// Creates a new file node (device special file or named pipe) at the specified path.
+///
+/// This function is equivalent to the FUSE `mknod` operation and uses the system's mknod call.
 pub fn mknod(
     path: &Path,
     mode: u32,
@@ -294,7 +349,9 @@ pub fn mknod(
     lookup(path)
 }
 
-/// Equivalent to the fuse function of the same name
+/// Creates a new directory at the specified path with the given mode and umask.
+///
+/// This function is equivalent to the FUSE `mkdir` operation and uses the system's mkdir call.
 pub fn mkdir(path: &Path, mode: u32, umask: u32) -> Result<FileAttribute, PosixError> {
     let c_path = cstring_from_path(path)?;
     let final_mode = mode & !umask;
@@ -308,23 +365,59 @@ pub fn mkdir(path: &Path, mode: u32, umask: u32) -> Result<FileAttribute, PosixE
     lookup(path)
 }
 
-/// Equivalent to the fuse function of the same name
+/// Removes a file at the specified path.
+///
+/// This function is equivalent to the FUSE `unlink` operation and uses the system's unlink call.
 pub fn unlink(path: &Path) -> Result<(), PosixError> {
-    Ok(fs::remove_file(path)?)
+    let c_path = cstring_from_path(path)?;
+    let result = unsafe { libc::unlink(c_path.as_ptr()) };
+    if result == -1 {
+        return Err(PosixError::last_error(format!(
+            "{}: unlink failed",
+            path.display()
+        )));
+    }
+    Ok(())
 }
 
-/// Equivalent to the fuse function of the same name
+/// Removes an empty directory at the specified path.
+///
+/// This function is equivalent to the FUSE `rmdir` operation and uses the system's rmdir call.
 pub fn rmdir(path: &Path) -> Result<(), PosixError> {
-    Ok(fs::remove_dir(path)?)
+    let c_path = cstring_from_path(path)?;
+    let result = unsafe { libc::rmdir(c_path.as_ptr()) };
+    if result == -1 {
+        return Err(PosixError::last_error(format!(
+            "{}: rmdir failed",
+            path.display()
+        )));
+    }
+    Ok(())
 }
 
-/// Equivalent to the fuse function of the same name
+/// Creates a symbolic link at the specified path, pointing to the given target.
+///
+/// This function is equivalent to the FUSE `symlink` operation and uses the system's symlink call.
 pub fn symlink(path: &Path, target: &Path) -> Result<FileAttribute, PosixError> {
-    unix_fs::symlink(target, path)?;
+    let c_path = cstring_from_path(path)?;
+    let c_target = cstring_from_path(target)?;
+    
+    let result = unsafe { libc::symlink(c_target.as_ptr(), c_path.as_ptr()) };
+    if result == -1 {
+        return Err(PosixError::last_error(format!(
+            "{}: symlink failed (target: {})",
+            path.display(),
+            target.display()
+        )));
+    }
+    
     lookup(path)
 }
 
-/// Equivalent to the fuse function of the same name
+/// Renames a file or directory from the old path to the new path.
+///
+/// This function is equivalent to the FUSE `rename` operation and uses the system's renameat2 call.
+/// It allows for specifying additional flags to control the rename operation.
 pub fn rename(oldpath: &Path, newpath: &Path, flags: RenameFlags) -> Result<(), PosixError> {
     let old_cstr = cstring_from_path(oldpath)?;
     let new_cstr = cstring_from_path(newpath)?;
@@ -347,8 +440,10 @@ pub fn rename(oldpath: &Path, newpath: &Path, flags: RenameFlags) -> Result<(), 
     )))
 }
 
-/// Equivalent to the fuse function of the same name
-/// Return a file descriptor (fuse doesn't assume it necessarly equivalent to its file handle)
+/// Opens a file at the specified path with given flags.
+///
+/// This function is equivalent to the FUSE `open` operation. It returns a file descriptor
+/// which may not necessarily be equivalent to the FUSE file handle.
 pub fn open(path: &Path, flags: OpenFlags) -> Result<FileDescriptorGuard, PosixError> {
     let c_path = cstring_from_path(path)?;
     let fd = unsafe { libc::open(c_path.as_ptr(), flags.bits()) };
@@ -361,7 +456,9 @@ pub fn open(path: &Path, flags: OpenFlags) -> Result<FileDescriptorGuard, PosixE
     Ok(FileDescriptorGuard::new(fd.into()))
 }
 
-/// Equivalent to the fuse function of the same name
+/// Reads data from a file descriptor at a specified offset.
+///
+/// This function is equivalent to the FUSE `read` operation.
 pub fn read(fd: &FileDescriptor, offset: i64, size: u32) -> Result<Vec<u8>, PosixError> {
     let mut buffer = vec![0; size as usize];
     let bytes_read = unsafe {
@@ -379,7 +476,9 @@ pub fn read(fd: &FileDescriptor, offset: i64, size: u32) -> Result<Vec<u8>, Posi
     Ok(buffer)
 }
 
-/// Equivalent to the fuse function of the same name
+/// Writes data to a file descriptor at a specified offset.
+///
+/// This function is equivalent to the FUSE `write` operation.
 pub fn write(fd: &FileDescriptor, offset: i64, data: &[u8]) -> Result<u32, PosixError> {
     let bytes_to_write = data.len() as usize;
 
@@ -398,7 +497,9 @@ pub fn write(fd: &FileDescriptor, offset: i64, data: &[u8]) -> Result<u32, Posix
     Ok(bytes_written as u32)
 }
 
-/// Equivalent to the fuse function of the same name
+/// Flushes any buffered data to the file system for the given file descriptor.
+///
+/// This function is equivalent to the FUSE `flush` operation and uses the system's fdatasync call.
 pub fn flush(fd: &FileDescriptor) -> Result<(), PosixError> {
     let result = unsafe { libc::fdatasync(fd.clone().into()) };
     if result == -1 {
@@ -408,7 +509,13 @@ pub fn flush(fd: &FileDescriptor) -> Result<(), PosixError> {
     Ok(())
 }
 
-/// Equivalent to the fuse function of the same name
+/// Synchronizes a file's in-core state with storage device.
+///
+/// This function is equivalent to the FUSE `fsync` operation. It uses either `fdatasync` or `fsync`
+/// system call depending on the `datasync` parameter.
+///
+/// - If `datasync` is true, it calls `fdatasync`, which synchronizes only the file's data.
+/// - If `datasync` is false, it calls `fsync`, which synchronizes both the file's data and metadata.
 pub fn fsync(fd: &FileDescriptor, datasync: bool) -> Result<(), PosixError> {
     let fd = fd.clone().into();
     let result = unsafe {
@@ -426,20 +533,74 @@ pub fn fsync(fd: &FileDescriptor, datasync: bool) -> Result<(), PosixError> {
     Ok(())
 }
 
-/// Equivalent to the fuse function of the same name
+/// Reads the contents of a directory.
+///
+/// This function is equivalent to the FUSE `readdir` operation. It returns a vector of tuples,
+/// each containing the filename as an OsString and the file type as a FileKind.
 pub fn readdir(path: &Path) -> Result<Vec<(OsString, FileKind)>, PosixError> {
-    let entries = fs::read_dir(path)?;
-    let mut result = Vec::new();
-    for entry in entries {
-        let entry = entry?;
-        result.push((entry.file_name(), convert_filetype(entry.file_type()?)))
+    let c_path = cstring_from_path(path)?;
+    let dir = unsafe { libc::opendir(c_path.as_ptr()) };
+    if dir.is_null() {
+        return Err(PosixError::last_error(format!(
+            "{}: opendir failed",
+            path.display()
+        )));
     }
+
+    let mut result = Vec::new();
+    loop {
+        set_errno(0);
+        let entry = unsafe { libc::readdir(dir) };
+        if entry.is_null() {
+            if get_errno() != 0 {
+                unsafe { libc::closedir(dir) };
+                return Err(PosixError::last_error(format!(
+                    "{}: readdir failed",
+                    path.display()
+                )));
+            }
+            break;
+        }
+
+        let entry = unsafe { &*entry };
+        let name = unsafe { CStr::from_ptr(entry.d_name.as_ptr()) };
+        let name = OsStr::from_bytes(name.to_bytes()).to_owned();
+
+        if name == OsStr::new(".") || name == OsStr::new("..") {
+            continue;
+        }
+
+        let mut statbuf: libc::stat = unsafe { std::mem::zeroed() };
+        let full_path = path.join(&name);
+        let c_full_path = cstring_from_path(&full_path)?;
+        let stat_result = unsafe { libc::lstat(c_full_path.as_ptr(), &mut statbuf) };
+        if stat_result == -1 {
+            unsafe { libc::closedir(dir) };
+            return Err(PosixError::last_error(format!(
+                "{}: lstat failed",
+                full_path.display()
+            )));
+        }
+
+        if let Some(attr) = convert_stat_struct(statbuf) {
+            result.push((name, attr.kind));
+        }
+    }
+
+    unsafe { libc::closedir(dir) };
     Ok(result)
 }
 
-/// Equivalent to the fuse function of the same name
-/// Integrated automatically into fuse_api (so file_handle as fd transmitted to it doesn't need to be released)
-/// Useless to call for FileDescriptorGuard
+/// Releases a file descriptor, closing the associated file.
+///
+/// This function is equivalent to the FUSE `release` operation. It closes the file descriptor
+/// using the system's close call.
+///
+/// Note:
+/// - This function is integrated automatically into the FUSE API, so the file handle (as fd)
+///   transmitted to it doesn't need to be released manually.
+/// - It's unnecessary to call this function for `FileDescriptorGuard` instances, as they
+///   automatically handle release on drop.
 pub fn release(fd: FileDescriptor) -> Result<(), PosixError> {
     // Attempt to close the file descriptor.
     let result = unsafe { libc::close(fd.clone().into()) };
@@ -451,7 +612,9 @@ pub fn release(fd: FileDescriptor) -> Result<(), PosixError> {
     Ok(())
 }
 
-/// Equivalent to the fuse function of the same name
+/// Retrieves file system statistics for the specified path.
+///
+/// This function is equivalent to the FUSE `statfs` operation.
 pub fn statfs(path: &Path) -> Result<StatFs, PosixError> {
     let c_path = cstring_from_path(path)?;
     let mut stat: libc::statvfs64 = unsafe { std::mem::zeroed() };
@@ -477,7 +640,21 @@ pub fn statfs(path: &Path) -> Result<StatFs, PosixError> {
     })
 }
 
-/// Equivalent to the fuse function of the same name
+/// Sets an extended attribute for a file or directory.
+///
+/// This function is equivalent to the FUSE `setxattr` operation. It allows setting
+/// extended attributes (key-value metadata) on files or directories.
+///
+/// # Arguments
+/// * `path` - A reference to the `Path` of the file or directory.
+/// * `name` - The name of the extended attribute as an `OsStr`.
+/// * `value` - The value of the extended attribute as a byte slice.
+/// * `position` - The position at which to set the value (usually 0 for the entire attribute).
+///
+/// # Notes
+/// - Extended attributes are additional metadata that can be associated with files or directories.
+/// - The behavior may vary depending on the underlying filesystem support for extended attributes.
+/// - Some filesystems may have limitations on attribute names or value sizes.
 pub fn setxattr(path: &Path, name: &OsStr, value: &[u8], position: u32) -> Result<(), PosixError> {
     let c_path = cstring_from_path(path)?;
     let c_name = CString::new(name.as_bytes()).map_err(|_| {
@@ -520,7 +697,23 @@ pub fn setxattr(path: &Path, name: &OsStr, value: &[u8], position: u32) -> Resul
     Ok(())
 }
 
-/// Equivalent to the fuse function of the same name
+/// Equivalent to the fuse function of the same name/// Retrieves an extended attribute for a file or directory.
+///
+/// This function is equivalent to the FUSE `getxattr` operation. It allows retrieving
+/// extended attributes (key-value metadata) from files or directories.
+///
+/// # Arguments
+/// * `path` - A reference to the `Path` of the file or directory.
+/// * `name` - The name of the extended attribute as an `OsStr`.
+/// * `size` - The size of the buffer to store the attribute value.
+///
+/// # Returns
+/// * `Result<Vec<u8>>` containing the value of the extended attribute if successful.
+///
+/// # Notes
+/// - Extended attributes are additional metadata associated with files or directories.
+/// - The behavior may vary depending on the underlying filesystem support for extended attributes.
+/// - If the provided buffer size is too small, the function may return an error.
 pub fn getxattr(path: &Path, name: &OsStr, size: u32) -> Result<Vec<u8>, PosixError> {
     let c_path = cstring_from_path(path)?;
     let c_name = CString::new(name.as_bytes()).map_err(|_| {
@@ -556,7 +749,23 @@ pub fn getxattr(path: &Path, name: &OsStr, size: u32) -> Result<Vec<u8>, PosixEr
     Ok(buf)
 }
 
-/// Equivalent to the fuse function of the same name
+/// Lists extended attributes for a file or directory.
+///
+/// This function is equivalent to the FUSE `listxattr` operation. It retrieves a list of
+/// extended attribute names associated with the specified file or directory.
+///
+/// # Arguments
+/// * `path` - A reference to the `Path` of the file or directory.
+/// * `size` - The size of the buffer to store the attribute names.
+///
+/// # Returns
+/// * `Result<Vec<u8>>` containing the list of extended attribute names if successful.
+///
+/// # Notes
+/// - The returned vector contains null-terminated strings concatenated together.
+/// - If the provided buffer size is too small, the function may return an error.
+/// - Some filesystems may not support extended attributes, in which case this function
+///   may return an empty list or an error.
 pub fn listxattr(path: &Path, size: u32) -> Result<Vec<u8>, PosixError> {
     let c_path = cstring_from_path(path)?;
     let mut buf = vec![0u8; size as usize];
@@ -573,7 +782,12 @@ pub fn listxattr(path: &Path, size: u32) -> Result<Vec<u8>, PosixError> {
     Ok(buf)
 }
 
-/// Equivalent to the fuse function of the same name
+/// Checks file accessibility based on the process's real user and group IDs.
+///
+/// This function is equivalent to the FUSE `access` operation.
+///
+/// It verifies whether the calling process can access the file specified by the path
+/// according to the given access mask.
 pub fn access(path: &Path, mask: AccessMask) -> Result<(), PosixError> {
     let c_path = cstring_from_path(path)?;
     let ret = unsafe { libc::access(c_path.as_ptr(), mask.bits()) };
@@ -587,9 +801,13 @@ pub fn access(path: &Path, mask: AccessMask) -> Result<(), PosixError> {
     Ok(())
 }
 
-/// Equivalent to the fuse function of the same name
-/// The doc of `open` apply
-/// Return a file handle with write flag. Return an error if file already exists
+/// Creates and opens a new file with specified permissions and flags.
+///
+/// This function is equivalent to the FUSE `create` operation.
+///
+/// It creates a new file if it doesn't exist, opens it with write access. It returns a file descriptor
+/// which may not necessarily be equivalent to the FUSE file handle, along with its attributes.
+/// An error is returned if the file already exists.
 pub fn create(
     path: &Path,
     mode: u32,
@@ -619,7 +837,13 @@ pub fn create(
     Ok((FileDescriptorGuard::new(fd.into()), lookup(path)?))
 }
 
-/// Equivalent to the fuse function of the same name
+/// Manipulates the allocated disk space for a file.
+///
+/// This function is equivalent to the FUSE `fallocate` operation.
+///
+/// It allows pre-allocation or deallocation of disk space for the file
+/// referenced by the given file descriptor, starting at the specified offset
+/// and extending for the given length.
 pub fn fallocate(
     fd: &FileDescriptor,
     offset: i64,
@@ -636,7 +860,12 @@ pub fn fallocate(
     Ok(())
 }
 
-/// Equivalent to the fuse function of the same name
+/// Repositions the file offset of the open file descriptor.
+///
+/// This function is equivalent to the FUSE `lseek` operation.
+///
+/// It changes the file offset for the given file descriptor, based on the provided
+/// offset and whence values. The new position is returned as a 64-bit integer.
 pub fn lseek(fd: &FileDescriptor, offset: i64, whence: Whence) -> Result<i64, PosixError> {
     let result = unsafe { libc::lseek(fd.clone().into(), offset, whence.into()) };
     if result == -1 {
@@ -648,7 +877,13 @@ pub fn lseek(fd: &FileDescriptor, offset: i64, whence: Whence) -> Result<i64, Po
     Ok(result)
 }
 
-/// Equivalent to the fuse function of the same name
+/// Copies a range of data from one file to another.
+///
+/// This function is equivalent to the FUSE `copy_file_range` operation.
+///
+/// It copies `len` bytes from the file descriptor `fd_in` starting at offset `offset_in`
+/// to the file descriptor `fd_out` starting at offset `offset_out`. The function returns
+/// the number of bytes actually copied, which may be less than requested.
 pub fn copy_file_range(
     fd_in: &FileDescriptor,
     offset_in: i64,
@@ -674,6 +909,27 @@ pub fn copy_file_range(
 
 #[cfg(test)]
 mod tests {
+    /*
+    Some suggestions for additional tests:
+
+    1. Test accessibility with different file permissions and user/group IDs.
+    2. Test copy_file_range by copying data between two files.
+    3. Test create by creating a new file with specific permissions and flags.
+    4. Test fallocate by allocating space for a file and verifying the allocation.
+    5. Test flush and fsync by writing data and ensuring it's persisted to disk.
+    6. Test getxattr, listxattr, and setxattr by working with extended attributes.
+    7. Test mknod by creating special files (e.g., named pipes).
+    8. Test release by opening and then releasing file descriptors.
+    9. Test setattr by modifying file attributes and verifying the changes.
+
+
+    Additionally, we could consider:
+
+    1. Testing edge cases and error conditions for existing tests.
+    2. Adding more comprehensive tests for functions that are only indirectly tested (e.g., lseek).
+    3. Testing functions with various input parameters to ensure they handle different scenarios correctly.
+    */
+
     use tempfile::{NamedTempFile, TempDir};
 
     use super::*;

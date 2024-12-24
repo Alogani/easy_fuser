@@ -5,14 +5,41 @@ use std::{
 
 use fuser::FileType as FileKind;
 
-use super::arguments::*;
 use crate::core::GetConverter;
 
-/// FileIdType can have two values:
-/// - Inode: in which case the user shall provide its own unique inode (at least a valid one)
-/// - PathBuf: in which the inode to path mapping will be done and cached automatically
+use super::arguments::FileAttribute;
+use super::inode::*;
+
+
+/// Represents the type used to identify files in the file system.
+///
+/// This trait allows for two different approaches to file identification:
+///
+/// 1. Inode-based: The user provides their own unique inode numbers.
+///    - Pros: Direct control over inode assignment.
+///    - Cons: Requires manual management of inode uniqueness.
+///
+/// 2. PathBuf-based: Uses file paths for identification.
+///    - Pros: Automatic inode-to-path mapping and caching.
+///    - Cons: May have performance overhead for large file systems.
+///
 pub trait FileIdType: GetConverter + Send + Sync + Debug + Clone + 'static {
+    /// Full metadata type for the file system.
+    /// 
+    /// For Inode-based: (Inode, FileAttribute)
+    /// - User must provide both Inode and FileAttribute.
+    /// 
+    /// For PathBuf-based: FileAttribute
+    /// - User only needs to provide FileAttribute; Inode is managed internally.
     type Metadata: MetadataExt<FileIdType = Self>;
+
+    /// Minimal metadata type for the file system.
+    /// 
+    /// For Inode-based: (Inode, FileKind)
+    /// - User must provide both Inode and FileKind.
+    /// 
+    /// For PathBuf-based: FileKind
+    /// - User only needs to provide FileKind; Inode is managed internally.
     type MinimalMetadata: MinimalMetadataExt<FileIdType = Self>;
     type _Id;
 

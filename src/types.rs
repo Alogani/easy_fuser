@@ -1,11 +1,13 @@
-mod arguments;
-mod errors;
-mod file_descriptor;
+pub mod arguments;
+pub mod errors;
+pub mod flags;
+pub mod file_descriptor;
+mod inode;
 mod file_id_type;
-mod flags;
+
 mod thread_mode;
 
-pub use self::{arguments::*, errors::*, file_descriptor::*, file_id_type::FileIdType, flags::*};
+pub use self::{arguments::*, errors::*, file_descriptor::*, file_id_type::FileIdType, inode::*, flags::*};
 
 pub use fuser::{FileType as FileKind, KernelConfig, TimeOrNow};
 
@@ -18,7 +20,7 @@ pub mod private {
     use super::*;
     use fuser::FileAttr as FuseFileAttr;
 
-    /// FuseFileAttr, Option<ttl>, Option<generation>
+    /// `FuseFileAttr`, `Option<ttl>`, `Option<generation>`
     pub type FuseMetaData = (FuseFileAttr, Option<Duration>, Option<u64>);
 
     impl FileAttribute {
