@@ -75,9 +75,9 @@ impl FileIdResolver for InodeResolver {
     // Do nothing, user should provide its own inode
     fn add_children(
         &self,
-        parent: u64,
+        _parent: u64,
         children: Vec<(OsString, Inode)>,
-        increment: bool,
+        _increment: bool,
     ) -> Vec<(OsString, u64)> {
         children
             .into_iter()

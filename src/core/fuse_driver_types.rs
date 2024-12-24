@@ -13,9 +13,6 @@ type DirIter<T> = HashMap<(u64, i64), VecDeque<(OsString, u64, T)>>;
 
 #[cfg(feature = "serial")]
 mod serial {
-    #[cfg(any(feature = "parallel", feature = "async"))]
-    compile_error!("Feature 'serial' cannot be used with feature parallel or async");
-
     use super::*;
 
     use std::cell::RefCell;
@@ -38,7 +35,7 @@ mod serial {
         U: FuseHandler<T>,
         R: FileIdResolver<FileIdType = T>,
     {
-        pub fn new(handler: U, resolver: R) -> FuseDriver<T, U, R> {
+        pub fn new(handler: U, resolver: R, _num_threads: usize) -> FuseDriver<T, U, R> {
             FuseDriver {
                 handler,
                 resolver,
@@ -75,8 +72,6 @@ mod serial {
 
 #[cfg(feature = "parallel")]
 mod parallel {
-    #[cfg(any(feature = "serial", feature = "async"))]
-    compile_error!("Feature 'parallel' cannot be used with feature serial or async");
     use super::*;
 
     use std::sync::{Arc, Mutex, MutexGuard};
@@ -101,13 +96,13 @@ mod parallel {
         U: FuseHandler<T>,
         R: FileIdResolver<FileIdType = T>,
     {
-        pub fn new(handler: U, resolver: R, num_workers: usize) -> FuseDriver<T, U, R> {
+        pub fn new(handler: U, resolver: R, num_threads: usize) -> FuseDriver<T, U, R> {
             FuseDriver {
                 handler: Arc::new(handler),
                 resolver: Arc::new(resolver),
                 dirmap_iter: Arc::new(Mutex::new(HashMap::new())),
                 dirmapplus_iter: Arc::new(Mutex::new(HashMap::new())),
-                threadpool: ThreadPool::new(num_workers),
+                threadpool: ThreadPool::new(num_threads),
             }
         }
 
@@ -139,8 +134,6 @@ mod parallel {
 
 #[cfg(feature = "async")]
 mod async_task {
-    #[cfg(any(feature = "serial", feature = "async"))]
-    compile_error!("Feature 'async' cannot be used with feature serial or parallel");
     use super::*;
 
     use std::sync::Arc;

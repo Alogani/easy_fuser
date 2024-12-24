@@ -1,11 +1,52 @@
 use crate::posix_fs;
 use crate::prelude::*;
 
-/// Implement all functions that rely on file handle to be done by assuming a file handle represents a file descriptor on the filesystem.
-///
-/// This consideration should be taken into account when deriving this trait in the implementation of the following functions:
-/// - `open`
-/// - `create`
+/**
+# FdHandlerHelper
+
+A helper implementation for a FUSE (Filesystem in Userspace) handler that manages file operations using file descriptors.
+
+## Overview
+
+The `FdHandlerHelper<T>` implements the `FuseHandler<T>` trait, providing implementations for file operations that rely on file handles. It assumes that file handles represent file descriptors on the filesystem.
+
+## Implementation Details
+
+This helper implements the following `FuseHandler<T>` methods:
+
+- `read`: Reads data from a file using the file descriptor.
+- `write`: Writes data to a file using the file descriptor.
+- `flush`: Flushes the file associated with the file descriptor.
+- `release`: Releases (closes) the file descriptor.
+- `fsync`: Synchronizes the file's in-core state with storage device.
+- `fallocate`: Manipulates the allocated disk space for the file.
+- `lseek`: Repositions the file offset of the file descriptor.
+- `copy_file_range`: Copies a range of data from one file to another.
+
+## Usage
+
+To use this helper:
+
+1. Create an instance of `FdHandlerHelper<T>` by passing an inner `FuseHandler<T>` implementation.
+2. Use it as the primary `FuseHandler<T>` in your FUSE filesystem implementation.
+
+## Important Considerations
+
+When implementing the `open` and `create` methods in your filesystem:
+
+- Ensure that the returned file handle can be converted to a valid file descriptor.
+- The file handle should represent an open file descriptor on the underlying filesystem.
+
+## Example
+
+```text
+let inner_handler = YourInnerHandler::new();
+let fd_handler = FdHandlerHelper::new(inner_handler);
+// Use fd_handler as your primary FuseHandler
+```
+## Note
+This helper provides a convenient way to implement file operations using POSIX-like file descriptors. It's particularly useful for filesystems that interact with an underlying local filesystem.
+*/
 
 pub struct FdHandlerHelper<T: FileIdType> {
     inner: Box<dyn FuseHandler<T>>,

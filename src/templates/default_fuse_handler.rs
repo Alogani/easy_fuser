@@ -8,15 +8,43 @@ use fuser::KernelConfig;
 
 use crate::prelude::*;
 
-/// Default skeleton, see templates to have ready to use fuse filesystem
-///
-/// The following functions are nevertheless implemented with a default response, so that implementing them is not needed
-/// - `init` -> returns just an Ok response
-/// - `opendir` -> returns a FileHandle with value 0
-/// - `releasedir` -> returns just an Ok response
-/// - `fsyncdir` -> returns just an Ok response
-/// - `statsfs` -> return the value of StatFs::default
+/**
+# DefaultFuseHandler
 
+A default skeleton implementation for a FUSE (Filesystem in Userspace) handler. This struct provides a basic framework for implementing a custom filesystem.
+
+## Overview
+
+The `DefaultFuseHandler` implements the `FuseHandler` trait, providing default implementations for all FUSE operations. Most of these default implementations will return a "Not Implemented" error or panic, depending on the configuration.
+
+## Default Implementations
+
+The following functions are implemented with default responses, so they don't need to be explicitly implemented in derived handlers:
+
+- `init`: Returns `Ok(())`.
+- `opendir`: Returns a `FileHandle` with value 0 and empty `FUSEOpenResponseFlags`.
+- `releasedir`: Returns `Ok(())`.
+- `fsyncdir`: Returns `Ok(())`.
+- `statfs`: Returns `StatFs::default()`.
+
+## Usage
+
+To use this handler, either:
+
+1. Compose it with a more specific implementation, such as `MirrorFs`, which can use `DefaultFuseHandler` as its inner handler.
+2. Use it as a reference for implementing your own `FuseHandler`.
+
+## Configuration
+
+The `DefaultFuseHandler` can be configured to either return errors or panic when unimplemented methods are called:
+
+- `DefaultFuseHandler::new()`: Creates a handler that returns "Not Implemented" errors.
+- `DefaultFuseHandler::new_with_panic()`: Creates a handler that panics on unimplemented methods.
+
+## Note
+
+This is a basic skeleton. For more complete implementations, refer to the templates provided in the library.
+*/
 pub struct DefaultFuseHandler {
     panic: bool,
 }

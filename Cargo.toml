@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [features]
-default = ["parallel"] # TODO: remove
+default = []
 serial = []
 parallel = ["dep:threadpool"]
 async = []

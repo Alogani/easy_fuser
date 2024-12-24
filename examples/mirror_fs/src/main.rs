@@ -45,7 +45,7 @@ fn main() {
 
     let mntpoint = PathBuf::from("/mnt/fuse");
     let fs = MirrorFs::new(PathBuf::from("/tmp"), DefaultFuseHandler::new());
-    let fuse = new_serial_driver(fs);
-    let r = mount(fuse, mntpoint, &[]);
-    print!("{:?}", r);
+    let fuse = new_driver(fs);
+    let result = mount(fuse, mntpoint, &[]);
+    print!("{:?}", result);
 }

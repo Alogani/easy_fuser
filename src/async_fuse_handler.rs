@@ -1,1 +1,0 @@
-// wraper::fuse_async should be implemented first

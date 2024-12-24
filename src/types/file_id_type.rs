@@ -1,16 +1,17 @@
 use std::{
-    fmt::Display,
+    fmt::{Debug, Display},
     path::{Path, PathBuf},
 };
 
 use fuser::FileType as FileKind;
 
 use super::arguments::*;
+use crate::core::GetConverter;
 
 /// FileIdType can have two values:
 /// - Inode: in which case the user shall provide its own unique inode (at least a valid one)
 /// - PathBuf: in which the inode to path mapping will be done and cached automatically
-pub trait FileIdType: Send + std::fmt::Debug + Clone + 'static {
+pub trait FileIdType: GetConverter + Send + Debug + Clone + 'static {
     type Metadata: MetadataExt<FileIdType = Self>;
     type MinimalMetadata: MinimalMetadataExt<FileIdType = Self>;
     type _Id;
@@ -83,7 +84,7 @@ impl MinimalMetadataExt for FileKind {
 }
 
 /// Usage:
-/// ```
+/// ```text
 /// fn test<T: FileIdType>(metadata: T::Metadata) -> FileAttribute
 /// {
 ///     let (_a, b) = unpack_metadata::<T>(metadata);
