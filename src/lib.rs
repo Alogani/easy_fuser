@@ -52,17 +52,17 @@
 //! use std::path::{Path, PathBuf};
 //!
 //! struct MyFS {
-//!     inner: DefaultFuseHandler,
+//!     inner: Box<DefaultFuseHandler>,
 //! }
 //!
 //! impl FuseHandler<PathBuf> for MyFS {
 //!     fn get_inner(&self) -> &dyn FuseHandler<PathBuf> {
-//!         &self.inner
+//!         self.inner.as_ref()
 //!     }
 //! }
 //!
 //! fn main() -> std::io::Result<()> {
-//!     let fs = MyFS { inner: DefaultFuseHandler::new() };
+//!     let fs = MyFS { inner: Box::new(DefaultFuseHandler::new()) };
 //!     easy_fuser::mount(fs, Path::new("/mnt/myfs"), &[], 1)
 //! }
 //! ```

@@ -63,8 +63,6 @@ let read_only_handler = FdHandlerHelperReadOnly::new(inner_handler); // or Defau
 ```
 */
 
-use std::marker::PhantomData;
-
 use crate::posix_fs;
 use crate::prelude::*;
 
@@ -203,31 +201,23 @@ macro_rules! fd_handler_readwrite_methods {
 }
 
 /// Specific documentation is located in parent module documentation.
-pub struct FdHandlerHelper<T: FileIdType, U: FuseHandler<T>> {
-    phantom: PhantomData<T>,
-    inner: U,
+pub struct FdHandlerHelper<T: FileIdType> {
+    inner: Box<dyn FuseHandler<T>>,
 }
 
-impl<T, U> FdHandlerHelper<T, U>
-where
-    T: FileIdType,
-    U: FuseHandler<T>,
+impl<T: FileIdType> FdHandlerHelper<T>
 {
-    pub fn new(inner: U) -> Self {
+    pub fn new<U: FuseHandler<T>>(inner: U) -> Self {
         Self {
-            phantom: PhantomData,
-            inner: inner,
+            inner: Box::new(inner),
         }
     }
 }
 
-impl<T, U> FuseHandler<T> for FdHandlerHelper<T, U>
-where 
-    T: FileIdType,
-    U: FuseHandler<T>,
+impl<T: FileIdType> FuseHandler<T> for FdHandlerHelper<T>
 {
     fn get_inner(&self) -> &dyn FuseHandler<T> {
-        &self.inner
+        self.inner.as_ref()
     }
 
     fd_handler_readonly_methods!();
@@ -235,31 +225,23 @@ where
 }
 
 /// Specific documentation is located in parent module documentation.
-pub struct FdHandlerHelperReadOnly<T: FileIdType, U: FuseHandler<T>> {
-    phantom: PhantomData<T>,
-    inner: U,
+pub struct FdHandlerHelperReadOnly<T: FileIdType> {
+    inner: Box<dyn FuseHandler<T>>,
 }
 
-impl<T, U> FdHandlerHelperReadOnly<T, U>
-where
-    T: FileIdType,
-    U: FuseHandler<T>,
+impl<T: FileIdType> FdHandlerHelperReadOnly<T>
 {
-    pub fn new(inner: U) -> Self {
+    pub fn new<U: FuseHandler<T>>(inner: U) -> Self {
         Self {
-            phantom: PhantomData,
-            inner: inner,
+            inner: Box::new(inner),
         }
     }
 }
 
-impl<T, U> FuseHandler<T> for FdHandlerHelperReadOnly<T, U>
-where 
-    T: FileIdType,
-    U: FuseHandler<T>,
+impl<T: FileIdType> FuseHandler<T> for FdHandlerHelperReadOnly<T>
 {
     fn get_inner(&self) -> &dyn FuseHandler<T> {
-        &self.inner
+        self.inner.as_ref()
     }
 
     fd_handler_readonly_methods!();

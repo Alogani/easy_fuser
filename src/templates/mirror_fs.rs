@@ -267,23 +267,23 @@ macro_rules! mirror_fs_readwrite_methods {
 }
 
 /// Specific documentation is located in parent module documentation.
-pub struct MirrorFs<U: FuseHandler<PathBuf>> {
+pub struct MirrorFs {
     source_path: PathBuf,
-    inner: FdHandlerHelper<PathBuf, U>,
+    inner: Box<FdHandlerHelper<PathBuf>>,
 }
 
-impl<U: FuseHandler<PathBuf>> MirrorFs<U> {
-    pub fn new(source_path: PathBuf, inner: U) -> Self {
+impl MirrorFs {
+    pub fn new<U: FuseHandler<PathBuf>>(source_path: PathBuf, inner: U) -> Self {
         Self {
             source_path,
-            inner: FdHandlerHelper::new(inner),
+            inner: Box::new(FdHandlerHelper::new(inner)),
         }
     }
 }
 
-impl<U: FuseHandler<PathBuf>> FuseHandler<PathBuf> for MirrorFs<U> {
+impl FuseHandler<PathBuf> for MirrorFs {
     fn get_inner(&self) -> &dyn FuseHandler<PathBuf> {
-        &self.inner
+        self.inner.as_ref()
     }
 
     mirror_fs_readonly_methods!();
@@ -291,23 +291,23 @@ impl<U: FuseHandler<PathBuf>> FuseHandler<PathBuf> for MirrorFs<U> {
 }
 
 /// Specific documentation is located in parent module documentation.
-pub struct MirrorFsReadOnly<U: FuseHandler<PathBuf>> {
+pub struct MirrorFsReadOnly {
     source_path: PathBuf,
-    inner: FdHandlerHelper<PathBuf, U>,
+    inner: Box<FdHandlerHelper<PathBuf>>,
 }
 
-impl<U: FuseHandler<PathBuf>> MirrorFsReadOnly<U> {
-    pub fn new(source_path: PathBuf, inner: U) -> Self {
+impl MirrorFsReadOnly {
+    pub fn new<U: FuseHandler<PathBuf>>(source_path: PathBuf, inner: U) -> Self {
         Self {
             source_path,
-            inner: FdHandlerHelper::new(inner),
+            inner: Box::new(FdHandlerHelper::new(inner)),
         }
     }
 }
 
-impl<U: FuseHandler<PathBuf>> FuseHandler<PathBuf> for MirrorFsReadOnly<U> {
+impl FuseHandler<PathBuf> for MirrorFsReadOnly {
     fn get_inner(&self) -> &dyn FuseHandler<PathBuf> {
-        &self.inner
+        self.inner.as_ref()
     }
 
     mirror_fs_readonly_methods!();
