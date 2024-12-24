@@ -1,3 +1,38 @@
+/**
+```text
+use easy_fuser::templates::MirrorFs;
+use easy_fuser::prelude::*;
+
+struct MyCustomFs {
+    inner: Box<dyn FuseHandler<PathBuf>>,
+    // other fields...
+}
+
+impl MyCustomFs {
+    pub fn new(source_path: &Path) -> Self {
+        MyCustomFs { inner: MirrorFsReadOnly::new(source_path) }
+    }
+}
+
+impl FuseHandler<PathBuf> for MyCustomFs {
+    fn get_inner(&self) -> &Box<(dyn FuseHandler<PathBuf>)> {
+        // Delegate to MirrorFsReadOnly for standard behavior (functions that you will not overwrite)
+        &self.inner
+    }
+
+    fn lookup(&self, req: &RequestInfo, parent_id: PathBuf, name: &OsStr) -> FuseResult<FileAttribute> {
+        // Overwrite this method to customize the behavior of lookup operations
+        // Custom logic here...
+        // Finaly delegate to MirrorFs for standard behavior
+        self.inner.lookup(req, parent_id, name)
+    }
+
+    // Implement other FuseHandler methods, delegating to self.mirror_fs as needed
+    // ...
+}
+```
+*/
+
 use std::ffi::{OsStr, OsString};
 use std::path::Path;
 use std::time::Duration;
@@ -10,7 +45,7 @@ use crate::types::*;
 
 pub trait FuseHandler<T: FileIdType>: 'static + Send + Sync {
     /// Delegate unprovided methods to another FuseHandler, mimicking inheritance
-    fn get_inner(&self) -> &Box<dyn FuseHandler<T>>;
+    fn get_inner(&self) -> &dyn FuseHandler<T>;
 
     /// Provide a default TTL if not directly in response T::Metadatas
     fn get_default_ttl(&self) -> Duration {

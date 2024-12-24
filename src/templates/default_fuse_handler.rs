@@ -50,17 +50,25 @@ pub struct DefaultFuseHandler {
 }
 
 impl DefaultFuseHandler {
+    /// Creates a new `DefaultFuseHandler` that returns "Not Implemented" errors for each unimplemented FUSE call.
+    ///
+    /// This is useful for gradually implementing FUSE operations, as it allows the filesystem to
+    /// function (albeit with limited capabilities) even when not all operations are implemented.
     pub fn new() -> Self {
         DefaultFuseHandler { panic: false }
     }
 
+    /// Creates a new `DefaultFuseHandler` that panics for each unimplemented FUSE call.
+    ///
+    /// This is useful for debugging purposes, as it immediately highlights which FUSE operations
+    /// are being called but not yet implemented.
     pub fn new_with_panic() -> Self {
         DefaultFuseHandler { panic: true }
     }
 }
 
 impl<T: FileIdType> FuseHandler<T> for DefaultFuseHandler {
-    fn get_inner(&self) -> &Box<(dyn FuseHandler<T>)> {
+    fn get_inner(&self) -> &dyn FuseHandler<T> {
         panic!("Base Fuse don't have inner type")
     }
 

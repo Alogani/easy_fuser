@@ -52,17 +52,17 @@
 //! use std::path::{Path, PathBuf};
 //!
 //! struct MyFS {
-//!     inner: Box<dyn FuseHandler<PathBuf>>,
+//!     inner: DefaultFuseHandler,
 //! }
 //!
 //! impl FuseHandler<PathBuf> for MyFS {
-//!     fn get_inner(&self) -> &Box<(dyn FuseHandler<PathBuf>)> {
+//!     fn get_inner(&self) -> &dyn FuseHandler<PathBuf> {
 //!         &self.inner
 //!     }
 //! }
 //!
 //! fn main() -> std::io::Result<()> {
-//!     let fs = MyFS { inner: Box::new(DefaultFuseHandler::new()) };
+//!     let fs = MyFS { inner: DefaultFuseHandler::new() };
 //!     easy_fuser::mount(fs, Path::new("/mnt/myfs"), &[], 1)
 //! }
 //! ```
@@ -73,7 +73,7 @@
 //!
 //! - **DefaultFuseHandler**: A backbone implementation that acts as a NullFs, implementing every
 //!   operation. It can also be used as a PanicFs for debugging purposes.
-//! - **FdHandlerHelper**: Provides boilerplate for operations on open files.
+//! - **FdHandlerHelper**: Provides boilerplate for operations on open files (ReadOnly and ReadWrite variants available)
 //! - **MirrorFs**: A passthrough filesystem that can be leveraged for creating more complex filesystems.
 //!
 //! These templates serve as starting points or building blocks for your custom filesystem implementations.
@@ -143,7 +143,6 @@ pub mod types;
 
 pub mod prelude {
     pub use super::fuse_handler::FuseHandler;
-    pub use super::posix_fs;
     pub use super::types::*;
 
     pub use fuser::{BackgroundSession, MountOption};

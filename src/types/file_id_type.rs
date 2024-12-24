@@ -11,7 +11,7 @@ use crate::core::GetConverter;
 /// FileIdType can have two values:
 /// - Inode: in which case the user shall provide its own unique inode (at least a valid one)
 /// - PathBuf: in which the inode to path mapping will be done and cached automatically
-pub trait FileIdType: GetConverter + Send + Debug + Clone + 'static {
+pub trait FileIdType: GetConverter + Send + Sync + Debug + Clone + 'static {
     type Metadata: MetadataExt<FileIdType = Self>;
     type MinimalMetadata: MinimalMetadataExt<FileIdType = Self>;
     type _Id;
