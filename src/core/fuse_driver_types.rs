@@ -18,6 +18,8 @@ mod serial {
 
     use super::*;
 
+    use std::cell::RefCell;
+
     pub struct FuseDriver<T, U, R>
     where
         T: FileIdType,
@@ -26,8 +28,8 @@ mod serial {
     {
         handler: U,
         resolver: R,
-        dirmap_iter: DirIter<FileKind>,
-        dirmapplus_iter: DirIter<FileAttribute>,
+        dirmap_iter: RefCell<DirIter<FileKind>>,
+        dirmapplus_iter: RefCell<DirIter<FileAttribute>>,
     }
 
     impl<T, U, R> FuseDriver<T, U, R>
@@ -40,8 +42,8 @@ mod serial {
             FuseDriver {
                 handler,
                 resolver,
-                dirmap_iter: HashMap::new(),
-                dirmapplus_iter: HashMap::new(),
+                dirmap_iter: RefCell::new(HashMap::new()),
+                dirmapplus_iter: RefCell::new(HashMap::new()),
             }
         }
 
@@ -51,6 +53,14 @@ mod serial {
 
         pub fn get_resolver(&self) -> &R {
             &self.resolver
+        }
+
+        pub fn get_dirmap_iter(&self) -> &RefCell<DirIter<FileKind>> {
+            &self.dirmap_iter
+        }
+
+        pub fn get_dirmapplus_iter(&self) -> &RefCell<DirIter<FileAttribute>> {
+            &self.dirmapplus_iter
         }
     }
 

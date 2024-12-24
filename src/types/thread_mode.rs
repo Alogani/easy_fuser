@@ -1,36 +1,37 @@
 use std::ops::{Deref, DerefMut};
 
-pub trait Lockable {
+pub trait SafeBorrowable {
     type Guard<'a>: Deref + DerefMut
     where
         Self: 'a;
 
-    fn context_lock(&self) -> Self::Guard<'_>;
+    fn safe_borrow_mut(&self) -> Self::Guard<'_>;
 }
 
 #[cfg(feature = "serial")]
-mod lockable_impl {
+mod safe_borrowable_impl {
     use super::*;
 
-    impl<T> Lockable for T {
-        type Guard<'a> = &'a mut T where Self: 'a;
+    use std::cell::{RefCell, RefMut};
 
-        fn context_lock(&self) -> Self::Guard<'_> {
-            // SAFETY: This is safe because we're in single-threaded mode
-            unsafe { &mut *(self as *const T as *mut T) }
+    impl<T> SafeBorrowable for RefCell<T> {
+        type Guard<'a> = RefMut<'a, T> where Self: 'a;
+
+        fn safe_borrow_mut(&self) -> Self::Guard<'_> {
+            self.borrow_mut()
         }
     }
 }
 
 #[cfg(feature = "parallel")]
-mod lockable_impl {
+mod safe_borrowable_impl {
     use super::*;
     use std::sync::{Mutex, MutexGuard};
 
-    impl<T> Lockable for Mutex<T> {
+    impl<T> SafeBorrowable for Mutex<T> {
         type Guard<'a> = MutexGuard<'a, T> where Self: 'a;
 
-        fn context_lock(&self) -> Self::Guard<'_> {
+        fn safe_borrow_mut(&self) -> Self::Guard<'_> {
             self.lock().unwrap()
         }
     }

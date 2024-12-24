@@ -21,7 +21,7 @@ use crate::{
 use private::{
     unpack_metadata,
     unpack_minimal_metadata,
-    Lockable,
+    SafeBorrowable,
 };
 use super::{
     macros::*,
@@ -32,8 +32,6 @@ use super::{
     inode_mapping::FileIdResolver,
 };
 
-
-type DirIter<T> = Box<dyn Iterator<Item = T> + Send>;
 
 
 fn get_random_generation() -> u64 {
