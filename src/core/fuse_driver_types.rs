@@ -5,9 +5,9 @@ use std::{
     ffi::{OsStr, OsString},
 };
 
-use crate::types::*;
-use crate::fuse_handler::FuseHandler;
 use super::inode_mapping::FileIdResolver;
+use crate::fuse_handler::FuseHandler;
+use crate::types::*;
 
 type DirIter<T> = HashMap<(u64, i64), VecDeque<(OsString, u64, T)>>;
 
@@ -130,9 +130,7 @@ mod parallel {
 
     macro_rules! execute_task {
         ($self:expr, $block:block) => {
-            $self.threadpool.execute(move || {
-                $block
-            });
+            $self.threadpool.execute(move || $block);
         };
     }
 
@@ -153,9 +151,7 @@ mod async_task {
 
     macro_rules! execute_task {
         ($self:expr, $block:block) => {
-            tokio::spawn(async move {
-                $block
-            });
+            tokio::spawn(async move { $block });
         };
     }
 

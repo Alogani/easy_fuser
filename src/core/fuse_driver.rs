@@ -5,7 +5,7 @@ use std::{
 };
 
 use libc::c_int;
-use log::{warn, error};
+use log::{error, warn};
 
 use fuser::{
     self, KernelConfig, ReplyAttr, ReplyBmap, ReplyCreate, ReplyData, ReplyDirectory,
@@ -13,26 +13,13 @@ use fuser::{
     ReplyStatfs, ReplyWrite, ReplyXattr, Request, TimeOrNow,
 };
 
-
-use crate::{
-    types::*,
-    fuse_handler::FuseHandler,
-};
-use private::{
-    unpack_metadata,
-    unpack_minimal_metadata,
-    SafeBorrowable,
-};
 use super::{
-    macros::*,
-    fuse_driver_types::{
-        FuseDriver,
-        execute_task
-    },
+    fuse_driver_types::{execute_task, FuseDriver},
     inode_mapping::FileIdResolver,
+    macros::*,
 };
-
-
+use crate::{fuse_handler::FuseHandler, types::*};
+use private::{unpack_metadata, unpack_minimal_metadata, SafeBorrowable};
 
 fn get_random_generation() -> u64 {
     Instant::now().elapsed().as_nanos() as u64
@@ -344,7 +331,12 @@ where
                 &newname,
                 reply,
                 link,
-                (&req, resolver.resolve_id(ino), resolver.resolve_id(newparent), &newname)
+                (
+                    &req,
+                    resolver.resolve_id(ino),
+                    resolver.resolve_id(newparent),
+                    &newname
+                )
             );
         });
     }
@@ -531,10 +523,28 @@ where
         });
     }
 
-    fn readdir(&mut self, req: &Request, ino: u64, fh: u64, offset: i64, mut reply: ReplyDirectory) {
-        handle_dir_read!(self, req, ino, fh, offset, reply, readdir, unpack_minimal_metadata, get_dirmap_iter, ReplyDirectory);
+    fn readdir(
+        &mut self,
+        req: &Request,
+        ino: u64,
+        fh: u64,
+        offset: i64,
+        mut reply: ReplyDirectory,
+    ) {
+        handle_dir_read!(
+            self,
+            req,
+            ino,
+            fh,
+            offset,
+            reply,
+            readdir,
+            unpack_minimal_metadata,
+            get_dirmap_iter,
+            ReplyDirectory
+        );
     }
-    
+
     fn readdirplus(
         &mut self,
         req: &Request,
@@ -543,7 +553,18 @@ where
         offset: i64,
         mut reply: ReplyDirectoryPlus,
     ) {
-        handle_dir_read!(self, req, ino, fh, offset, reply, readdirplus, unpack_metadata, get_dirmapplus_iter, ReplyDirectoryPlus);
+        handle_dir_read!(
+            self,
+            req,
+            ino,
+            fh,
+            offset,
+            reply,
+            readdirplus,
+            unpack_metadata,
+            get_dirmapplus_iter,
+            ReplyDirectoryPlus
+        );
     }
 
     fn releasedir(&mut self, req: &Request, ino: u64, fh: u64, flags: i32, reply: ReplyEmpty) {
@@ -592,18 +613,16 @@ where
         let resolver = self.get_resolver();
         execute_task!(self, {
             match handler.statfs(&req, resolver.resolve_id(ino)) {
-                Ok(statfs) => {
-                    reply.statfs(
-                        statfs.total_blocks,
-                        statfs.free_blocks,
-                        statfs.available_blocks,
-                        statfs.total_files,
-                        statfs.free_files,
-                        statfs.block_size,
-                        statfs.max_filename_length,
-                        statfs.fragment_size,
-                    )
-                }
+                Ok(statfs) => reply.statfs(
+                    statfs.total_blocks,
+                    statfs.free_blocks,
+                    statfs.available_blocks,
+                    statfs.total_files,
+                    statfs.free_files,
+                    statfs.block_size,
+                    statfs.max_filename_length,
+                    statfs.fragment_size,
+                ),
                 Err(e) => {
                     warn!("statfs {:?} - {:?}", e, req);
                     reply.error(e.raw_error())
@@ -644,7 +663,7 @@ where
             };
         });
     }
-    
+
     fn getxattr(&mut self, req: &Request, ino: u64, name: &OsStr, size: u32, reply: ReplyXattr) {
         let req = RequestInfo::from(req);
         let handler = self.get_handler();
@@ -668,7 +687,7 @@ where
             };
         });
     }
-    
+
     fn listxattr(&mut self, req: &Request, ino: u64, size: u32, reply: ReplyXattr) {
         let req = RequestInfo::from(req);
         let handler = self.get_handler();
@@ -691,7 +710,7 @@ where
             };
         });
     }
-    
+
     fn removexattr(&mut self, req: &Request, ino: u64, name: &OsStr, reply: ReplyEmpty) {
         let req = RequestInfo::from(req);
         let handler = self.get_handler();
@@ -813,7 +832,7 @@ where
             };
         });
     }
-    
+
     fn setlk(
         &mut self,
         req: &Request<'_>,
@@ -853,7 +872,7 @@ where
             };
         });
     }
-    
+
     fn bmap(&mut self, req: &Request<'_>, ino: u64, blocksize: u32, idx: u64, reply: ReplyBmap) {
         let req = RequestInfo::from(req);
         let handler = self.get_handler();
@@ -962,7 +981,7 @@ where
             };
         });
     }
-    
+
     fn copy_file_range(
         &mut self,
         req: &Request,

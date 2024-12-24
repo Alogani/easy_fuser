@@ -1,4 +1,7 @@
-use std::{fmt::Display, path::{Path, PathBuf}};
+use std::{
+    fmt::Display,
+    path::{Path, PathBuf},
+};
 
 use fuser::FileType as FileKind;
 
@@ -19,7 +22,6 @@ impl FileIdType for Inode {
     type _Id = Inode;
     type Metadata = (Inode, FileAttribute);
     type MinimalMetadata = (Inode, FileKind);
-
 
     fn display(&self) -> impl Display {
         format!("{:?}", self)
@@ -43,10 +45,11 @@ pub trait MetadataExt: Send + Sync {
 
 pub trait MinimalMetadataExt: Send + Sync {
     type FileIdType: FileIdType;
-    fn extract_minimal(minimal_metadata: Self) -> (<Self::FileIdType as FileIdType>::_Id, FileKind);
+    fn extract_minimal(minimal_metadata: Self)
+        -> (<Self::FileIdType as FileIdType>::_Id, FileKind);
 }
 
-impl MetadataExt for (Inode, FileAttribute) {   
+impl MetadataExt for (Inode, FileAttribute) {
     type FileIdType = Inode;
 
     fn extract_metadata(metadata: Self) -> (Inode, FileAttribute) {
@@ -62,7 +65,7 @@ impl MinimalMetadataExt for (Inode, FileKind) {
     }
 }
 
-impl MetadataExt for FileAttribute {    
+impl MetadataExt for FileAttribute {
     type FileIdType = PathBuf;
 
     fn extract_metadata(metadata: Self) -> ((), FileAttribute) {
@@ -70,7 +73,7 @@ impl MetadataExt for FileAttribute {
     }
 }
 
-impl MinimalMetadataExt for FileKind {  
+impl MinimalMetadataExt for FileKind {
     type FileIdType = PathBuf;
 
     fn extract_minimal(minimal_metadata: Self) -> ((), FileKind) {
@@ -78,7 +81,6 @@ impl MinimalMetadataExt for FileKind {
         ((), minimal_metadata)
     }
 }
-
 
 /// Usage:
 /// ```
@@ -91,20 +93,20 @@ impl MinimalMetadataExt for FileKind {
 pub fn unpack_metadata<T>(metadata: T::Metadata) -> (<T as FileIdType>::_Id, FileAttribute)
 where
     T: FileIdType,
-    T::Metadata: MetadataExt<FileIdType=T>,
+    T::Metadata: MetadataExt<FileIdType = T>,
 {
     T::Metadata::extract_metadata(metadata)
 }
 
-
-pub fn unpack_minimal_metadata<T>(minimal_metadata: T::MinimalMetadata) -> (<T as FileIdType>::_Id, FileKind)
+pub fn unpack_minimal_metadata<T>(
+    minimal_metadata: T::MinimalMetadata,
+) -> (<T as FileIdType>::_Id, FileKind)
 where
     T: FileIdType,
-    T::MinimalMetadata: MinimalMetadataExt<FileIdType=T>,
+    T::MinimalMetadata: MinimalMetadataExt<FileIdType = T>,
 {
     T::MinimalMetadata::extract_minimal(minimal_metadata)
 }
-
 
 /*
 pub enum ExtractedMetadata<T: FileIdType> {

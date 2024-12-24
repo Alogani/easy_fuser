@@ -26,7 +26,7 @@ impl<T: FileIdType> FuseHandler<T> for FdHandlerHelper<T> {
 
     fn read(
         &self,
-        _req: RequestInfo,
+        _req: &RequestInfo,
         _file_id: T,
         file_handle: FileHandle,
         offset: i64,
@@ -42,24 +42,24 @@ impl<T: FileIdType> FuseHandler<T> for FdHandlerHelper<T> {
 
     fn write(
         &self,
-        _req: RequestInfo,
+        _req: &RequestInfo,
         _file_id: T,
         file_handle: FileHandle,
         offset: i64,
-        data: &[u8],
+        data: Vec<u8>,
         _write_flags: FUSEWriteFlags,
         _flags: OpenFlags,
         _lock_owner: Option<u64>,
     ) -> FuseResult<u32> {
         match FileDescriptor::try_from(file_handle) {
-            Ok(fd) => posix_fs::write(&fd, offset, data),
+            Ok(fd) => posix_fs::write(&fd, offset, &data),
             Err(e) => Err(e.into()),
         }
     }
 
     fn flush(
         &self,
-        _req: RequestInfo,
+        _req: &RequestInfo,
         _file_id: T,
         file_handle: FileHandle,
         _lock_owner: u64,
@@ -72,7 +72,7 @@ impl<T: FileIdType> FuseHandler<T> for FdHandlerHelper<T> {
 
     fn release(
         &self,
-        _req: RequestInfo,
+        _req: &RequestInfo,
         _file_id: T,
         file_handle: FileHandle,
         _flags: OpenFlags,
@@ -87,7 +87,7 @@ impl<T: FileIdType> FuseHandler<T> for FdHandlerHelper<T> {
 
     fn fsync(
         &self,
-        _req: RequestInfo,
+        _req: &RequestInfo,
         _file_id: T,
         file_handle: FileHandle,
         datasync: bool,
@@ -100,7 +100,7 @@ impl<T: FileIdType> FuseHandler<T> for FdHandlerHelper<T> {
 
     fn fallocate(
         &self,
-        _req: RequestInfo,
+        _req: &RequestInfo,
         _file_id: T,
         file_handle: FileHandle,
         offset: i64,
@@ -115,7 +115,7 @@ impl<T: FileIdType> FuseHandler<T> for FdHandlerHelper<T> {
 
     fn lseek(
         &self,
-        _req: RequestInfo,
+        _req: &RequestInfo,
         _file_id: T,
         file_handle: FileHandle,
         offset: i64,
@@ -129,7 +129,7 @@ impl<T: FileIdType> FuseHandler<T> for FdHandlerHelper<T> {
 
     fn copy_file_range(
         &self,
-        _req: RequestInfo,
+        _req: &RequestInfo,
         _file_in: T,
         file_handle_in: FileHandle,
         offset_in: i64,

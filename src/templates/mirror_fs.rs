@@ -34,7 +34,7 @@ impl FuseHandler<PathBuf> for MirrorFs {
 
     fn lookup(
         &self,
-        _req: RequestInfo,
+        _req: &RequestInfo,
         parent_id: PathBuf,
         name: &OsStr,
     ) -> FuseResult<FileAttribute> {
@@ -44,7 +44,7 @@ impl FuseHandler<PathBuf> for MirrorFs {
 
     fn getattr(
         &self,
-        _req: RequestInfo,
+        _req: &RequestInfo,
         file_id: PathBuf,
         _file_handle: Option<FileHandle>,
     ) -> FuseResult<FileAttribute> {
@@ -56,7 +56,7 @@ impl FuseHandler<PathBuf> for MirrorFs {
 
     fn setattr(
         &self,
-        _req: RequestInfo,
+        _req: &RequestInfo,
         file_id: PathBuf,
         attrs: SetAttrRequest,
     ) -> FuseResult<FileAttribute> {
@@ -64,14 +64,14 @@ impl FuseHandler<PathBuf> for MirrorFs {
         posix_fs::setattr(&file_path, attrs)
     }
 
-    fn readlink(&self, _req: RequestInfo, file_id: PathBuf) -> FuseResult<Vec<u8>> {
+    fn readlink(&self, _req: &RequestInfo, file_id: PathBuf) -> FuseResult<Vec<u8>> {
         let file_path = self.repo.join(file_id);
         posix_fs::readlink(&file_path)
     }
 
     fn mknod(
         &self,
-        _req: RequestInfo,
+        _req: &RequestInfo,
         parent_id: PathBuf,
         name: &OsStr,
         mode: u32,
@@ -84,7 +84,7 @@ impl FuseHandler<PathBuf> for MirrorFs {
 
     fn mkdir(
         &self,
-        _req: RequestInfo,
+        _req: &RequestInfo,
         parent_id: PathBuf,
         name: &OsStr,
         mode: u32,
@@ -94,19 +94,19 @@ impl FuseHandler<PathBuf> for MirrorFs {
         posix_fs::mkdir(&file_path, mode, umask)
     }
 
-    fn unlink(&self, _req: RequestInfo, parent_id: PathBuf, name: &OsStr) -> FuseResult<()> {
+    fn unlink(&self, _req: &RequestInfo, parent_id: PathBuf, name: &OsStr) -> FuseResult<()> {
         let file_path = self.repo.join(parent_id).join(name);
         posix_fs::unlink(&file_path)
     }
 
-    fn rmdir(&self, _req: RequestInfo, parent_id: PathBuf, name: &OsStr) -> FuseResult<()> {
+    fn rmdir(&self, _req: &RequestInfo, parent_id: PathBuf, name: &OsStr) -> FuseResult<()> {
         let file_path = self.repo.join(parent_id).join(name);
         posix_fs::rmdir(&file_path)
     }
 
     fn symlink(
         &self,
-        _req: RequestInfo,
+        _req: &RequestInfo,
         parent_id: PathBuf,
         link_name: &OsStr,
         target: &std::path::Path,
@@ -117,7 +117,7 @@ impl FuseHandler<PathBuf> for MirrorFs {
 
     fn rename(
         &self,
-        _req: RequestInfo,
+        _req: &RequestInfo,
         parent_id: PathBuf,
         name: &OsStr,
         newparent: PathBuf,
@@ -131,7 +131,7 @@ impl FuseHandler<PathBuf> for MirrorFs {
 
     fn open(
         &self,
-        _req: RequestInfo,
+        _req: &RequestInfo,
         file_id: PathBuf,
         flags: OpenFlags,
     ) -> FuseResult<(FileHandle, FUSEOpenResponseFlags)> {
@@ -141,7 +141,7 @@ impl FuseHandler<PathBuf> for MirrorFs {
     }
     fn readdir(
         &self,
-        _req: RequestInfo,
+        _req: &RequestInfo,
         file_id: PathBuf,
         _file_handle: FileHandle,
     ) -> FuseResult<Vec<(OsString, FileKind)>> {
@@ -156,27 +156,27 @@ impl FuseHandler<PathBuf> for MirrorFs {
         Ok(result)
     }
 
-    fn statfs(&self, _req: RequestInfo, file_id: PathBuf) -> FuseResult<StatFs> {
+    fn statfs(&self, _req: &RequestInfo, file_id: PathBuf) -> FuseResult<StatFs> {
         let file_path = self.repo.join(file_id);
         posix_fs::statfs(&file_path)
     }
 
     fn setxattr(
         &self,
-        _req: RequestInfo,
+        _req: &RequestInfo,
         file_id: PathBuf,
         name: &OsStr,
-        value: &[u8],
+        value: Vec<u8>,
         _flags: FUSESetXAttrFlags,
         position: u32,
     ) -> FuseResult<()> {
         let file_path = self.repo.join(file_id);
-        posix_fs::setxattr(&file_path, name, value, position)
+        posix_fs::setxattr(&file_path, name, &value, position)
     }
 
     fn getxattr(
         &self,
-        _req: RequestInfo,
+        _req: &RequestInfo,
         file_id: PathBuf,
         name: &OsStr,
         size: u32,
@@ -185,19 +185,19 @@ impl FuseHandler<PathBuf> for MirrorFs {
         posix_fs::getxattr(&file_path, name, size)
     }
 
-    fn listxattr(&self, _req: RequestInfo, file_id: PathBuf, size: u32) -> FuseResult<Vec<u8>> {
+    fn listxattr(&self, _req: &RequestInfo, file_id: PathBuf, size: u32) -> FuseResult<Vec<u8>> {
         let file_path = self.repo.join(file_id);
         posix_fs::listxattr(&file_path, size)
     }
 
-    fn access(&self, _req: RequestInfo, file_id: PathBuf, mask: AccessMask) -> FuseResult<()> {
+    fn access(&self, _req: &RequestInfo, file_id: PathBuf, mask: AccessMask) -> FuseResult<()> {
         let file_path = self.repo.join(file_id);
         posix_fs::access(&file_path, mask)
     }
 
     fn create(
         &self,
-        _req: RequestInfo,
+        _req: &RequestInfo,
         parent_id: PathBuf,
         name: &OsStr,
         mode: u32,

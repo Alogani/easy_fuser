@@ -7,7 +7,6 @@ pub mod posix_fs;
 pub mod types;
 
 pub mod prelude {
-    //pub use super::core::new_serial_driver;
     pub use super::fuse_handler::FuseHandler;
     pub use super::posix_fs;
     pub use super::types::*;

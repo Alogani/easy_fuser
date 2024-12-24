@@ -1,5 +1,8 @@
 use std::{
-    collections::HashMap, ffi::{OsStr, OsString}, path::{Path, PathBuf}, sync::atomic::Ordering
+    collections::HashMap,
+    ffi::{OsStr, OsString},
+    path::{Path, PathBuf},
+    sync::atomic::Ordering,
 };
 
 use std::sync::{atomic::AtomicU64, RwLock};
@@ -65,13 +68,7 @@ impl FileIdResolver for InodeResolver {
         Inode::from(ino)
     }
 
-    fn lookup(
-        &self,
-        _parent: u64,
-        _child: &OsStr,
-        id: Inode,
-        _increment: bool,
-    ) -> u64 {
+    fn lookup(&self, _parent: u64, _child: &OsStr, id: Inode, _increment: bool) -> u64 {
         id.into()
     }
 
@@ -81,13 +78,10 @@ impl FileIdResolver for InodeResolver {
         parent: u64,
         children: Vec<(OsString, Inode)>,
         increment: bool,
-    ) -> Vec<(OsString, u64)>
-    {
+    ) -> Vec<(OsString, u64)> {
         children
             .into_iter()
-            .map(|(name, inode)| {
-                (name, u64::from(inode))
-            })
+            .map(|(name, inode)| (name, u64::from(inode)))
             .collect()
     }
 
@@ -178,13 +172,7 @@ impl FileIdResolver for PathBufResolver {
         result
     }
 
-    fn lookup(
-        &self,
-        parent: u64,
-        child: &OsStr,
-        _id: (),
-        increment: bool,
-    ) -> u64 {
+    fn lookup(&self, parent: u64, child: &OsStr, _id: (), increment: bool) -> u64 {
         let mut inodes = self.inodes.write().unwrap();
         let correct_inode = match child {
             os_str if os_str == "." => parent,
@@ -226,8 +214,7 @@ impl FileIdResolver for PathBufResolver {
         parent: u64,
         children: Vec<(OsString, ())>,
         increment: bool,
-    ) -> Vec<(OsString, u64)>
-    {
+    ) -> Vec<(OsString, u64)> {
         let mut inodes = self.inodes.write().unwrap();
         if inodes.get(&parent).unwrap().children.is_empty() {
             let mut result = Vec::new();
@@ -326,18 +313,8 @@ mod tests {
         let converter = PathBufResolver::new();
 
         // Map shallow and nested paths
-        let shallow_ino = converter.lookup(
-            ROOT_INODE,
-            OsStr::new("shallow_file"),
-            (),
-            true,
-        );
-        let nested_ino = converter.lookup(
-            shallow_ino,
-            OsStr::new("nested_file"),
-            (),
-            true,
-        );
+        let shallow_ino = converter.lookup(ROOT_INODE, OsStr::new("shallow_file"), (), true);
+        let nested_ino = converter.lookup(shallow_ino, OsStr::new("nested_file"), (), true);
 
         // Test shallow path
         let shallow_path = converter.resolve_id(shallow_ino);
@@ -353,14 +330,8 @@ mod tests {
         let converter = PathBufResolver::new();
 
         // Map shallow and nested paths
-        let shallow_ino =
-            converter.lookup(ROOT_INODE, OsStr::new("dir"), (), true);
-        let nested_ino = converter.lookup(
-            shallow_ino,
-            OsStr::new("file"),
-            (),
-            true,
-        );
+        let shallow_ino = converter.lookup(ROOT_INODE, OsStr::new("dir"), (), true);
+        let nested_ino = converter.lookup(shallow_ino, OsStr::new("file"), (), true);
 
         // Get inodes
         let inodes = converter.inodes.read().unwrap();
@@ -383,14 +354,8 @@ mod tests {
         let converter = PathBufResolver::new();
 
         // Map shallow and nested paths
-        let shallow_ino =
-            converter.lookup(ROOT_INODE, OsStr::new("dir"), (), true);
-        let nested_ino = converter.lookup(
-            shallow_ino,
-            OsStr::new("file"),
-            (),
-            true,
-        );
+        let shallow_ino = converter.lookup(ROOT_INODE, OsStr::new("dir"), (), true);
+        let nested_ino = converter.lookup(shallow_ino, OsStr::new("file"), (), true);
 
         // Rename shallow path
         converter.rename(
@@ -411,14 +376,8 @@ mod tests {
     fn test_forget() {
         let converter = PathBufResolver::new();
 
-        let shallow_ino =
-            converter.lookup(ROOT_INODE, OsStr::new("dir"), (), true);
-        let nested_ino = converter.lookup(
-            shallow_ino,
-            OsStr::new("file"),
-            (),
-            true,
-        );
+        let shallow_ino = converter.lookup(ROOT_INODE, OsStr::new("dir"), (), true);
+        let nested_ino = converter.lookup(shallow_ino, OsStr::new("file"), (), true);
 
         // Remove nested path
         converter.forget(nested_ino, 1);

@@ -1,4 +1,3 @@
-
 macro_rules! handle_fuse_reply_entry {
     ($handler:expr, $resolver:expr, $req:expr, $parent:expr, $name:expr, $reply:expr,
     $function:ident, ($($args:expr),*)) => {
@@ -67,8 +66,12 @@ macro_rules! handle_dir_read {
     $handler_method:ident, $unpack_method:ident, $get_iter_method:ident, $reply_type:ty) => {{
         // Inner macro to handle readdir vs readdirplus differences
         macro_rules! if_readdir {
-            (readdir, $choice1:tt, $choice2:tt) => { $choice1 };
-            (readdirplus, $choice1:tt, $choice2:tt) => { $choice2 };
+            (readdir, $choice1:tt, $choice2:tt) => {
+                $choice1
+            };
+            (readdirplus, $choice1:tt, $choice2:tt) => {
+                $choice2
+            };
         }
 
         let req_info = RequestInfo::from($req);
@@ -87,7 +90,11 @@ macro_rules! handle_dir_read {
             // ### Initialize directory iterator
             let mut dir_iter = match $offset {
                 // First read: fetch children from handler
-                0 => match handler.$handler_method(&req_info, resolver.resolve_id($ino), FileHandle::from($fh)) {
+                0 => match handler.$handler_method(
+                    &req_info,
+                    resolver.resolve_id($ino),
+                    FileHandle::from($fh),
+                ) {
                     Ok(children) => {
                         // Unpack and process children
                         let (child_list, attr_list): (Vec<_>, Vec<_>) = children
@@ -100,10 +107,16 @@ macro_rules! handle_dir_read {
 
                         // Add children to resolver and create iterator
                         resolver
-                            .add_children($ino, child_list, if_readdir!($handler_method, false, true))
+                            .add_children(
+                                $ino,
+                                child_list,
+                                if_readdir!($handler_method, false, true),
+                            )
                             .into_iter()
                             .zip(attr_list.into_iter())
-                            .map(|((file_name, file_ino), file_attr)| (file_name, file_ino, file_attr))
+                            .map(|((file_name, file_ino), file_attr)| {
+                                (file_name, file_ino, file_attr)
+                            })
                             .collect()
                     }
                     Err(e) => {
@@ -126,40 +139,48 @@ macro_rules! handle_dir_read {
             let mut new_offset = $offset + 1;
 
             // ### Process directory entries
-            if_readdir!($handler_method, {
-                // readdir: Add entries until buffer is full
-                while let Some((name, ino, kind)) = dir_iter.pop_front() {
-                    if $reply.add(ino, new_offset, kind, &name) {
-                        dirmap_iter.safe_borrow_mut().insert(($ino, new_offset), dir_iter);
-                        break;
+            if_readdir!(
+                $handler_method,
+                {
+                    // readdir: Add entries until buffer is full
+                    while let Some((name, ino, kind)) = dir_iter.pop_front() {
+                        if $reply.add(ino, new_offset, kind, &name) {
+                            dirmap_iter
+                                .safe_borrow_mut()
+                                .insert(($ino, new_offset), dir_iter);
+                            break;
+                        }
+                        new_offset += 1;
                     }
-                    new_offset += 1;
-                }
-                $reply.ok();
-            }, {
-                // readdirplus: Add entries with extended attributes
-                let default_ttl = handler.get_default_ttl();
-                while let Some((name, ino, file_attr)) = dir_iter.pop_front() {
-                    let (fuse_attr, ttl, generation) = file_attr.to_fuse(ino);
-                    if $reply.add(
-                        ino,
-                        new_offset,
-                        name,
-                        &ttl.unwrap_or(default_ttl),
-                        &fuse_attr,
-                        generation.unwrap_or(get_random_generation())
-                    ) {
-                        dirmap_iter.safe_borrow_mut().insert((ino, new_offset), dir_iter);
-                        break;
+                    $reply.ok();
+                },
+                {
+                    // readdirplus: Add entries with extended attributes
+                    let default_ttl = handler.get_default_ttl();
+                    while let Some((name, ino, file_attr)) = dir_iter.pop_front() {
+                        let (fuse_attr, ttl, generation) = file_attr.to_fuse(ino);
+                        if $reply.add(
+                            ino,
+                            new_offset,
+                            name,
+                            &ttl.unwrap_or(default_ttl),
+                            &fuse_attr,
+                            generation.unwrap_or(get_random_generation()),
+                        ) {
+                            dirmap_iter
+                                .safe_borrow_mut()
+                                .insert((ino, new_offset), dir_iter);
+                            break;
+                        }
+                        new_offset += 1;
                     }
-                    new_offset += 1;
+                    $reply.ok();
                 }
-                $reply.ok();
-            });
+            );
         });
     }};
 }
 
-pub(super) use handle_fuse_reply_entry;
-pub(super) use handle_fuse_reply_attr;
 pub(super) use handle_dir_read;
+pub(super) use handle_fuse_reply_attr;
+pub(super) use handle_fuse_reply_entry;

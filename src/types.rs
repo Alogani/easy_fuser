@@ -1,17 +1,11 @@
 mod arguments;
 mod errors;
 mod file_descriptor;
-mod flags;
 mod file_id_type;
+mod flags;
 mod thread_mode;
 
-pub use self::{
-    arguments::*,
-    errors::*,
-    file_descriptor::*,
-    flags::*,
-    file_id_type::FileIdType,
-};
+pub use self::{arguments::*, errors::*, file_descriptor::*, file_id_type::FileIdType, flags::*};
 
 pub use fuser::{FileType as FileKind, KernelConfig, TimeOrNow};
 
@@ -19,7 +13,7 @@ pub mod private {
     pub use super::file_id_type::*;
     pub use super::thread_mode::*;
 
-    use std::time::Duration;    
+    use std::time::Duration;
 
     use super::*;
     use fuser::FileAttr as FuseFileAttr;
@@ -52,5 +46,4 @@ pub mod private {
             )
         }
     }
-
 }
