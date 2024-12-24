@@ -2,6 +2,7 @@ use std::fmt::{Debug, Display};
 
 pub type FuseResult<T> = Result<T, PosixError>;
 
+/// Represents a POSIX error with an error code and message.
 #[derive(Clone, PartialEq, Eq)]
 pub struct PosixError {
     code: i32,
@@ -9,6 +10,11 @@ pub struct PosixError {
 }
 
 impl PosixError {
+    // Creates a new PosixError with the given code and message.
+    ///
+    /// # Arguments
+    /// * `code` - Any type that can be converted into an i32.(The user should ensure it corresponds to a valid errno)
+    /// * `msg` - Any type that can be converted to a String
     pub fn new<T, U>(code: T, msg: U) -> Self
     where
         T: Into<i32>,
@@ -20,6 +26,14 @@ impl PosixError {
         }
     }
 
+    /// Creates a PosixError from the last system error.
+    ///
+    /// # Arguments
+    /// * `msg` - Any type that can be converted to a String
+    ///
+    /// # Safety
+    /// This function is unsafe because it accesses the errno location.
+    /// It should only be used if you know that the errno location is always valid
     pub fn last_error<U>(msg: U) -> Self
     where
         U: ToString,
@@ -65,6 +79,11 @@ impl Display for PosixError {
     }
 }
 
+/// Represents various kinds of POSIX errors.
+///
+/// This enum is not exhaustive and may be extended in the future to include
+/// additional error kinds as needed. The `Unknown` variant is used for
+/// error codes that are not explicitly listed.
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub enum ErrorKind {
     PermissionDenied,

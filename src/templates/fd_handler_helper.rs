@@ -205,8 +205,7 @@ pub struct FdHandlerHelper<T: FileIdType> {
     inner: Box<dyn FuseHandler<T>>,
 }
 
-impl<T: FileIdType> FdHandlerHelper<T>
-{
+impl<T: FileIdType> FdHandlerHelper<T> {
     pub fn new<U: FuseHandler<T>>(inner: U) -> Self {
         Self {
             inner: Box::new(inner),
@@ -214,8 +213,7 @@ impl<T: FileIdType> FdHandlerHelper<T>
     }
 }
 
-impl<T: FileIdType> FuseHandler<T> for FdHandlerHelper<T>
-{
+impl<T: FileIdType> FuseHandler<T> for FdHandlerHelper<T> {
     fn get_inner(&self) -> &dyn FuseHandler<T> {
         self.inner.as_ref()
     }
@@ -229,8 +227,7 @@ pub struct FdHandlerHelperReadOnly<T: FileIdType> {
     inner: Box<dyn FuseHandler<T>>,
 }
 
-impl<T: FileIdType> FdHandlerHelperReadOnly<T>
-{
+impl<T: FileIdType> FdHandlerHelperReadOnly<T> {
     pub fn new<U: FuseHandler<T>>(inner: U) -> Self {
         Self {
             inner: Box::new(inner),
@@ -238,8 +235,7 @@ impl<T: FileIdType> FdHandlerHelperReadOnly<T>
     }
 }
 
-impl<T: FileIdType> FuseHandler<T> for FdHandlerHelperReadOnly<T>
-{
+impl<T: FileIdType> FuseHandler<T> for FdHandlerHelperReadOnly<T> {
     fn get_inner(&self) -> &dyn FuseHandler<T> {
         self.inner.as_ref()
     }

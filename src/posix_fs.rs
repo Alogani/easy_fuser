@@ -36,7 +36,7 @@ use libc::{c_char, c_void, timespec};
 /// Converts a `std::fs::FileType` to the corresponding `FileKind` expected by fuse_api.
 ///
 /// This function is made public for specific use cases.
-/// 
+///
 /// This function maps the file types provided by the standard library to the file kinds
 /// used in the FUSE API. It handles all common file types, including regular files,
 /// directories, symlinks, block devices, character devices, named pipes, and sockets.
@@ -185,7 +185,7 @@ pub fn lookup(path: &Path) -> Result<FileAttribute, PosixError> {
 /// This function is equivalent to the FUSE `getattr` operation.
 ///
 /// # Note
-/// This function uses the system's file descriptor. If tracking custom inodes, 
+/// This function uses the system's file descriptor. If tracking custom inodes,
 /// additional handling may be required.
 pub fn getattr(fd: &FileDescriptor) -> Result<FileAttribute, PosixError> {
     let mut statbuf: libc::stat = unsafe { std::mem::zeroed() };
@@ -401,7 +401,7 @@ pub fn rmdir(path: &Path) -> Result<(), PosixError> {
 pub fn symlink(path: &Path, target: &Path) -> Result<FileAttribute, PosixError> {
     let c_path = cstring_from_path(path)?;
     let c_target = cstring_from_path(target)?;
-    
+
     let result = unsafe { libc::symlink(c_target.as_ptr(), c_path.as_ptr()) };
     if result == -1 {
         return Err(PosixError::last_error(format!(
@@ -410,7 +410,7 @@ pub fn symlink(path: &Path, target: &Path) -> Result<FileAttribute, PosixError> 
             target.display()
         )));
     }
-    
+
     lookup(path)
 }
 

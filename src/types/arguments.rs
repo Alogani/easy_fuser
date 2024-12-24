@@ -5,7 +5,12 @@ use fuser::{FileType, Request, TimeOrNow};
 use super::FileHandle;
 use super::LockType;
 
-/// Abstraction for seek whence
+/// Represents the reference point for file seeking operations.
+///
+/// This enum corresponds to the POSIX `whence` parameter in `lseek`:
+/// - `Start`: Seek from the beginning of the file.
+/// - `Current`: Seek from the current position.
+/// - `End`: Seek from the end of the file.
 #[derive(Debug, Clone, Copy)]
 pub enum Whence {
     Start,
@@ -34,7 +39,12 @@ impl From<Whence> for i32 {
     }
 }
 
-/// Abstraction over posix rdev (dev number of the root device) that define device type
+/// Represents POSIX device types based on the `rdev` value.
+///
+/// This enum encapsulates various file system object types, including:
+/// - Regular files and directories
+/// - Character and block devices (with major/minor numbers)
+/// - Named pipes, sockets, and symbolic links
 #[derive(Debug, Clone, Copy)]
 pub enum DeviceType {
     RegularFile,
@@ -81,21 +91,40 @@ impl DeviceType {
     }
 }
 
+/// Represents file system statistics, similar to the POSIX `statvfs` structure.
+///
+/// Used to report file system status in FUSE operations.
 #[derive(Debug, Clone)]
 pub struct StatFs {
-    pub total_blocks: u64,        // Total number of blocks
-    pub free_blocks: u64,         // Number of free blocks
-    pub available_blocks: u64,    // Number of blocks available to non-root users
-    pub total_files: u64,         // Total number of files
-    pub free_files: u64,          // Number of free file nodes
-    pub block_size: u32,          // Size of a block in bytes
-    pub max_filename_length: u32, // Maximum length of a filename
-    pub fragment_size: u32,       // Fragment size in bytes
+    /// Total number of blocks
+    pub total_blocks: u64,
+    /// Number of free blocks
+    pub free_blocks: u64,
+    /// Number of blocks available to non-root users
+    pub available_blocks: u64,
+    /// Total number of files
+    pub total_files: u64,
+    /// Number of free file nodes
+    pub free_files: u64,
+    /// Size of a block in bytes
+    pub block_size: u32,
+    /// Maximum length of a filename
+    pub max_filename_length: u32,
+    /// Fragment size in bytes
+    pub fragment_size: u32,
 }
 
 impl StatFs {
-    /// Default value that should work on most systems
-    /// See also helper::statfs for the real stuff
+    /// Creates a default `StatFs` instance with maximum capacity values.
+    ///
+    /// This method returns a `StatFs` struct with:
+    /// - Maximum values for block and file counts
+    /// - Standard block size (4096 bytes)
+    /// - Typical maximum filename length (255 characters)
+    /// - Fragment size matching block size
+    ///
+    /// Note: These values are placeholders and may not reflect actual file system limits.
+    /// For accurate statistics, use the `helper::statfs` function instead.
     pub fn default() -> Self {
         StatFs {
             total_blocks: u64::MAX,
@@ -110,14 +139,19 @@ impl StatFs {
     }
 }
 
-// Fuse related structs
+/// Encapsulates essential information about a FUSE request.
+///
+/// Fields:
+/// - `id`: Unique identifier for the request
+/// - `uid`: User ID of the process that initiated the request
+/// - `gid`: Group ID of the process that initiated the request
+/// - `pid`: Process ID of the process that initiated the request
 #[derive(Debug, Clone)]
 pub struct RequestInfo {
     pub id: u64,
     pub uid: u32,
     pub gid: u32,
     pub pid: u32,
-    // Other request-specific metadata
 }
 impl<'a> From<&Request<'a>> for RequestInfo {
     fn from(req: &Request<'a>) -> Self {
@@ -130,41 +164,76 @@ impl<'a> From<&Request<'a>> for RequestInfo {
     }
 }
 
-/// Fuse can cache file attributes. AttributeResponse allow to fine tune the value
-/// Otherwise, ttl will be set by FilesystemAPI::get_default_ttl(), and generation will be random
+/// Represents file attributes for FUSE operations with optional caching parameters.
 #[derive(Debug, PartialEq, Clone)]
 pub struct FileAttribute {
+    /// File size in bytes
     pub size: u64,
+    /// Number of 512-byte blocks allocated
     pub blocks: u64,
+    /// Last access time
     pub atime: SystemTime,
+    /// Last modification time
     pub mtime: SystemTime,
+    /// Last status change time
     pub ctime: SystemTime,
+    /// Creation time
     pub crtime: SystemTime,
+    /// File type (regular file, directory, etc.)
     pub kind: FileType,
+    /// File permissions
     pub perm: u16,
+    /// Number of hard links
     pub nlink: u32,
+    /// User ID of the file owner
     pub uid: u32,
+    /// Group ID of the file owner
     pub gid: u32,
+    /// Device ID (if special file)
     pub rdev: u32,
+    /// Preferred block size for file system I/O
     pub blksize: u32,
+    /// File flags
     pub flags: u32,
+    /// Time-to-live for caching this attribute (None for default)
     pub ttl: Option<Duration>,
+    // File generation number (None for random)
+    /// If set, it must follow these constraints:
+    /// - Must be non-zero (FUSE treats zero as an error)
+    /// - Should be unique over the file system's lifetime if exported over NFS
+    /// - Should be a new, previously unused number if an inode is reused after deletion
     pub generation: Option<u64>,
 }
 
+/// Represents a request to set file attributes in a FUSE file system.
+///
+/// This struct uses the builder pattern to construct a request with optional fields.
+/// Each field corresponds to a file attribute that can be modified.
 #[derive(Debug)]
 pub struct SetAttrRequest {
+    /// File mode (permissions)
     pub mode: Option<u32>,
+    /// User ID of the file owner
     pub uid: Option<u32>,
+    /// Group ID of the file owner
     pub gid: Option<u32>,
+    /// File size in bytes
     pub size: Option<u64>,
+    /// Last access time
     pub atime: Option<TimeOrNow>,
+    /// Last modification time
     pub mtime: Option<TimeOrNow>,
+    /// Last status change time
     pub ctime: Option<SystemTime>,
+    /// Creation time
     pub crtime: Option<SystemTime>,
+    /// Change time (for BSD systems)
     pub chgtime: Option<SystemTime>,
+    /// Backup time (for macOS)
     pub bkuptime: Option<SystemTime>,
-    pub flags: Option<()>, // Unused
+    /// File flags (unused in FUSE)
+    pub flags: Option<()>,
+    /// File handle for the file being modified
     pub file_handle: Option<FileHandle>,
 }
 
@@ -248,10 +317,15 @@ impl SetAttrRequest {
     }
 }
 
+/// Represents file locking information for FUSE operations.
 #[derive(Debug)]
 pub struct LockInfo {
+    /// Starting offset of the lock range in bytes
     pub start: u64,
+    /// Ending offset of the lock range in bytes (exclusive)
     pub end: u64,
+    /// Type of lock (e.g., Read, Write, or Unlock)
     pub lock_type: LockType,
+    /// Process ID of the lock owner
     pub pid: u32,
 }

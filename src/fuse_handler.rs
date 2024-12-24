@@ -1,78 +1,123 @@
-/**
-```text
-use easy_fuser::templates::MirrorFs;
-use easy_fuser::prelude::*;
-
-struct MyCustomFs {
-    inner: Box<dyn FuseHandler<PathBuf>>,
-    // other fields...
-}
-
-impl MyCustomFs {
-    pub fn new(source_path: &Path) -> Self {
-        MyCustomFs { inner: MirrorFsReadOnly::new(source_path) }
-    }
-}
-
-impl FuseHandler<PathBuf> for MyCustomFs {
-    fn get_inner(&self) -> &Box<(dyn FuseHandler<PathBuf>)> {
-        // Delegate to MirrorFsReadOnly for standard behavior (functions that you will not overwrite)
-        &self.inner
-    }
-
-    fn lookup(&self, req: &RequestInfo, parent_id: PathBuf, name: &OsStr) -> FuseResult<FileAttribute> {
-        // Overwrite this method to customize the behavior of lookup operations
-        // Custom logic here...
-        // Finaly delegate to MirrorFs for standard behavior
-        self.inner.lookup(req, parent_id, name)
-    }
-
-    // Implement other FuseHandler methods, delegating to self.mirror_fs as needed
-    // ...
-}
-```
-*/
-
+/// The `FuseHandler` trait is the core interface for implementing a userspace filesystem via FUSE (Filesystem in Userspace).
+///
+/// This trait defines methods that correspond to various filesystem operations. By implementing this trait,
+/// you can create custom filesystem behaviors for your FUSE-based filesystem.
+///
+/// # Type Parameter
+///
+/// - `T`: A type that implements `FileIdType`. This represents the unique identifier for files and directories in your filesystem.
+///
+/// # Usage
+///
+/// To create a custom filesystem, implement this trait for your struct. You can choose to implement all methods
+/// or rely on default implementations provided by one of the provided templates (like `MirrorFs` or `DefaultFuseHandler`).
+///
+/// ## Example: Custom Filesystem with MirrorFs as base
+///
+/// ```rust, no_run
+/// use easy_fuser::templates::{MirrorFsReadOnly, DefaultFuseHandler};
+/// use easy_fuser::prelude::*;
+/// use std::path::{Path, PathBuf};
+/// use std::ffi::OsStr;
+///
+/// struct MyCustomFs {
+///     inner: Box<dyn FuseHandler<PathBuf>>,
+///     // other fields...
+/// }
+///
+/// impl MyCustomFs {
+///     pub fn new(source_path: PathBuf) -> Self {
+///         MyCustomFs { inner: Box::new(MirrorFsReadOnly::new(source_path, DefaultFuseHandler::new())) }
+///
+///     }
+/// }
+///
+/// impl FuseHandler<PathBuf> for MyCustomFs {
+///     fn get_inner(&self) -> &dyn FuseHandler<PathBuf> {
+///         // Delegate to MirrorFsReadOnly for standard behavior
+///         self.inner.as_ref()
+///     }
+///
+///     fn lookup(&self, req: &RequestInfo, parent_id: PathBuf, name: &OsStr) -> FuseResult<FileAttribute> {
+///         // Custom logic for lookup operation
+///         // ...
+///
+///         // Delegate to inner handler for standard behavior
+///         self.inner.lookup(req, parent_id, name)
+///     }
+///
+///     // Implement other FuseHandler methods as needed, delegating to self.inner as appropriate
+///     // ...
+/// }
+/// ```
+///
+/// # Important Methods
+///
+/// While all methods in this trait are important for a fully functional filesystem, some key methods include:
+///
+/// - `lookup`: Look up a directory entry by name and get its attributes.
+/// - `getattr`: Get file attributes.
+/// - `read`: Read data from a file.
+/// - `write`: Write data to a file.
+/// - `readdir`: Read directory contents.
+/// - `open`: Open a file.
+/// - `create`: Create and open a file.
+///
+/// # Default Implementations
+///
+/// Many methods in this trait have default implementations that delegate to the inner handler returned by `get_inner()`.
+/// This allows for easy extension and customization of existing filesystem implementations by chaining/overriding their behaviors.
+///
+/// # Thread Safety
+///
+/// This trait requires implementors to be `Send` and `Sync`, which is required for use with the FUSE library.
+///
+/// # Lifetime
+///
+/// The trait is bound by the `'static` lifetime, which is required for use with the FUSE library.
+///
+//// # Additional Resources:
+/// For more detailed information, refer to the fuser project documentation, which serves as the foundation for this crate: https://docs.rs/fuser
+///
+/// Documentation is inspired by the original fuser documentation
 use std::ffi::{OsStr, OsString};
 use std::path::Path;
 use std::time::Duration;
 
 use crate::types::*;
 
-// Documentation was taken from https://docs.rs/fuser
-
-/// This trait must be implemented to provide a userspace filesystem via FUSE. These methods correspond to fuse_lowlevel_ops in libfuse.
-
-pub trait FuseHandler<T: FileIdType>: 'static + Send + Sync {
-    /// Delegate unprovided methods to another FuseHandler, mimicking inheritance
+pub trait FuseHandler<T: FileIdType>: Send + Sync + 'static {
+    /// Delegate unprovided methods to another FuseHandler, enabling composition
     fn get_inner(&self) -> &dyn FuseHandler<T>;
 
-    /// Provide a default TTL if not directly in response T::Metadatas
+    /// Provide a default Time-To-Live for file metadata
+    ///
+    /// Can be overriden for each FileAttributes returned.
     fn get_default_ttl(&self) -> Duration {
         Duration::from_secs(1)
     }
 
-    /// Initialize filesystem. Called before any other filesystem method. The kernel module connection can be configured using the KernelConfig object
+    /// Initialize the filesystem and configure kernel connection
     fn init(&self, req: &RequestInfo, config: &mut KernelConfig) -> FuseResult<()> {
         self.get_inner().init(req, config)
     }
 
-    /// Clean up filesystem. Called on filesystem exit.
+    /// Perform cleanup operations on filesystem exit
     fn destroy(&self) {
         self.get_inner().destroy();
     }
 
-    /// Look up a directory entry by name and get its attributes.
+    /// Retrieve file attributes for a directory entry by name and increment the lookup count associated with the inode.
     fn lookup(&self, req: &RequestInfo, parent_id: T, name: &OsStr) -> FuseResult<T::Metadata> {
         self.get_inner().lookup(req, parent_id, name)
     }
 
-    /// Forget about an inode. The nlookup parameter indicates the number of lookups previously performed on this inode. If the filesystem implements inode lifetimes, it is recommended that inodes acquire a single reference on each lookup, and lose nlookup references on each forget. The filesystem may ignore forget calls, if the inodes don’t need to have a limited lifetime. On unmount it is not guaranteed, that all referenced inodes will receive a forget message.
+    /// Release references to an inode, if the nlookup count reaches zero (to substract from the number of lookups).
     fn forget(&self, req: &RequestInfo, file_id: T, nlookup: u64) {
         self.get_inner().forget(req, file_id, nlookup);
     }
 
-    /// Get file attributes.
+    /// Modify file attributes
     fn getattr(
         &self,
         req: &RequestInfo,
@@ -92,12 +137,12 @@ pub trait FuseHandler<T: FileIdType>: 'static + Send + Sync {
         self.get_inner().setattr(req, file_id, attrs)
     }
 
-    /// Read symbolic link.
+    /// Read the target of a symbolic link
     fn readlink(&self, req: &RequestInfo, file_id: T) -> FuseResult<Vec<u8>> {
         self.get_inner().readlink(req, file_id)
     }
 
-    /// Create file node. For example: a regular file, character device, block device, fifo or socket.
+    /// Create a new file node (regular file, device, FIFO, socket, etc)
     fn mknod(
         &self,
         req: &RequestInfo,
@@ -111,7 +156,7 @@ pub trait FuseHandler<T: FileIdType>: 'static + Send + Sync {
             .mknod(req, parent_id, name, mode, umask, rdev)
     }
 
-    /// Create a directory.
+    /// Create a new directory
     fn mkdir(
         &self,
         req: &RequestInfo,
@@ -123,12 +168,12 @@ pub trait FuseHandler<T: FileIdType>: 'static + Send + Sync {
         self.get_inner().mkdir(req, parent_id, name, mode, umask)
     }
 
-    /// Remove a file.
+    /// Remove a file
     fn unlink(&self, req: &RequestInfo, parent_id: T, name: &OsStr) -> FuseResult<()> {
         self.get_inner().unlink(req, parent_id, name)
     }
 
-    /// Remove a directory.
+    /// Remove a directory
     fn rmdir(&self, req: &RequestInfo, parent_id: T, name: &OsStr) -> FuseResult<()> {
         self.get_inner().rmdir(req, parent_id, name)
     }
@@ -144,7 +189,7 @@ pub trait FuseHandler<T: FileIdType>: 'static + Send + Sync {
         self.get_inner().symlink(req, parent_id, link_name, target)
     }
 
-    /// Rename a file.
+    /// Rename a file or directory
     fn rename(
         &self,
         req: &RequestInfo,
@@ -169,7 +214,9 @@ pub trait FuseHandler<T: FileIdType>: 'static + Send + Sync {
         self.get_inner().link(req, file_id, newparent, newname)
     }
 
-    /// Open a file. Open flags (with the exception of O_CREAT, O_EXCL, O_NOCTTY and O_TRUNC) are available in flags. You may store an arbitrary file handle (pointer, index, etc) in file_handle response, and use this in other all other file operations (read, write, flush, release, fsync). Filesystem may also implement stateless file I/O and not store anything in fh. There are also some flags (direct_io, keep_cache) which the filesystem may set, to change the way the file is opened. See fuse_file_info structure in <fuse_common.h> for more details.
+    /// Open a file and return a file handle.
+    ///
+    /// Open flags (with the exception of O_CREAT, O_EXCL, O_NOCTTY and O_TRUNC) are available in flags. You may store an arbitrary file handle (pointer, index, etc) in file_handle response, and use this in other all other file operations (read, write, flush, release, fsync). Filesystem may also implement stateless file I/O and not store anything in fh. There are also some flags (direct_io, keep_cache) which the filesystem may set, to change the way the file is opened. See fuse_file_info structure in <fuse_common.h> for more details.
     fn open(
         &self,
         req: &RequestInfo,
@@ -179,7 +226,9 @@ pub trait FuseHandler<T: FileIdType>: 'static + Send + Sync {
         self.get_inner().open(req, file_id, flags)
     }
 
-    /// Read data. Read should send exactly the number of bytes requested except on EOF or error, otherwise the rest of the data will be substituted with zeroes. An exception to this is when the file has been opened in ‘direct_io’ mode, in which case the return value of the read system call will reflect the return value of this operation. fh will contain the value set by the open method, or will be undefined if the open method didn’t set any value.
+    /// Read data from a file
+    ///
+    /// Read should send exactly the number of bytes requested except on EOF or error, otherwise the rest of the data will be substituted with zeroes. An exception to this is when the file has been opened in ‘direct_io’ mode, in which case the return value of the read system call will reflect the return value of this operation. fh will contain the value set by the open method, or will be undefined if the open method didn’t set any value.
     ///
     /// flags: these are the file flags, such as O_SYNC. Only supported with ABI >= 7.9 lock_owner: only supported with ABI >= 7.9
     fn read(
@@ -196,7 +245,9 @@ pub trait FuseHandler<T: FileIdType>: 'static + Send + Sync {
             .read(req, file_id, file_handle, offset, size, flags, lock_owner)
     }
 
-    /// Write data. Write should return exactly the number of bytes requested except on error. An exception to this is when the file has been opened in ‘direct_io’ mode, in which case the return value of the write system call will reflect the return value of this operation. fh will contain the value set by the open method, or will be undefined if the open method didn’t set any value.
+    /// Write data to a file
+    ///
+    /// Write should return exactly the number of bytes requested except on error. An exception to this is when the file has been opened in ‘direct_io’ mode, in which case the return value of the write system call will reflect the return value of this operation. fh will contain the value set by the open method, or will be undefined if the open method didn’t set any value.
     ///
     /// write_flags: will contain FUSE_WRITE_CACHE, if this write is from the page cache. If set, the pid, uid, gid, and fh may not match the value that would have been sent if write cachin is disabled flags: these are the file flags, such as O_SYNC. Only supported with ABI >= 7.9 lock_owner: only supported with ABI >= 7.9
     fn write(
@@ -222,7 +273,10 @@ pub trait FuseHandler<T: FileIdType>: 'static + Send + Sync {
         )
     }
 
-    /// Flush method. This is called on each close() of the opened file. Since file descriptors can be duplicated (dup, dup2, fork), for one open call there may be many flush calls. Filesystems shouldn’t assume that flush will always be called after some writes, or that if will be called at all. fh will contain the value set by the open method, or will be undefined if the open method didn’t set any value. NOTE: the name of the method is misleading, since (unlike fsync) the filesystem is not forced to flush pending writes. One reason to flush data, is if the filesystem wants to return write errors. If the filesystem supports file locking operations (setlk, getlk) it should remove all locks belonging to ‘lock_owner’.
+    /// Flush cached data for an open file
+    ///
+    /// Called on each close() of the opened file. Not guaranteed to be called after writes or at all.
+    /// Used for returning write errors or removing file locks.
     fn flush(
         &self,
         req: &RequestInfo,
@@ -234,7 +288,10 @@ pub trait FuseHandler<T: FileIdType>: 'static + Send + Sync {
             .flush(req, file_id, file_handle, lock_owner)
     }
 
-    /// Release an open file. Release is called when there are no more references to an open file: all file descriptors are closed and all memory mappings are unmapped. For every open call there will be exactly one release call. The filesystem may reply with an error, but error values are not returned to close() or munmap() which triggered the release. fh will contain the value set by the open method, or will be undefined if the open method didn’t set any value. flags will contain the same flags as for open.
+    /// Release an open file
+    ///
+    /// Called when all file descriptors are closed and all memory mappings are unmapped.
+    /// Guaranteed to be called once for every open() call.
     fn release(
         &self,
         req: &RequestInfo,
@@ -248,7 +305,9 @@ pub trait FuseHandler<T: FileIdType>: 'static + Send + Sync {
             .release(req, file_id, file_handle, flags, lock_owner, flush)
     }
 
-    /// Synchronize file contents. If the datasync parameter is non-zero, then only the user data should be flushed, not the meta data.
+    /// Synchronize file contents
+    ///
+    /// If datasync is true, only flush user data, not metadata.
     fn fsync(
         &self,
         req: &RequestInfo,
@@ -259,7 +318,9 @@ pub trait FuseHandler<T: FileIdType>: 'static + Send + Sync {
         self.get_inner().fsync(req, file_id, file_handle, datasync)
     }
 
-    /// Open a directory. Filesystem may store an arbitrary file handle (pointer, index, etc) in fh, and use this in other all other directory stream operations (readdir, releasedir, fsyncdir). Filesystem may also implement stateless directory I/O and not store anything in fh, though that makes it impossible to implement standard conforming directory stream operations in case the contents of the directory can change between opendir and releasedir.
+    /// Open a directory
+    ///
+    /// Allows storing a file handle for use in subsequent directory operations.
     fn opendir(
         &self,
         req: &RequestInfo,
@@ -269,7 +330,9 @@ pub trait FuseHandler<T: FileIdType>: 'static + Send + Sync {
         self.get_inner().opendir(req, file_id, flags)
     }
 
-    /// Read directory. file_handle will contain the value set by the opendir method, or will be undefined if the opendir method didn’t set any value.
+    /// Read directory contents
+    ///
+    /// Returns a list of directory entries with minimal metadata.
     fn readdir(
         &self,
         req: &RequestInfo,
@@ -279,7 +342,9 @@ pub trait FuseHandler<T: FileIdType>: 'static + Send + Sync {
         self.get_inner().readdir(req, file_id, file_handle)
     }
 
-    // Read directory alongside its file attributes. A default implementation is provided by combining readdir and lookup, which should produce the same number of system calls
+    /// Read directory contents with full file attributes
+    ///
+    /// Default implementation combines readdir and lookup operations.
     fn readdirplus(
         &self,
         req: &RequestInfo,
@@ -295,7 +360,11 @@ pub trait FuseHandler<T: FileIdType>: 'static + Send + Sync {
         Ok(result)
     }
 
-    /// Release an open directory. For every opendir call there will be exactly one releasedir call. file_handle will contain the value set by the opendir method, or will be undefined if the opendir method didn’t set any value.
+    /// Release an open directory
+    ///
+    /// This method is called exactly once for every successful opendir operation.
+    /// The file_handle parameter will contain the value set by the opendir method,
+    /// or will be undefined if the opendir method didn't set any value.
     fn releasedir(
         &self,
         req: &RequestInfo,
@@ -307,8 +376,12 @@ pub trait FuseHandler<T: FileIdType>: 'static + Send + Sync {
             .releasedir(req, file_id, file_handle, flags)
     }
 
-    /// Synchronize directory contents. If the datasync parameter is set, then only the directory contents should be flushed, not the meta data. file_handle will contain the value set by the opendir method, or will be undefined if the opendir method didn’t set any value.
-
+    /// Synchronize directory contents
+    ///
+    /// If the datasync parameter is true, then only the directory contents should
+    /// be flushed, not the metadata. The file_handle will contain the value set
+    /// by the opendir method, or will be undefined if the opendir method didn't
+    /// set any value.
     fn fsyncdir(
         &self,
         req: &RequestInfo,
@@ -320,12 +393,12 @@ pub trait FuseHandler<T: FileIdType>: 'static + Send + Sync {
             .fsyncdir(req, file_id, file_handle, datasync)
     }
 
-    /// Get file system statistics.
+    /// Get file system statistics
     fn statfs(&self, req: &RequestInfo, file_id: T) -> FuseResult<StatFs> {
         self.get_inner().statfs(req, file_id)
     }
 
-    /// Set an extended attribute.
+    /// Set an extended attribute
     fn setxattr(
         &self,
         req: &RequestInfo,
@@ -339,7 +412,7 @@ pub trait FuseHandler<T: FileIdType>: 'static + Send + Sync {
             .setxattr(req, file_id, name, value, flags, position)
     }
 
-    /// Get an extended attribute.
+    /// Get an extended attribute
     fn getxattr(
         &self,
         req: &RequestInfo,
@@ -350,7 +423,7 @@ pub trait FuseHandler<T: FileIdType>: 'static + Send + Sync {
         self.get_inner().getxattr(req, file_id, name, size)
     }
 
-    /// List extended attribute names.
+    /// List extended attribute names
     fn listxattr(&self, req: &RequestInfo, file_id: T, size: u32) -> FuseResult<Vec<u8>> {
         self.get_inner().listxattr(req, file_id, size)
     }
@@ -360,7 +433,11 @@ pub trait FuseHandler<T: FileIdType>: 'static + Send + Sync {
         self.get_inner().removexattr(req, file_id, name)
     }
 
-    /// Check file access permissions. This will be called for the access() system call. If the ‘default_permissions’ mount option is given, this method is not called. This method is not called under Linux kernel versions 2.4.x
+    /// Check file access permissions
+    ///
+    /// This method is called for the access() system call. If the 'default_permissions'
+    /// mount option is given, this method is not called. This method is not called
+    /// under Linux kernel versions 2.4.x
     fn access(&self, req: &RequestInfo, file_id: T, mask: AccessMask) -> FuseResult<()> {
         self.get_inner().access(req, file_id, mask)
     }
@@ -378,7 +455,12 @@ pub trait FuseHandler<T: FileIdType>: 'static + Send + Sync {
             .getlk(req, file_id, file_handle, lock_owner, lock_info)
     }
 
-    /// Acquire, modify or release a POSIX file lock. For POSIX threads (NPTL) there’s a 1-1 relation between pid and owner, but otherwise this is not always the case. For checking lock ownership, ‘fi->owner’ must be used. The l_pid field in ‘struct flock’ should only be used to fill in this field in getlk(). Note: if the locking methods are not implemented, the kernel will still allow file locking to work locally. Hence these are only interesting for network filesystems and similar.
+    /// Acquire, modify or release a POSIX file lock
+    ///
+    /// For POSIX threads (NPTL) there's a 1-1 relation between pid and owner, but
+    /// otherwise this is not always the case. For checking lock ownership, 'fi->owner'
+    /// must be used. The l_pid field in 'struct flock' should only be used to fill
+    /// in this field in getlk().
     fn setlk(
         &self,
         req: &RequestInfo,
@@ -392,7 +474,10 @@ pub trait FuseHandler<T: FileIdType>: 'static + Send + Sync {
             .setlk(req, file_id, file_handle, lock_owner, lock_info, sleep)
     }
 
-    /// Map block index within file to block index within device. Note: This makes sense only for block device backed filesystems mounted with the ‘blkdev’ option
+    /// Map block index within file to block index within device
+    ///
+    /// Note: This makes sense only for block device backed filesystems mounted
+    /// with the 'blkdev' option
     fn bmap(&self, req: &RequestInfo, file_id: T, blocksize: u32, idx: u64) -> FuseResult<u64> {
         self.get_inner().bmap(req, file_id, blocksize, idx)
     }
@@ -412,10 +497,12 @@ pub trait FuseHandler<T: FileIdType>: 'static + Send + Sync {
             .ioctl(req, file_id, file_handle, flags, cmd, in_data, out_size)
     }
 
-    /// Create and open a file. If the file does not exist, first create it with the specified mode, and then open it. Open flags (with the exception of O_NOCTTY) are available in flags.
+    /// Create and open a file
     ///
-    /// See the documentation of open for more informations about file_handle
-    /// If this method is not implemented or under Linux kernel versions earlier than 2.6.15, the mknod() and open() methods will be called instead.
+    /// If the file does not exist, first create it with the specified mode, and then
+    /// open it. Open flags (with the exception of O_NOCTTY) are available in flags.
+    /// If this method is not implemented or under Linux kernel versions earlier than
+    /// 2.6.15, the mknod() and open() methods will be called instead.
     fn create(
         &self,
         req: &RequestInfo,

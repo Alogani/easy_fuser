@@ -10,7 +10,6 @@ use crate::core::GetConverter;
 use super::arguments::FileAttribute;
 use super::inode::*;
 
-
 /// Represents the type used to identify files in the file system.
 ///
 /// This trait allows for two different approaches to file identification:
@@ -23,21 +22,21 @@ use super::inode::*;
 ///    - Pros: Automatic inode-to-path mapping and caching.
 ///    - Cons: May have performance overhead for large file systems.
 ///
-pub trait FileIdType: GetConverter + Send + Sync + Debug + Clone + 'static {
+pub trait FileIdType: GetConverter + Debug + Clone + 'static {
     /// Full metadata type for the file system.
-    /// 
+    ///
     /// For Inode-based: (Inode, FileAttribute)
     /// - User must provide both Inode and FileAttribute.
-    /// 
+    ///
     /// For PathBuf-based: FileAttribute
     /// - User only needs to provide FileAttribute; Inode is managed internally.
     type Metadata: MetadataExt<FileIdType = Self>;
 
     /// Minimal metadata type for the file system.
-    /// 
+    ///
     /// For Inode-based: (Inode, FileKind)
     /// - User must provide both Inode and FileKind.
-    /// 
+    ///
     /// For PathBuf-based: FileKind
     /// - User only needs to provide FileKind; Inode is managed internally.
     type MinimalMetadata: MinimalMetadataExt<FileIdType = Self>;
@@ -65,13 +64,13 @@ impl FileIdType for PathBuf {
     }
 }
 
-pub trait MetadataExt: Send + Sync {
+pub trait MetadataExt {
     type FileIdType: FileIdType;
 
     fn extract_metadata(metadata: Self) -> (<Self::FileIdType as FileIdType>::_Id, FileAttribute);
 }
 
-pub trait MinimalMetadataExt: Send + Sync {
+pub trait MinimalMetadataExt {
     type FileIdType: FileIdType;
     fn extract_minimal(minimal_metadata: Self)
         -> (<Self::FileIdType as FileIdType>::_Id, FileKind);

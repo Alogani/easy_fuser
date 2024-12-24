@@ -70,10 +70,9 @@ For more specific implementations or to extend functionality, you can modify the
 use std::ffi::{OsStr, OsString};
 use std::path::PathBuf;
 
+use crate::posix_fs;
 use crate::prelude::*;
 use crate::templates::FdHandlerHelper;
-use crate::posix_fs;
-
 
 macro_rules! mirror_fs_readonly_methods {
     () => {
@@ -148,7 +147,12 @@ macro_rules! mirror_fs_readonly_methods {
             posix_fs::getxattr(&file_path, name, size)
         }
 
-        fn listxattr(&self, _req: &RequestInfo, file_id: PathBuf, size: u32) -> FuseResult<Vec<u8>> {
+        fn listxattr(
+            &self,
+            _req: &RequestInfo,
+            file_id: PathBuf,
+            size: u32,
+        ) -> FuseResult<Vec<u8>> {
             let file_path = self.source_path.join(file_id);
             posix_fs::listxattr(&file_path, size)
         }
@@ -157,7 +161,7 @@ macro_rules! mirror_fs_readonly_methods {
             let file_path = self.source_path.join(file_id);
             posix_fs::access(&file_path, mask)
         }
-    }
+    };
 }
 
 macro_rules! mirror_fs_readwrite_methods {
@@ -245,7 +249,6 @@ macro_rules! mirror_fs_readwrite_methods {
             posix_fs::setxattr(&file_path, name, &value, position)
         }
 
-
         fn create(
             &self,
             _req: &RequestInfo,
@@ -263,7 +266,7 @@ macro_rules! mirror_fs_readwrite_methods {
                 FUSEOpenResponseFlags::empty(),
             ))
         }
-    }
+    };
 }
 
 /// Specific documentation is located in parent module documentation.

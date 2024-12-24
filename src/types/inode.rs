@@ -1,9 +1,9 @@
 /// Represents an inode number in a FUSE (Filesystem in Userspace) filesystem.
-/// 
+///
 /// `Inode` implements the `FileIdType` trait, which is used as a generic parameter
 /// throughout this crate. This implementation allows `Inode` to be used as a file
 /// identifier in various fuse operations.
-/// 
+///
 /// For more detailed information about file identification and the `FileIdType` trait,
 /// please refer to the documentation of the `FileIdType` trait.
 ///
@@ -19,7 +19,7 @@
 ///
 /// This struct is a wrapper around a u64, providing type safety and
 /// semantic meaning to inode numbers in the FUSE filesystem implementation.
-/// 
+///
 /// For users who prefer not to manage inodes directly, this library also supports
 /// using `PathBuf` as `FileIdType`. This alternative approach allows for file
 /// identification based on paths rather than inode numbers.
