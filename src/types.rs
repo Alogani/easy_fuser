@@ -3,6 +3,7 @@ mod errors;
 mod file_descriptor;
 mod flags;
 mod file_id_type;
+mod thread_mode;
 
 pub use self::{
     arguments::*,
@@ -16,6 +17,7 @@ pub use fuser::{FileType as FileKind, KernelConfig, TimeOrNow};
 
 pub mod private {
     pub use super::file_id_type::*;
+    pub use super::thread_mode::*;
 
     use std::time::Duration;    
 

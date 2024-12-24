@@ -7,16 +7,16 @@ use super::arguments::*;
 /// FileIdType can have two values:
 /// - Inode: in which case the user shall provide its own unique inode (at least a valid one)
 /// - PathBuf: in which the inode to path mapping will be done and cached automatically
-pub trait FileIdType: Send + std::fmt::Debug + 'static {
-    type Id;
+pub trait FileIdType: Send + std::fmt::Debug + Clone + 'static {
     type Metadata: MetadataExt<FileIdType = Self>;
     type MinimalMetadata: MinimalMetadataExt<FileIdType = Self>;
+    type _Id;
 
     fn display(&self) -> impl Display;
 }
 
 impl FileIdType for Inode {
-    type Id = Inode;
+    type _Id = Inode;
     type Metadata = (Inode, FileAttribute);
     type MinimalMetadata = (Inode, FileKind);
 
@@ -26,7 +26,7 @@ impl FileIdType for Inode {
     }
 }
 impl FileIdType for PathBuf {
-    type Id = ();
+    type _Id = ();
     type Metadata = FileAttribute;
     type MinimalMetadata = FileKind;
 
@@ -35,15 +35,15 @@ impl FileIdType for PathBuf {
     }
 }
 
-pub trait MetadataExt {
+pub trait MetadataExt: Send + Sync {
     type FileIdType: FileIdType;
 
-    fn extract_metadata(metadata: Self) -> (<Self::FileIdType as FileIdType>::Id, FileAttribute);
+    fn extract_metadata(metadata: Self) -> (<Self::FileIdType as FileIdType>::_Id, FileAttribute);
 }
 
-pub trait MinimalMetadataExt {
+pub trait MinimalMetadataExt: Send + Sync {
     type FileIdType: FileIdType;
-    fn extract_minimal(minimal_metadata: Self) -> (<Self::FileIdType as FileIdType>::Id, FileKind);
+    fn extract_minimal(minimal_metadata: Self) -> (<Self::FileIdType as FileIdType>::_Id, FileKind);
 }
 
 impl MetadataExt for (Inode, FileAttribute) {   
@@ -88,7 +88,7 @@ impl MinimalMetadataExt for FileKind {
 ///     b
 /// }
 /// ```
-pub fn unpack_metadata<T>(metadata: T::Metadata) -> (<T as FileIdType>::Id, FileAttribute)
+pub fn unpack_metadata<T>(metadata: T::Metadata) -> (<T as FileIdType>::_Id, FileAttribute)
 where
     T: FileIdType,
     T::Metadata: MetadataExt<FileIdType=T>,
@@ -97,10 +97,65 @@ where
 }
 
 
-pub fn unpack_minimal_metadata<T>(minimal_metadata: T::MinimalMetadata) -> (<T as FileIdType>::Id, FileKind)
+pub fn unpack_minimal_metadata<T>(minimal_metadata: T::MinimalMetadata) -> (<T as FileIdType>::_Id, FileKind)
 where
     T: FileIdType,
     T::MinimalMetadata: MinimalMetadataExt<FileIdType=T>,
 {
     T::MinimalMetadata::extract_minimal(minimal_metadata)
 }
+
+
+/*
+pub enum ExtractedMetadata<T: FileIdType> {
+    Metadata(T::_Id, FileAttribute),
+    MinimalMetadata(T::_Id, FileKind),
+}
+
+impl<T: FileIdType> ExtractedMetadata<T> {
+    pub fn unpack_metadata(self) -> (T::_Id, FileAttribute) {
+        match self {
+            ExtractedMetadata::Metadata(id, attr) => (id, attr),
+            _ => panic!("")
+        }
+    }
+
+    pub fn unpack_minimal_metadata(self) -> (T::_Id, FileKind) {
+        match self {
+            ExtractedMetadata::MinimalMetadata(id, kind) => (id, kind),
+            _ => panic!("")
+        }
+    }
+}
+
+impl ExtractedMetadata<Inode> {
+    pub fn from_metadata(metadata: <Inode as FileIdType>::Metadata) -> Self
+    {
+        ExtractedMetadata::Metadata(metadata.0, metadata.1)
+    }
+
+    pub fn from_minimal_metadata(minimal_metadata: <Inode as FileIdType>::MinimalMetadata) -> Self
+    {
+        ExtractedMetadata::MinimalMetadata(minimal_metadata.0, minimal_metadata.1)
+    }
+}
+
+impl ExtractedMetadata<PathBuf> {
+    pub fn from_metadata(metadata: <PathBuf as FileIdType>::Metadata) -> Self
+    {
+        ExtractedMetadata::Metadata((), metadata)
+    }
+
+    pub fn from_minimal_metadata(minimal_metadata: <PathBuf as FileIdType>::MinimalMetadata) -> Self
+    {
+        ExtractedMetadata::MinimalMetadata((), minimal_metadata)
+    }
+}
+
+use crate::fuse_handler::FuseHandler;
+use std::ffi::OsStr;
+fn test<T: FileIdType, U: FuseHandler<T>>(handler: U, req: &RequestInfo, parent_id: T, name: &OsStr) {
+    let metadata = handler.lookup(req, parent_id, name);
+    let (id, attr) = ExtractedMetadata::from_metadata::<T>(metadata).unpack_metadata();
+}
+*/

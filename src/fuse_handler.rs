@@ -8,7 +8,7 @@ use crate::types::*;
 
 /// This trait must be implemented to provide a userspace filesystem via FUSE. These methods correspond to fuse_lowlevel_ops in libfuse.
 
-pub trait FuseHandler<T: FileIdType>: 'static {
+pub trait FuseHandler<T: FileIdType>: 'static + Send + Sync {
     /// Delegate unprovided methods to another FuseHandler, mimicking inheritance
     fn get_inner(&self) -> &Box<dyn FuseHandler<T>>;
 
@@ -170,7 +170,7 @@ pub trait FuseHandler<T: FileIdType>: 'static {
         file_id: T,
         file_handle: FileHandle,
         offset: i64,
-        data: &[u8],
+        data: Vec<u8>,
         write_flags: FUSEWriteFlags,
         flags: OpenFlags,
         lock_owner: Option<u64>,
@@ -251,10 +251,11 @@ pub trait FuseHandler<T: FileIdType>: 'static {
         file_id: T,
         file_handle: FileHandle,
     ) -> FuseResult<Vec<(OsString, T::Metadata)>> {
-        let readdir_result = self.readdir(req, file_id, file_handle)?;
+        let readdir_result = self.readdir(req, file_id.clone(), file_handle)?;
         let mut result = Vec::with_capacity(readdir_result.len());
         for (name, _) in readdir_result.into_iter() {
-            result.push((name, self.lookup(req, file_id, &name)?));
+            let metadata = self.lookup(req, file_id.clone(), &name)?;
+            result.push((name, metadata));
         }
         Ok(result)
     }
@@ -295,7 +296,7 @@ pub trait FuseHandler<T: FileIdType>: 'static {
         req: &RequestInfo,
         file_id: T,
         name: &OsStr,
-        value: &[u8],
+        value: Vec<u8>,
         flags: FUSESetXAttrFlags,
         position: u32,
     ) -> FuseResult<()> {
@@ -369,7 +370,7 @@ pub trait FuseHandler<T: FileIdType>: 'static {
         file_handle: FileHandle,
         flags: IOCtlFlags,
         cmd: u32,
-        in_data: &[u8],
+        in_data: Vec<u8>,
         out_size: u32,
     ) -> FuseResult<(i32, Vec<u8>)> {
         self.get_inner()

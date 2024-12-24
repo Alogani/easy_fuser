@@ -39,13 +39,13 @@ pub trait FileIdResolver: Send + Sync + 'static {
         &self,
         parent: u64,
         child: &OsStr,
-        id: <Self::FileIdType as FileIdType>::Id,
+        id: <Self::FileIdType as FileIdType>::_Id,
         increment: bool,
     ) -> u64;
     fn add_children(
         &self,
         parent: u64,
-        children: Vec<(OsString, <Self::FileIdType as FileIdType>::Id)>,
+        children: Vec<(OsString, <Self::FileIdType as FileIdType>::_Id)>,
         increment: bool,
     ) -> Vec<(OsString, u64)>;
     fn forget(&self, ino: u64, nlookup: u64);
