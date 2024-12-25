@@ -459,8 +459,34 @@ pub fn open(path: &Path, flags: OpenFlags) -> Result<FileDescriptorGuard, PosixE
 /// Reads data from a file descriptor at a specified offset.
 ///
 /// This function is equivalent to the FUSE `read` operation.
-pub fn read(fd: &FileDescriptor, offset: i64, size: u32) -> Result<Vec<u8>, PosixError> {
+/// 
+/// Note: This function reads from the specified offset, which is determined by the `seek` parameter.
+/// If `seek` is `SeekFrom::Start`, it reads from that absolute position.
+/// For `SeekFrom::Current` or `SeekFrom::End`, it first updates the file's current position,
+/// then reads from there. In all cases, the file's position after the read operation
+/// remains where it was before the read, regardless of how much data was read.
+pub fn read(fd: &FileDescriptor, seek: SeekFrom, size: u32) -> Result<Vec<u8>, PosixError> {
     let mut buffer = vec![0; size as usize];
+    let offset: libc::off_t = match seek {
+        SeekFrom::Start(offset) => offset.try_into().map_err(|_| PosixError::new(
+            ErrorKind::InvalidArgument,
+            "Offset too large for off_t".to_string(),
+        ))?,
+        SeekFrom::Current(offset) => {
+            let current = lseek(fd, SeekFrom::Current(0))?;
+            current.checked_add(offset).ok_or_else(|| PosixError::new(
+                ErrorKind::InvalidArgument,
+                "Resulting offset too large for off_t".to_string(),
+            ))?
+        },
+        SeekFrom::End(offset) => {
+            let end = lseek(fd, SeekFrom::End(0))?;
+            end.checked_add(offset).ok_or_else(|| PosixError::new(
+                ErrorKind::InvalidArgument,
+                "Resulting offset too large for off_t".to_string(),
+            ))?
+        },
+    };
     let bytes_read = unsafe {
         libc::pread(
             fd.clone().into(),
@@ -479,9 +505,34 @@ pub fn read(fd: &FileDescriptor, offset: i64, size: u32) -> Result<Vec<u8>, Posi
 /// Writes data to a file descriptor at a specified offset.
 ///
 /// This function is equivalent to the FUSE `write` operation.
-pub fn write(fd: &FileDescriptor, offset: i64, data: &[u8]) -> Result<u32, PosixError> {
+/// 
+/// Note: This function reads from the specified offset, which is determined by the `seek` parameter.
+/// If `seek` is `SeekFrom::Start`, it reads from that absolute position.
+/// For `SeekFrom::Current` or `SeekFrom::End`, it first updates the file's current position,
+/// then reads from there. In all cases, the file's position after the read operation
+/// remains where it was before the read, regardless of how much data was read.
+pub fn write(fd: &FileDescriptor, seek: SeekFrom, data: &[u8]) -> Result<u32, PosixError> {
     let bytes_to_write = data.len() as usize;
-
+    let offset: libc::off_t = match seek {
+        SeekFrom::Start(offset) => offset.try_into().map_err(|_| PosixError::new(
+            ErrorKind::InvalidArgument,
+            "Offset too large for off_t".to_string(),
+        ))?,
+        SeekFrom::Current(offset) => {
+            let current = lseek(fd, SeekFrom::Current(0))?;
+            current.checked_add(offset).ok_or_else(|| PosixError::new(
+                ErrorKind::InvalidArgument,
+                "Resulting offset too large for off_t".to_string(),
+            ))?
+        },
+        SeekFrom::End(offset) => {
+            let end = lseek(fd, SeekFrom::End(0))?;
+            end.checked_add(offset).ok_or_else(|| PosixError::new(
+                ErrorKind::InvalidArgument,
+                "Resulting offset too large for off_t".to_string(),
+            ))?
+        },
+    };
     let bytes_written = unsafe {
         libc::pwrite(
             fd.clone().into(),
@@ -866,8 +917,13 @@ pub fn fallocate(
 ///
 /// It changes the file offset for the given file descriptor, based on the provided
 /// offset and whence values. The new position is returned as a 64-bit integer.
-pub fn lseek(fd: &FileDescriptor, offset: i64, whence: Whence) -> Result<i64, PosixError> {
-    let result = unsafe { libc::lseek(fd.clone().into(), offset, whence.into()) };
+pub fn lseek(fd: &FileDescriptor, seek: SeekFrom) -> Result<i64, PosixError> {
+    let (whence, offset) = match seek {
+        SeekFrom::Start(offset) => (libc::SEEK_SET, offset as libc::off_t),
+        SeekFrom::Current(offset) => (libc::SEEK_CUR, offset as libc::off_t),
+        SeekFrom::End(offset) => (libc::SEEK_END, offset as libc::off_t),
+    };
+    let result = unsafe { libc::lseek(fd.clone().into(), offset, whence) };
     if result == -1 {
         return Err(PosixError::last_error(format!(
             "{:?}: lseek failed. Offset: {:?}, whence: {:?}",
@@ -1073,14 +1129,14 @@ mod tests {
         fs::write(&tmpfile.path(), b"Hello, world!").unwrap();
 
         let fd = open(&tmpfile.path(), OpenFlags::READ_ONLY).unwrap();
-        let result = read(&fd, 0, 5).unwrap();
+        let result = read(&fd, SeekFrom::Current(0), 5).unwrap();
         assert_eq!(result, b"Hello");
 
-        let result = read(&fd, 7, 5).unwrap();
-        assert_eq!(result, b"world");
+        let result = read(&fd, SeekFrom::Current(0), 5).unwrap();
+        assert_eq!(result, b"Hello");
 
         // Attempt to read past the end of the file
-        let result = read(&fd, 50, 10);
+        let result = read(&fd, SeekFrom::Current(50), 10);
         assert!(!result.is_err());
         assert_eq!(result.unwrap().len(), 0);
         drop(tmpfile);
@@ -1092,20 +1148,18 @@ mod tests {
         let fd = open(&tmpfile.path(), OpenFlags::READ_WRITE).unwrap();
 
         // Write data to the file
-        let bytes_written = write(&fd, 0, b"Hello, world!").unwrap();
+        let bytes_written = write(&fd, SeekFrom::Current(0), b"Hello, world!").unwrap();
         assert_eq!(bytes_written, 13);
 
         // Verify written content
-        lseek(&fd, 0, Whence::Start).unwrap();
-        let content = read(&fd, 0, 100).unwrap();
+        let content = read(&fd, SeekFrom::Start(0), 100).unwrap();
         assert_eq!(&String::from_utf8(content).unwrap(), "Hello, world!");
 
         // Overwrite part of the file
-        let bytes_written = write(&fd, 7, b"Rustaceans!").unwrap();
+        let bytes_written = write(&fd, SeekFrom::Current(7), b"Rustaceans!").unwrap();
         assert_eq!(bytes_written, 11);
 
-        lseek(&fd, 0, Whence::Start).unwrap();
-        let content = read(&fd, 0, 100).unwrap();
+        let content = read(&fd, SeekFrom::Start(0), 100).unwrap();
         assert_eq!(&String::from_utf8(content).unwrap(), "Hello, Rustaceans!");
         drop(tmpfile);
     }
@@ -1130,5 +1184,59 @@ mod tests {
 
         assert!(stat.total_blocks > 0);
         assert!(stat.block_size > 0);
+    }
+
+    #[test]
+    fn test_lseek() {
+        use std::io::Write;
+
+        let tmpfile = NamedTempFile::new().unwrap();
+        let path = tmpfile.path().to_path_buf();
+    
+        // Write some data to the file
+        {
+            let mut file = File::create(&path).unwrap();
+            file.write_all(b"Hello, World!").unwrap();
+        }
+    
+        let fd = open(&path, OpenFlags::READ_WRITE).unwrap();
+    
+        // Test SeekFrom::Start
+        let new_pos = lseek(&fd, SeekFrom::Start(7)).unwrap();
+        assert_eq!(new_pos, 7);
+    
+        // Read to verify position
+        let buffer = read(&fd, SeekFrom::Current(0), 6).unwrap();
+        assert_eq!(buffer, b"World!");
+
+        // Read again, because read does not update position
+        let buffer = read(&fd, SeekFrom::Current(0), 6).unwrap();
+        assert_eq!(buffer, b"World!");
+    
+        // Test SeekFrom::Current
+        let new_pos = lseek(&fd, SeekFrom::Current(-6)).unwrap();
+        assert_eq!(new_pos, 1);
+    
+        // Read to verify position
+        let buffer = read(&fd, SeekFrom::Current(-1), 5).unwrap();
+        assert_eq!(buffer, b"Hello");
+    
+        // Test SeekFrom::End
+        let new_pos = lseek(&fd, SeekFrom::End(-5)).unwrap();
+        assert_eq!(new_pos, 8);
+    
+        // Read to verify position
+        let buffer = read(&fd, SeekFrom::Current(0), 5).unwrap();
+        assert_eq!(buffer, b"orld!");
+    
+        // Test seeking beyond file size
+        let new_pos = lseek(&fd, SeekFrom::Start(20)).unwrap();
+        assert_eq!(new_pos, 20);
+    
+        // Attempt to read from beyond file size
+        let result = read(&fd, SeekFrom::Current(0), 5).unwrap();
+        assert_eq!(result.len(), 0);
+    
+        drop(tmpfile);
     }
 }

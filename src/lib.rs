@@ -149,7 +149,7 @@ pub mod prelude {
     pub use super::types::*;
     pub use super::{mount, spawn_mount};
 
-    pub use fuser::{BackgroundSession, MountOption};
+    pub use fuser::{BackgroundSession, Session, SessionUnmounter, MountOption};
 }
 
 // Implentation of the high-level functions

@@ -236,13 +236,13 @@ pub trait FuseHandler<T: FileIdType>: Send + Sync + 'static {
         req: &RequestInfo,
         file_id: T,
         file_handle: FileHandle,
-        offset: i64,
+        seek: SeekFrom,
         size: u32,
         flags: FUSEOpenFlags,
         lock_owner: Option<u64>,
     ) -> FuseResult<Vec<u8>> {
         self.get_inner()
-            .read(req, file_id, file_handle, offset, size, flags, lock_owner)
+            .read(req, file_id, file_handle, seek, size, flags, lock_owner)
     }
 
     /// Write data to a file
@@ -255,7 +255,7 @@ pub trait FuseHandler<T: FileIdType>: Send + Sync + 'static {
         req: &RequestInfo,
         file_id: T,
         file_handle: FileHandle,
-        offset: i64,
+        seek: SeekFrom,
         data: Vec<u8>,
         write_flags: FUSEWriteFlags,
         flags: OpenFlags,
@@ -265,7 +265,7 @@ pub trait FuseHandler<T: FileIdType>: Send + Sync + 'static {
             req,
             file_id,
             file_handle,
-            offset,
+            seek,
             data,
             write_flags,
             flags,
@@ -536,11 +536,10 @@ pub trait FuseHandler<T: FileIdType>: Send + Sync + 'static {
         req: &RequestInfo,
         file_id: T,
         file_handle: FileHandle,
-        offset: i64,
-        whence: Whence,
+        seek: SeekFrom,
     ) -> FuseResult<i64> {
         self.get_inner()
-            .lseek(req, file_id, file_handle, offset, whence)
+            .lseek(req, file_id, file_handle, seek)
     }
 
     /// Copy the specified range from the source inode to the destination inode

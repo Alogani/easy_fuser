@@ -5,37 +5,20 @@ use fuser::{FileType, Request, TimeOrNow};
 use super::FileHandle;
 use super::LockType;
 
-/// Represents the reference point for file seeking operations.
-///
-/// This enum corresponds to the POSIX `whence` parameter in `lseek`:
-/// - `Start`: Seek from the beginning of the file.
-/// - `Current`: Seek from the current position.
-/// - `End`: Seek from the end of the file.
-#[derive(Debug, Clone, Copy)]
-pub enum Whence {
-    Start,
-    Current,
-    End,
-}
+pub use std::io::SeekFrom;
 
-impl From<i32> for Whence {
-    fn from(value: i32) -> Self {
-        match value {
-            libc::SEEK_SET => Whence::Start,
-            libc::SEEK_CUR => Whence::Current,
-            libc::SEEK_END => Whence::End,
-            _ => panic!("Invalid whence"),
+pub fn seek_from_raw(whence: Option<i32>, offset: i64) -> SeekFrom {
+    match whence {
+        Some(w) => {
+            match w {
+                libc::SEEK_SET => SeekFrom::Start(offset.try_into()
+                    .expect("Invalid negative seek offset for file start")),
+                libc::SEEK_CUR => SeekFrom::Current(offset),
+                libc::SEEK_END => SeekFrom::End(offset),
+                _ => panic!("Invalid seek code"),
+            }
         }
-    }
-}
-
-impl From<Whence> for i32 {
-    fn from(value: Whence) -> Self {
-        match value {
-            Whence::Start => libc::SEEK_SET,
-            Whence::Current => libc::SEEK_CUR,
-            Whence::End => libc::SEEK_END,
-        }
+        None => SeekFrom::Current(offset),
     }
 }
 

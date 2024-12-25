@@ -16,15 +16,18 @@ use super::inode::*;
 /// 1. Inode: The user provides their own unique inode numbers.
 ///    - Pros: Direct control over inode assignment.
 ///    - Cons: Requires manual management of inode uniqueness.
+///    - Root: Represented by the constant ROOT_INODE with a value of 1.
 ///
 /// 2. PathBuf: Uses file paths for identification.
 ///    - Pros: Automatic inode-to-path mapping and caching.
 ///    - Cons: May have performance overhead for large file systems.
+///    - Root: Represented by an empty string. Paths are relative and never begin with a forward slash.
 /// 
 /// 3. `Vec<OsString>`: Uses a vector of path components for identification.
 ///    - Pros: Slightly lower overhead than PathBuf, allows path to be divided into parts.
 ///    - Cons: Path components are stored in reverse order, which may require additional handling.
-pub trait FileIdType: GetConverter + Debug + Clone + 'static {
+///    - Root: Represented by an empty vector.
+pub trait FileIdType: 'static + GetConverter + Debug + Clone + PartialEq + Eq + std::hash::Hash {
     /// Full metadata type for the file system.
     ///
     /// For Inode-based: (Inode, FileAttribute)
@@ -46,6 +49,8 @@ pub trait FileIdType: GetConverter + Debug + Clone + 'static {
 
     fn display(&self) -> impl Display;
 
+    fn is_fuse_root(&self) -> bool;
+
     fn extract_metadata(metadata: Self::Metadata) -> (Self::_Id, FileAttribute);
     fn extract_minimal_metadata(minimal_metadata: Self::MinimalMetadata) -> (Self::_Id, FileKind);
 }
@@ -57,6 +62,10 @@ impl FileIdType for Inode {
 
     fn display(&self) -> impl Display {
         format!("{:?}", self)
+    }
+
+    fn is_fuse_root(&self) -> bool {
+        *self == ROOT_INODE
     }
 
     /// For internal usage
@@ -79,6 +88,10 @@ impl FileIdType for PathBuf {
         Path::display(self)
     }
 
+    fn is_fuse_root(&self) -> bool {
+        self.as_os_str().is_empty()
+    }
+
     fn extract_metadata(metadata: Self::Metadata) -> (Self::_Id, FileAttribute) {
         ((), metadata)
     }
@@ -99,6 +112,10 @@ impl FileIdType for Vec<OsString> {
             .map(|os_str| os_str.to_string_lossy().into_owned())
             .collect::<Vec<_>>()
             .join( " | ")
+    }
+
+    fn is_fuse_root(&self) -> bool {
+        self.is_empty()
     }
 
     fn extract_metadata(metadata: Self::Metadata) -> (Self::_Id, FileAttribute) {

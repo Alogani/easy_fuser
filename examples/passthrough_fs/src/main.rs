@@ -1,3 +1,7 @@
+//! This is a simple example of a FUSE filesystem mirror.
+//! 
+//! This leverage MirrorFs templates.
+
 use std::path::PathBuf;
 use std::process::exit;
 use std::process::Command;

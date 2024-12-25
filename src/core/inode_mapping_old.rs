@@ -9,7 +9,7 @@ use std::sync::{atomic::AtomicU64, RwLock};
 
 use crate::{types::*, unwrap};
 
-pub const ROOT_INO: u64 = 1;
+pub const ROOT_INODE: u64 = 1;
 
 pub trait GetConverter {
     type Resolver: FileIdResolver<FileIdType = Self>;
@@ -87,41 +87,10 @@ pub struct ComponentsResolver {
     next_inode: AtomicU64,
 }
 
-// A little hack to avoid duplication of the same OsString
-struct OsStrPtr(*const OsStr);
-
-unsafe impl Send for OsStrPtr {}
-unsafe impl Sync for OsStrPtr {}
-
-impl OsStrPtr {
-    fn _unsafe_borrow(ptr: &OsStr) -> Self {
-        OsStrPtr(ptr as *const OsStr)
-    }
-
-    fn get(&self) -> &OsStr {
-        unsafe { &*self.0 }
-    }
-}
-
-impl PartialEq for OsStrPtr {
-    fn eq(&self, other: &Self) -> bool {
-        self.get() == other.get()
-    }
-}
-
-impl Eq for OsStrPtr {}
-
-impl std::hash::Hash for OsStrPtr {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        self.get().hash(state);
-    }
-}
-
-
 struct InodeData {
     inodes: HashMap<u64, InodeValue>,
     // Storing here instead of a HashMap for each children simplify the borrowing rules
-    all_children: HashMap<u64, HashMap<OsStrPtr, u64>>,
+    all_children: HashMap<u64, HashMap<OsString, u64>>,
 }
 
 impl InodeData {
@@ -129,7 +98,7 @@ impl InodeData {
         &mut self,
     ) -> (
         &mut HashMap<u64, InodeValue>,
-        &mut HashMap<u64, HashMap<OsStrPtr, u64>>,
+        &mut HashMap<u64, HashMap<OsString, u64>>,
     ) {
         (&mut self.inodes, &mut self.all_children)
     }
@@ -157,23 +126,23 @@ impl FileIdResolver for ComponentsResolver {
 
         // Insert root inode
         inodes.insert(
-            ROOT_INO,
+            ROOT_INODE,
             InodeValue {
                 nlookup: AtomicU64::new(0), // not used for root, never forgotten
-                parent: ROOT_INO,
+                parent: ROOT_INODE,
                 name: OsString::from(""),
             },
         );
 
         // Add empty children map for root inode
-        all_children.insert(ROOT_INO, HashMap::new());
+        all_children.insert(ROOT_INODE, HashMap::new());
 
         ComponentsResolver {
             data: RwLock::new(InodeData {
                 inodes,
                 all_children,
             }),
-            next_inode: AtomicU64::new(ROOT_INO + 1),
+            next_inode: AtomicU64::new(ROOT_INODE + 1),
         }
     }
 
@@ -205,7 +174,7 @@ impl FileIdResolver for ComponentsResolver {
                 "No such parent inode {:x?}",
                 parent
             );
-            if let Some(child_ino) = children.get(&OsStrPtr::_unsafe_borrow(child)) {
+            if let Some(child_ino) = children.get(child) {
                 if increment {
                     unwrap!(
                         data.inodes.get(child_ino),
@@ -225,14 +194,13 @@ impl FileIdResolver for ComponentsResolver {
             "No such parent inode {:x?}",
             parent
         );
-        let owned_child = child.to_os_string();
-        children.insert(OsStrPtr::_unsafe_borrow(&owned_child), new_inode);
+        children.insert(child.to_os_string(), new_inode);
         data.inodes.insert(
             new_inode,
             InodeValue {
                 nlookup: AtomicU64::new(if increment { 1 } else { 0 }),
                 parent,
-                name: owned_child,
+                name: child.to_os_string(),
             },
         );
         data.all_children.insert(new_inode, HashMap::new());
@@ -260,29 +228,27 @@ impl FileIdResolver for ComponentsResolver {
 
             for (name, _) in children {
                 let ino = self.next_inode.fetch_add(1, Ordering::SeqCst);
-                new_children.push((name.clone(), ino));
-                new_inodes.push(ino);
-                parent_children.insert(OsStrPtr::_unsafe_borrow(&name), ino);
+                parent_children.insert(name.clone(), ino);
                 inodes.insert(
                     ino,
                     InodeValue {
                         nlookup: AtomicU64::new(if increment { 1 } else { 0 }),
                         parent,
-                        name,
+                        name: name.clone(),
                     },
                 );
+                new_children.push((name, ino));
+                new_inodes.push(ino);
             }
 
             new_children
         } else {
-            if children_len > parent_children.len() {
-                parent_children.reserve(children_len - parent_children.len());
-            }
+            parent_children.reserve(children_len - parent_children.len());
             let mut result = Vec::with_capacity(children.len());
             let mut new_inodes = Vec::with_capacity(children_len);
 
             for (name, _) in children {
-                if let Some(&existing_ino) = parent_children.get(&OsStrPtr::_unsafe_borrow(&name)) {
+                if let Some(&existing_ino) = parent_children.get(&name) {
                     // Child already exists, increment if necessary
                     if increment {
                         if let Some(inode_value) = inodes.get(&existing_ino) {
@@ -293,17 +259,17 @@ impl FileIdResolver for ComponentsResolver {
                 } else {
                     // Child doesn't exist, add it
                     let new_ino = self.next_inode.fetch_add(1, Ordering::SeqCst);
-                    new_inodes.push(new_ino);
-                    result.push((name.clone(), new_ino));
-                    parent_children.insert(OsStrPtr::_unsafe_borrow(&name), new_ino);
+                    parent_children.insert(name.clone(), new_ino);
                     inodes.insert(
                         new_ino,
                         InodeValue {
                             nlookup: AtomicU64::new(if increment { 1 } else { 0 }),
                             parent,
-                            name,
+                            name: name.clone(),
                         },
                     );
+                    new_inodes.push(new_ino);
+                    result.push((name, new_ino));
                 }
             }
             result
@@ -329,7 +295,7 @@ impl FileIdResolver for ComponentsResolver {
 
                 // Remove the inode from its parent's children
                 if let Some(parent_children) = all_children.get_mut(&parent) {
-                    parent_children.remove(&OsStrPtr::_unsafe_borrow(&name));
+                    parent_children.remove(&name);
                 }
 
                 // Remove the inode and its children
@@ -348,20 +314,20 @@ impl FileIdResolver for ComponentsResolver {
             parent
         );
         let &ino = unwrap!(
-            children.get(&OsStrPtr::_unsafe_borrow(&name)),
+            children.get(name),
             "Rename called on non existent child {:?} {:?}",
             parent,
             name
         );
 
-        children.remove(&OsStrPtr::_unsafe_borrow(&name));
+        children.remove(name);
 
         let new_parent_children = unwrap!(
             data.all_children.get_mut(&newparent),
             "No such newparent inode {}",
             parent
         );
-        new_parent_children.insert(OsStrPtr::_unsafe_borrow(&newname), ino);
+        new_parent_children.insert(newname.to_os_string(), ino);
 
         // Update the inode's parent and name
         if let Some(inode_value) = data.inodes.get_mut(&ino) {
@@ -433,29 +399,25 @@ mod tests {
 
     use super::*;
 
-    fn to_osstr_ptr(s: &str) -> OsStrPtr {
-        OsStrPtr::_unsafe_borrow(OsStr::new(s))
-    }
-
     #[test]
     fn test_new() {
         let converter = ComponentsResolver::new();
 
         // Check if ROOT_INODE exists in the inodes HashMap
         let data = converter.data.read().expect("Failed to acquire read lock");
-        assert!(data.inodes.contains_key(&ROOT_INO));
+        assert!(data.inodes.contains_key(&ROOT_INODE));
 
         // Check if next_inode is correctly initialized
         assert_eq!(converter.next_inode.load(Ordering::SeqCst), 2);
 
         // Check properties of the root inode
-        let root_inode = data.inodes.get(&ROOT_INO).expect("Root inode not found");
-        assert_eq!(root_inode.parent, ROOT_INO);
+        let root_inode = data.inodes.get(&ROOT_INODE).expect("Root inode not found");
+        assert_eq!(root_inode.parent, ROOT_INODE);
         assert_eq!(root_inode.name, OsString::from(""));
         assert_eq!(root_inode.nlookup.load(Ordering::SeqCst), 0);
 
         // Check if root inode has no children initially
-        assert!(data.all_children.get(&ROOT_INO).unwrap().is_empty());
+        assert!(data.all_children.get(&ROOT_INODE).unwrap().is_empty());
     }
 
     #[test]
@@ -463,12 +425,8 @@ mod tests {
         let converter = ComponentsResolver::new();
 
         // Map shallow and nested paths
-        let shallow_ino = converter.lookup(ROOT_INO, OsStr::new("shallow_file"), (), true);
+        let shallow_ino = converter.lookup(ROOT_INODE, OsStr::new("shallow_file"), (), true);
         let nested_ino = converter.lookup(shallow_ino, OsStr::new("nested_file"), (), true);
-
-        // Test root path
-        let root_path = converter.resolve_id(ROOT_INO);
-        assert!(root_path.is_empty());
 
         // Test shallow path
         let shallow_path = converter.resolve_id(shallow_ino);
@@ -486,7 +444,7 @@ mod tests {
             .inodes
             .get(&shallow_ino)
             .expect("Shallow inode not found");
-        assert_eq!(shallow_inode.parent, ROOT_INO);
+        assert_eq!(shallow_inode.parent, ROOT_INODE);
         assert_eq!(shallow_inode.name, OsString::from("shallow_file"));
         assert_eq!(shallow_inode.nlookup.load(Ordering::SeqCst), 1);
 
@@ -502,14 +460,14 @@ mod tests {
         // Check children relationships
         assert!(data
             .all_children
-            .get(&ROOT_INO)
+            .get(&ROOT_INODE)
             .unwrap()
-            .contains_key(&to_osstr_ptr("shallow_file")));
+            .contains_key(OsStr::new("shallow_file")));
         assert!(data
             .all_children
             .get(&shallow_ino)
             .unwrap()
-            .contains_key(&to_osstr_ptr("nested_file")));
+            .contains_key(OsStr::new("nested_file")));
     }
 
     #[test]
@@ -517,13 +475,8 @@ mod tests {
         let converter = PathResolver::new();
 
         // Map shallow and nested paths
-        let shallow_ino = converter.lookup(ROOT_INO, OsStr::new("shallow_file"), (), true);
+        let shallow_ino = converter.lookup(ROOT_INODE, OsStr::new("shallow_file"), (), true);
         let nested_ino = converter.lookup(shallow_ino, OsStr::new("nested_file"), (), true);
-
-        
-        // Test root path
-        let root_path = converter.resolve_id(ROOT_INO);
-        assert_eq!(root_path, Path::new(""));
 
         // Test shallow path
         let shallow_path = converter.resolve_id(shallow_ino);
@@ -541,7 +494,7 @@ mod tests {
             .inodes
             .get(&shallow_ino)
             .expect("Shallow inode not found");
-        assert_eq!(shallow_inode.parent, ROOT_INO);
+        assert_eq!(shallow_inode.parent, ROOT_INODE);
         assert_eq!(shallow_inode.name, OsString::from("shallow_file"));
         assert_eq!(shallow_inode.nlookup.load(Ordering::SeqCst), 1);
 
@@ -557,14 +510,14 @@ mod tests {
         // Check children relationships
         assert!(data
             .all_children
-            .get(&ROOT_INO)
+            .get(&ROOT_INODE)
             .unwrap()
-            .contains_key(&to_osstr_ptr("shallow_file")));
+            .contains_key(OsStr::new("shallow_file")));
         assert!(data
             .all_children
             .get(&shallow_ino)
             .unwrap()
-            .contains_key(&to_osstr_ptr("nested_file")));
+            .contains_key(OsStr::new("nested_file")));
     }
 
     #[test]
@@ -572,7 +525,7 @@ mod tests {
         let converter = ComponentsResolver::new();
 
         // Map shallow and nested paths
-        let shallow_ino = converter.lookup(ROOT_INO, OsStr::new("dir"), (), true);
+        let shallow_ino = converter.lookup(ROOT_INODE, OsStr::new("dir"), (), true);
         let nested_ino = converter.lookup(shallow_ino, OsStr::new("file"), (), true);
 
         // Get data
@@ -582,7 +535,7 @@ mod tests {
         assert_eq!(shallow_ino, 2);
         assert!(data.inodes.contains_key(&shallow_ino));
         let shallow_inode = data.inodes.get(&shallow_ino).unwrap();
-        assert_eq!(shallow_inode.parent, ROOT_INO);
+        assert_eq!(shallow_inode.parent, ROOT_INODE);
         assert_eq!(shallow_inode.name, "dir");
 
         // Verify nested path
@@ -594,14 +547,14 @@ mod tests {
         // Verify children relationships
         assert!(data
             .all_children
-            .get(&ROOT_INO)
+            .get(&ROOT_INODE)
             .unwrap()
-            .contains_key(&to_osstr_ptr("dir")));
+            .contains_key(OsStr::new("dir")));
         assert!(data
             .all_children
             .get(&shallow_ino)
             .unwrap()
-            .contains_key(&to_osstr_ptr("file")));
+            .contains_key(OsStr::new("file")));
 
         // Verify lookup counts
         assert_eq!(shallow_inode.nlookup.load(Ordering::SeqCst), 1);
@@ -613,14 +566,14 @@ mod tests {
         let converter = ComponentsResolver::new();
 
         // Map shallow and nested paths
-        let shallow_ino = converter.lookup(ROOT_INO, OsStr::new("dir"), (), true);
+        let shallow_ino = converter.lookup(ROOT_INODE, OsStr::new("dir"), (), true);
         let nested_ino = converter.lookup(shallow_ino, OsStr::new("file"), (), true);
 
         // Rename shallow path
         converter.rename(
-            ROOT_INO,
+            ROOT_INODE,
             OsStr::new("dir"),
-            ROOT_INO,
+            ROOT_INODE,
             OsStr::new("new_dir"),
         );
 
@@ -639,23 +592,23 @@ mod tests {
             // Check that the old name is removed from ROOT_INODE's children
             assert!(!data
                 .all_children
-                .get(&ROOT_INO)
+                .get(&ROOT_INODE)
                 .unwrap()
-                .contains_key(&to_osstr_ptr("dir")));
+                .contains_key(OsStr::new("dir")));
 
             // Check that the new name is added to ROOT_INODE's children
             assert!(data
                 .all_children
-                .get(&ROOT_INO)
+                .get(&ROOT_INODE)
                 .unwrap()
-                .contains_key(&to_osstr_ptr("new_dir")));
+                .contains_key(OsStr::new("new_dir")));
 
             // Verify the renamed inode's properties
             let renamed_inode = data
                 .inodes
                 .get(&shallow_ino)
                 .expect("Renamed inode not found");
-            assert_eq!(renamed_inode.parent, ROOT_INO);
+            assert_eq!(renamed_inode.parent, ROOT_INODE);
             assert_eq!(renamed_inode.name, OsString::from("new_dir"));
 
             // Verify that the nested inode's parent hasn't changed
@@ -671,7 +624,7 @@ mod tests {
     fn test_forget() {
         let converter = ComponentsResolver::new();
 
-        let shallow_ino = converter.lookup(ROOT_INO, OsStr::new("dir"), (), true);
+        let shallow_ino = converter.lookup(ROOT_INODE, OsStr::new("dir"), (), true);
         let nested_ino = converter.lookup(shallow_ino, OsStr::new("file"), (), true);
 
         // Remove nested path
@@ -685,7 +638,7 @@ mod tests {
                 .all_children
                 .get(&shallow_ino)
                 .expect("Shallow inode not found");
-            assert!(!shallow_children.contains_key(&to_osstr_ptr("file")));
+            assert!(!shallow_children.contains_key(OsStr::new("file")));
         }
 
         // Remove shallow path
@@ -697,9 +650,9 @@ mod tests {
             assert!(!data.inodes.contains_key(&shallow_ino));
             let root_children = data
                 .all_children
-                .get(&ROOT_INO)
+                .get(&ROOT_INODE)
                 .expect("Root inode not found");
-            assert!(!root_children.contains_key(&to_osstr_ptr("dir")));
+            assert!(!root_children.contains_key(OsStr::new("dir")));
         }
     }
 }

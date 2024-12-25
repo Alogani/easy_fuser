@@ -1,5 +1,5 @@
 [package]
-name = "mirror_fs"
+name = "passthrough_fs"
 version = "0.1.0"
 edition = "2021"
 

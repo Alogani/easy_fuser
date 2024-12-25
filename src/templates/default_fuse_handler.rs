@@ -289,14 +289,14 @@ impl<T: FileIdType> FuseHandler<T> for DefaultFuseHandler {
         _req: &RequestInfo,
         file_id: T,
         file_handle: FileHandle,
-        offset: i64,
+        seek: SeekFrom,
         size: u32,
         flags: FUSEOpenFlags,
         lock_owner: Option<u64>,
     ) -> FuseResult<Vec<u8>> {
         let msg = format!(
-            "[Not Implemented] read(file_id: {}, file_handle: {:?}, offset: {}, size: {}, flags: {:?}, lock_owner: {:?})",
-            file_id.display(), file_handle, offset, size, flags, lock_owner
+            "[Not Implemented] read(file_id: {}, file_handle: {:?}, seek: {:?}, size: {}, flags: {:?}, lock_owner: {:?})",
+            file_id.display(), file_handle, seek, size, flags, lock_owner
         );
         if self.panic {
             panic!("{}", msg);
@@ -310,15 +310,15 @@ impl<T: FileIdType> FuseHandler<T> for DefaultFuseHandler {
         _req: &RequestInfo,
         file_id: T,
         file_handle: FileHandle,
-        offset: i64,
+        seek: SeekFrom,
         data: Vec<u8>,
         write_flags: FUSEWriteFlags,
         flags: OpenFlags,
         lock_owner: Option<u64>,
     ) -> FuseResult<u32> {
         let msg = format!(
-            "[Not Implemented] write(file_id: {}, file_handle: {:?}, offset: {}, data_len: {}, write_flags: {:?}, flags: {:?}, lock_owner: {:?})",
-            file_id.display(), file_handle, offset, data.len(), write_flags, flags, lock_owner
+            "[Not Implemented] write(file_id: {}, file_handle: {:?}, seek: {:?}, data_len: {}, write_flags: {:?}, flags: {:?}, lock_owner: {:?})",
+            file_id.display(), file_handle, seek, data.len(), write_flags, flags, lock_owner
         );
         if self.panic {
             panic!("{}", msg);
@@ -661,15 +661,13 @@ impl<T: FileIdType> FuseHandler<T> for DefaultFuseHandler {
         _req: &RequestInfo,
         file_id: T,
         file_handle: FileHandle,
-        offset: i64,
-        whence: Whence,
+        seek: SeekFrom,
     ) -> FuseResult<i64> {
         let msg = format!(
-            "[Not Implemented] lseek(file_id: {}, file_handle: {:?}, offset: {}, whence: {:?})",
+            "[Not Implemented] lseek(file_id: {}, file_handle: {:?}, seek: {:?})",
             file_id.display(),
             file_handle,
-            offset,
-            whence
+            seek,
         );
         if self.panic {
             panic!("{}", msg);

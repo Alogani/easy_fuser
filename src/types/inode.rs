@@ -23,7 +23,10 @@
 /// For users who prefer not to manage inodes directly, this library also supports
 /// using `PathBuf` as `FileIdType`. This alternative approach allows for file
 /// identification based on paths rather than inode numbers.
-#[derive(Debug, Clone, PartialEq)]
+
+pub const ROOT_INODE: Inode = Inode(1);
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Inode(u64);
 
 impl From<u64> for Inode {

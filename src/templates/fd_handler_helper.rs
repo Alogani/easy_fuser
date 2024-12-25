@@ -73,13 +73,13 @@ macro_rules! fd_handler_readonly_methods {
             _req: &RequestInfo,
             _file_id: T,
             file_handle: FileHandle,
-            offset: i64,
+            seek: SeekFrom,
             size: u32,
             _flags: FUSEOpenFlags,
             _lock_owner: Option<u64>,
         ) -> FuseResult<Vec<u8>> {
             match FileDescriptor::try_from(file_handle) {
-                Ok(fd) => posix_fs::read(&fd, offset, size),
+                Ok(fd) => posix_fs::read(&fd, seek, size),
                 Err(e) => Err(e.into()),
             }
         }
@@ -130,11 +130,10 @@ macro_rules! fd_handler_readonly_methods {
             _req: &RequestInfo,
             _file_id: T,
             file_handle: FileHandle,
-            offset: i64,
-            whence: Whence,
+            seek: SeekFrom,
         ) -> FuseResult<i64> {
             match FileDescriptor::try_from(file_handle) {
-                Ok(fd) => posix_fs::lseek(&fd, offset, whence),
+                Ok(fd) => posix_fs::lseek(&fd, seek),
                 Err(e) => Err(e.into()),
             }
         }
@@ -148,14 +147,14 @@ macro_rules! fd_handler_readwrite_methods {
             _req: &RequestInfo,
             _file_id: T,
             file_handle: FileHandle,
-            offset: i64,
+            seek: SeekFrom,
             data: Vec<u8>,
             _write_flags: FUSEWriteFlags,
             _flags: OpenFlags,
             _lock_owner: Option<u64>,
         ) -> FuseResult<u32> {
             match FileDescriptor::try_from(file_handle) {
-                Ok(fd) => posix_fs::write(&fd, offset, &data),
+                Ok(fd) => posix_fs::write(&fd, seek, &data),
                 Err(e) => Err(e.into()),
             }
         }
