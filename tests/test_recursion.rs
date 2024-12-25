@@ -6,6 +6,10 @@ use std::path::PathBuf;
 use std::process::Command;
 use std::time::{Duration, Instant};
 
+/// In theory, this test shouldn't work, but for an unknown reason it works
+/// 
+/// However, when trying this kind of mount in a terminal, it hangs
+
 #[test]
 fn test_mirror_fs_recursion() {
     // Create source and mount directories

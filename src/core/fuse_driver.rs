@@ -19,7 +19,8 @@ use super::{
     macros::*,
 };
 use crate::{fuse_handler::FuseHandler, types::*};
-use private::{unpack_metadata, unpack_minimal_metadata, SafeBorrowable};
+use crate::prelude::private::SafeBorrowable;
+use crate::prelude::private::{unpack_metadata, unpack_minimal_metadata};
 
 fn get_random_generation() -> u64 {
     Instant::now().elapsed().as_nanos() as u64

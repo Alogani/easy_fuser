@@ -82,7 +82,7 @@ impl FileIdResolver for InodeResolver {
     fn rename(&self, _parent: u64, _name: &OsStr, _newparent: u64, _newname: &OsStr) {}
 }
 
-pub struct PathBufResolver {
+pub struct ComponentsResolver {
     data: RwLock<InodeData>,
     next_inode: AtomicU64,
 }
@@ -110,15 +110,15 @@ struct InodeValue {
     name: OsString,
 }
 
-impl GetConverter for PathBuf {
-    type Resolver = PathBufResolver;
+impl GetConverter for Vec<OsString> {
+    type Resolver = ComponentsResolver;
     fn get_converter() -> Self::Resolver {
-        PathBufResolver::new()
+        ComponentsResolver::new()
     }
 }
 
-impl FileIdResolver for PathBufResolver {
-    type FileIdType = PathBuf;
+impl FileIdResolver for ComponentsResolver {
+    type FileIdType = Vec<OsString>;
 
     fn new() -> Self {
         let mut inodes = HashMap::new();
@@ -137,7 +137,7 @@ impl FileIdResolver for PathBufResolver {
         // Add empty children map for root inode
         all_children.insert(ROOT_INODE, HashMap::new());
 
-        PathBufResolver {
+        ComponentsResolver {
             data: RwLock::new(InodeData {
                 inodes,
                 all_children,
@@ -161,7 +161,8 @@ impl FileIdResolver for PathBufResolver {
             path_components.push(inode_value.name.clone());
             current_ino = inode_value.parent;
         }
-        path_components.iter().rev().collect::<PathBuf>()
+        
+        path_components
     }
 
     fn lookup(&self, parent: u64, child: &OsStr, _id: (), increment: bool) -> u64 {
@@ -337,13 +338,71 @@ impl FileIdResolver for PathBufResolver {
     }
 }
 
+
+pub struct PathResolver {
+    resolver: ComponentsResolver,
+}
+
+impl GetConverter for PathBuf {
+    type Resolver = PathResolver;
+    fn get_converter() -> Self::Resolver {
+        PathResolver::new()
+    }
+}
+
+impl FileIdResolver for PathResolver {
+    type FileIdType = PathBuf;
+    
+    fn new() -> Self {
+        PathResolver {
+            resolver: ComponentsResolver::new(),
+        }
+    }
+    
+    fn resolve_id(&self, ino: u64) -> Self::FileIdType {
+        self.resolver.resolve_id(ino)
+            .iter().rev()
+            .collect::<PathBuf>()
+    }
+    
+    fn lookup(
+        &self,
+        parent: u64,
+        child: &OsStr,
+        id: <Self::FileIdType as FileIdType>::_Id,
+        increment: bool,
+    ) -> u64 {
+        self.resolver.lookup(parent, child, id, increment)
+    }
+    
+    fn add_children(
+        &self,
+        parent: u64,
+        children: Vec<(OsString, <Self::FileIdType as FileIdType>::_Id)>,
+        increment: bool,
+    ) -> Vec<(OsString, u64)> {
+        self.resolver.add_children(parent, children, increment)
+    }
+    
+    fn forget(&self, ino: u64, nlookup: u64) {
+        self.resolver.forget(ino, nlookup);
+    }
+    
+    fn rename(&self, parent: u64, name: &OsStr, newparent: u64, newname: &OsStr) {
+        self.resolver.rename(parent, name, newparent, newname);
+    }
+
+}
+
 #[cfg(test)]
 mod tests {
+    use std::path::Path;
+
     use super::*;
 
     #[test]
     fn test_new() {
-        let converter = PathBufResolver::new();
+        let converter = ComponentsResolver::new();
 
         // Check if ROOT_INODE exists in the inodes HashMap
         let data = converter.data.read().expect("Failed to acquire read lock");
@@ -364,7 +423,7 @@ mod tests {
 
     #[test]
     fn test_resolve_id() {
-        let converter = PathBufResolver::new();
+        let converter = ComponentsResolver::new();
 
         // Map shallow and nested paths
         let shallow_ino = converter.lookup(ROOT_INODE, OsStr::new("shallow_file"), (), true);
@@ -372,11 +431,11 @@ mod tests {
 
         // Test shallow path
         let shallow_path = converter.resolve_id(shallow_ino);
-        assert_eq!(shallow_path, PathBuf::from("shallow_file"));
+        assert_eq!(shallow_path, ["shallow_file"]);
 
         // Test nested path
         let nested_path = converter.resolve_id(nested_ino);
-        assert_eq!(nested_path, PathBuf::from("shallow_file/nested_file"));
+        assert_eq!(nested_path, ["nested_file", "shallow_file"]);
 
         // Verify internal state
         let data = converter.data.read().expect("Failed to acquire read lock");
@@ -413,8 +472,58 @@ mod tests {
     }
 
     #[test]
+    fn test_path_resolver_resolve_id() {
+        let converter = PathResolver::new();
+
+        // Map shallow and nested paths
+        let shallow_ino = converter.lookup(ROOT_INODE, OsStr::new("shallow_file"), (), true);
+        let nested_ino = converter.lookup(shallow_ino, OsStr::new("nested_file"), (), true);
+
+        // Test shallow path
+        let shallow_path = converter.resolve_id(shallow_ino);
+        assert_eq!(shallow_path, Path::new("shallow_file"));
+
+        // Test nested path
+        let nested_path = converter.resolve_id(nested_ino);
+        assert_eq!(nested_path, Path::new("shallow_file").join("nested_file"));
+
+        // Verify internal state
+        let data = converter.resolver.data.read().expect("Failed to acquire read lock");
+
+        // Check shallow inode
+        let shallow_inode = data
+            .inodes
+            .get(&shallow_ino)
+            .expect("Shallow inode not found");
+        assert_eq!(shallow_inode.parent, ROOT_INODE);
+        assert_eq!(shallow_inode.name, OsString::from("shallow_file"));
+        assert_eq!(shallow_inode.nlookup.load(Ordering::SeqCst), 1);
+
+        // Check nested inode
+        let nested_inode = data
+            .inodes
+            .get(&nested_ino)
+            .expect("Nested inode not found");
+        assert_eq!(nested_inode.parent, shallow_ino);
+        assert_eq!(nested_inode.name, OsString::from("nested_file"));
+        assert_eq!(nested_inode.nlookup.load(Ordering::SeqCst), 1);
+
+        // Check children relationships
+        assert!(data
+            .all_children
+            .get(&ROOT_INODE)
+            .unwrap()
+            .contains_key(OsStr::new("shallow_file")));
+        assert!(data
+            .all_children
+            .get(&shallow_ino)
+            .unwrap()
+            .contains_key(OsStr::new("nested_file")));
+    }
+
+    #[test]
     fn test_get_or_create_inode() {
-        let converter = PathBufResolver::new();
+        let converter = ComponentsResolver::new();
 
         // Map shallow and nested paths
         let shallow_ino = converter.lookup(ROOT_INODE, OsStr::new("dir"), (), true);
@@ -455,7 +564,7 @@ mod tests {
 
     #[test]
     fn test_rename() {
-        let converter = PathBufResolver::new();
+        let converter = ComponentsResolver::new();
 
         // Map shallow and nested paths
         let shallow_ino = converter.lookup(ROOT_INODE, OsStr::new("dir"), (), true);
@@ -471,11 +580,11 @@ mod tests {
 
         // Verify renamed shallow path
         let renamed_shallow_path = converter.resolve_id(shallow_ino);
-        assert_eq!(renamed_shallow_path, PathBuf::from("new_dir"));
+        assert_eq!(renamed_shallow_path, ["new_dir"]);
 
         // Verify nested path after rename
         let renamed_nested_path = converter.resolve_id(nested_ino);
-        assert_eq!(renamed_nested_path, PathBuf::from("new_dir/file"));
+        assert_eq!(renamed_nested_path, ["file", "new_dir"]);
 
         // Verify internal state
         {
@@ -514,7 +623,7 @@ mod tests {
 
     #[test]
     fn test_forget() {
-        let converter = PathBufResolver::new();
+        let converter = ComponentsResolver::new();
 
         let shallow_ino = converter.lookup(ROOT_INODE, OsStr::new("dir"), (), true);
         let nested_ino = converter.lookup(shallow_ino, OsStr::new("file"), (), true);
