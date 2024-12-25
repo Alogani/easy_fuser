@@ -2,15 +2,15 @@
 
 overall_status=0
 
-echo "Running tests for parallel feature"
-cargo test --features parallel
-parallel_status=$?
-overall_status=$((overall_status | parallel_status))
-
 echo "Running tests for serial feature"
 cargo test --features serial --test integration_test
 serial_status=$?
 overall_status=$((overall_status | serial_status))
+
+echo "Running tests for parallel feature"
+cargo test --features parallel
+parallel_status=$?
+overall_status=$((overall_status | parallel_status))
 
 # echo "Running tests for async feature"
 # cargo test --features async --test integration_test
