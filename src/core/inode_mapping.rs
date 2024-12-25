@@ -1,13 +1,13 @@
 use std::{
     collections::HashMap,
     ffi::{OsStr, OsString},
-    path::{Path, PathBuf},
+    path::PathBuf,
     sync::atomic::Ordering,
 };
 
 use std::sync::{atomic::AtomicU64, RwLock};
 
-use crate::types::*;
+use crate::{types::*, unwrap};
 
 pub const ROOT_INODE: u64 = 1;
 
@@ -16,23 +16,8 @@ pub trait GetConverter {
     fn get_converter() -> Self::Resolver;
 }
 
-impl GetConverter for Inode {
-    type Resolver = InodeResolver;
-    fn get_converter() -> Self::Resolver {
-        InodeResolver::new()
-    }
-}
-
-impl GetConverter for PathBuf {
-    type Resolver = PathBufResolver;
-    fn get_converter() -> Self::Resolver {
-        PathBufResolver::new()
-    }
-}
-
 /// FileIdResolver
 /// FileIdResolver handles its data behind Locks if needed and should not be nested inside a Mutex
-
 pub trait FileIdResolver: Send + Sync + 'static {
     type FileIdType: FileIdType;
 
@@ -56,6 +41,13 @@ pub trait FileIdResolver: Send + Sync + 'static {
 }
 
 pub struct InodeResolver {}
+
+impl GetConverter for Inode {
+    type Resolver = InodeResolver;
+    fn get_converter() -> Self::Resolver {
+        InodeResolver::new()
+    }
+}
 
 impl FileIdResolver for InodeResolver {
     type FileIdType = Inode;
@@ -91,29 +83,37 @@ impl FileIdResolver for InodeResolver {
 }
 
 pub struct PathBufResolver {
-    inodes: RwLock<HashMap<u64, InodeValue>>,
+    data: RwLock<InodeData>,
     next_inode: AtomicU64,
 }
 
-struct InodeValue {
-    name_ptr: SendOsStrPtr,
-    nlookup: u64,
-    parent: u64,
-    children: HashMap<OsString, u64>,
+struct InodeData {
+    inodes: HashMap<u64, InodeValue>,
+    // Storing here instead of a HashMap for each children simplify the borrowing rules
+    all_children: HashMap<u64, HashMap<OsString, u64>>,
 }
 
-#[derive(Clone)]
-struct SendOsStrPtr(*const OsStr);
-unsafe impl Send for SendOsStrPtr {}
-unsafe impl Sync for SendOsStrPtr {}
-
-impl SendOsStrPtr {
-    fn from(ptr: &OsStr) -> Self {
-        SendOsStrPtr(ptr as *const OsStr)
+impl InodeData {
+    fn double_borrow(
+        &mut self,
+    ) -> (
+        &mut HashMap<u64, InodeValue>,
+        &mut HashMap<u64, HashMap<OsString, u64>>,
+    ) {
+        (&mut self.inodes, &mut self.all_children)
     }
+}
 
-    fn get(&self) -> &OsStr {
-        unsafe { &*self.0 }
+struct InodeValue {
+    nlookup: AtomicU64,
+    parent: u64,
+    name: OsString,
+}
+
+impl GetConverter for PathBuf {
+    type Resolver = PathBufResolver;
+    fn get_converter() -> Self::Resolver {
+        PathBufResolver::new()
     }
 }
 
@@ -122,91 +122,89 @@ impl FileIdResolver for PathBufResolver {
 
     fn new() -> Self {
         let mut inodes = HashMap::new();
+        let mut all_children = HashMap::new();
 
-        // No leading slahs make it easier for path joining
-        static ROOT_PATH: &str = "";
-
+        // Insert root inode
         inodes.insert(
             ROOT_INODE,
             InodeValue {
-                name_ptr: SendOsStrPtr::from(unsafe {
-                    &*(ROOT_PATH as *const str as *const OsStr)
-                }),
-                nlookup: 0, // not used, root is never forget
+                nlookup: AtomicU64::new(0), // not used for root, never forgotten
                 parent: ROOT_INODE,
-                children: HashMap::new(),
+                name: OsString::from(""),
             },
         );
 
-        Self {
-            inodes: RwLock::new(inodes),
-            next_inode: AtomicU64::new(2), // Start assigning inodes from 2
+        // Add empty children map for root inode
+        all_children.insert(ROOT_INODE, HashMap::new());
+
+        PathBufResolver {
+            data: RwLock::new(InodeData {
+                inodes,
+                all_children,
+            }),
+            next_inode: AtomicU64::new(ROOT_INODE + 1),
         }
     }
 
     fn resolve_id(&self, ino: u64) -> Self::FileIdType {
-        let inodes = self.inodes.read().unwrap();
-        let mut result = PathBuf::new();
-        let mut inode = ino;
-        loop {
-            let (parent, name) = {
-                let InodeValue {
-                    name_ptr,
-                    nlookup: _,
-                    parent,
-                    children: _,
-                } = inodes.get(&inode).unwrap();
-                (*parent, name_ptr.get().as_ref() as &Path)
-            };
-            if !result.as_os_str().is_empty() {
-                result = name.join(result);
-            } else {
-                result = name.to_path_buf();
-            }
-            inode = parent;
-            if inode == ROOT_INODE {
-                break;
-            }
+        let inodes = &self
+            .data
+            .read()
+            .expect("Failed to acquire read lock")
+            .inodes;
+        let mut path_components = Vec::new();
+
+        let mut current_ino = ino;
+
+        while current_ino != 1 {
+            let inode_value = unwrap!(inodes.get(&current_ino), "Inode not found: {:x?}", ino);
+            path_components.push(inode_value.name.clone());
+            current_ino = inode_value.parent;
         }
-        drop(inodes);
-        result
+        path_components.iter().rev().collect::<PathBuf>()
     }
 
     fn lookup(&self, parent: u64, child: &OsStr, _id: (), increment: bool) -> u64 {
-        let mut inodes = self.inodes.write().unwrap();
-        let correct_inode = match child {
-            os_str if os_str == "." => parent,
-            os_str if os_str == ".." => inodes.get(&parent).unwrap().parent,
-            _ => match inodes.get(&parent).unwrap().children.get(child) {
-                Some(&child_inode) => {
-                    if increment {
-                        inodes.get_mut(&child_inode).unwrap().nlookup += 1;
-                    }
-                    child_inode
+        {
+            eprintln!("LOOKUP {:x?} - {:?}", parent, child);
+            // Assume optimistic existence of child by acquiring only read lock
+            let data = self.data.read().expect("Failed to acquire read lock");
+            let children = unwrap!(
+                data.all_children.get(&parent),
+                "No such parent inode {:x?}",
+                parent
+            );
+            if let Some(child_ino) = children.get(child) {
+                if increment {
+                    unwrap!(
+                        data.inodes.get(child_ino),
+                        "No such child inode {:x?}",
+                        child_ino
+                    )
+                    .nlookup
+                    .fetch_add(1, Ordering::SeqCst);
                 }
-                None => {
-                    let next_inode = self.next_inode.fetch_add(1, Ordering::SeqCst);
-                    let child_name = child.to_os_string();
-                    let child_ptr = SendOsStrPtr::from(&child_name);
-                    inodes
-                        .get_mut(&parent)
-                        .unwrap()
-                        .children
-                        .insert(child_name, next_inode);
-                    inodes.insert(
-                        next_inode,
-                        InodeValue {
-                            name_ptr: child_ptr,
-                            nlookup: if increment { 1 } else { 0 },
-                            parent,
-                            children: HashMap::new(),
-                        },
-                    );
-                    next_inode
-                }
+                return *child_ino;
+            }
+        }
+        let mut data = self.data.write().expect("Failed to acquire write lock");
+        let new_inode = self.next_inode.fetch_add(1, Ordering::SeqCst);
+        let children = unwrap!(
+            data.all_children.get_mut(&parent),
+            "No such parent inode {:x?}",
+            parent
+        );
+        children.insert(child.to_os_string(), new_inode);
+        data.inodes.insert(
+            new_inode,
+            InodeValue {
+                nlookup: AtomicU64::new(if increment { 1 } else { 0 }),
+                parent,
+                name: child.to_os_string(),
             },
-        };
-        correct_inode
+        );
+        data.all_children.insert(new_inode, HashMap::new());
+        new_inode
     }
 
     fn add_children(
@@ -215,80 +213,127 @@ impl FileIdResolver for PathBufResolver {
         children: Vec<(OsString, ())>,
         increment: bool,
     ) -> Vec<(OsString, u64)> {
-        let mut inodes = self.inodes.write().unwrap();
-        if inodes.get(&parent).unwrap().children.is_empty() {
-            let mut result = Vec::new();
-            for (child_name, _) in children {
-                let child_inode = match child_name.as_os_str() {
-                    child_name if child_name == "." => parent,
-                    child_name if child_name == ".." => inodes.get(&parent).unwrap().parent,
-                    _ => {
-                        let next_inode = self.next_inode.fetch_add(1, Ordering::SeqCst);
-                        let child_ptr = SendOsStrPtr::from(&child_name);
-                        inodes
-                            .get_mut(&parent)
-                            .unwrap()
-                            .children
-                            .insert(child_name.clone(), next_inode);
-                        inodes.insert(
-                            next_inode,
-                            InodeValue {
-                                name_ptr: child_ptr,
-                                nlookup: if increment { 1 } else { 0 },
-                                parent,
-                                children: HashMap::new(),
-                            },
-                        );
-                        next_inode
+        let mut data = self.data.write().expect("Failed to acquire write lock");
+        let (inodes, all_children) = data.double_borrow();
+        let children_len = children.len();
+        let parent_children = unwrap!(
+            all_children.get_mut(&parent),
+            "No such parent inode {:x?}",
+            parent
+        );
+        let mut new_inodes = Vec::with_capacity(children_len);
+        let result = if parent_children.is_empty() {
+            parent_children.reserve(children_len);
+            let mut new_children = Vec::with_capacity(children_len);
+
+            for (name, _) in children {
+                let ino = self.next_inode.fetch_add(1, Ordering::SeqCst);
+                parent_children.insert(name.clone(), ino);
+                inodes.insert(
+                    ino,
+                    InodeValue {
+                        nlookup: AtomicU64::new(if increment { 1 } else { 0 }),
+                        parent,
+                        name: name.clone(),
+                    },
+                );
+                new_children.push((name, ino));
+                new_inodes.push(ino);
+            }
+
+            new_children
+        } else {
+            parent_children.reserve(children_len - parent_children.len());
+            let mut result = Vec::with_capacity(children.len());
+            let mut new_inodes = Vec::with_capacity(children_len);
+
+            for (name, _) in children {
+                if let Some(&existing_ino) = parent_children.get(&name) {
+                    // Child already exists, increment if necessary
+                    if increment {
+                        if let Some(inode_value) = inodes.get(&existing_ino) {
+                            inode_value.nlookup.fetch_add(1, Ordering::SeqCst);
+                        }
                     }
-                };
-                result.push((child_name, child_inode));
+                    result.push((name, existing_ino));
+                } else {
+                    // Child doesn't exist, add it
+                    let new_ino = self.next_inode.fetch_add(1, Ordering::SeqCst);
+                    parent_children.insert(name.clone(), new_ino);
+                    inodes.insert(
+                        new_ino,
+                        InodeValue {
+                            nlookup: AtomicU64::new(if increment { 1 } else { 0 }),
+                            parent,
+                            name: name.clone(),
+                        },
+                    );
+                    new_inodes.push(new_ino);
+                    result.push((name, new_ino));
+                }
             }
             result
-        } else {
-            children
-                .into_iter()
-                .map(|(child_name, metadata)| {
-                    let child_inode = self.lookup(parent, &child_name, metadata, increment);
-                    (child_name, child_inode)
-                })
-                .collect()
+        };
+
+        // Insert new empty HashMaps for all new inodes
+        for ino in new_inodes {
+            all_children.insert(ino, HashMap::new());
         }
+        result
     }
 
     fn forget(&self, ino: u64, nlookup: u64) {
-        let mut inodes = self.inodes.write().unwrap();
-        let inode_value = inodes.get_mut(&ino).unwrap();
+        let mut data = self.data.write().expect("Failed to acquire write lock");
+        let (inodes, all_children) = data.double_borrow();
 
-        if inode_value.nlookup == nlookup {
-            let parent = inode_value.parent;
-            let name_ptr = inode_value.name_ptr.clone();
-            inodes
-                .get_mut(&parent)
-                .unwrap()
-                .children
-                .remove(name_ptr.get());
-            inodes.remove(&ino);
-        } else {
-            inode_value.nlookup -= nlookup;
+        if let Some(inode_value) = inodes.get(&ino) {
+            let new_nlookup = inode_value.nlookup.fetch_sub(nlookup, Ordering::SeqCst);
+            if new_nlookup <= nlookup {
+                // Remove the inode if its lookup count reaches zero or below
+                let parent = inode_value.parent;
+                let name = inode_value.name.clone();
+
+                // Remove the inode from its parent's children
+                if let Some(parent_children) = all_children.get_mut(&parent) {
+                    parent_children.remove(&name);
+                }
+
+                // Remove the inode and its children
+                inodes.remove(&ino);
+                all_children.remove(&ino);
+            }
         }
     }
 
     fn rename(&self, parent: u64, name: &OsStr, newparent: u64, newname: &OsStr) {
-        let mut inodes = self.inodes.write().unwrap();
-        let new_name_ptr = SendOsStrPtr::from(newname);
-        let src_inode = inodes
-            .get_mut(&parent)
-            .unwrap()
-            .children
-            .remove(name)
-            .unwrap();
-        inodes.get_mut(&src_inode).unwrap().name_ptr = new_name_ptr;
-        inodes
-            .get_mut(&newparent)
-            .unwrap()
-            .children
-            .insert(newname.to_owned(), src_inode);
+        let mut data = self.data.write().expect("Failed to acquire write lock");
+
+        let children = unwrap!(
+            data.all_children.get_mut(&parent),
+            "No such parent inode {}",
+            parent
+        );
+        let &ino = unwrap!(
+            children.get(name),
+            "Rename called on non existent child {:?} {:?}",
+            parent,
+            name
+        );
+
+        children.remove(name);
+
+        let new_parent_children = unwrap!(
+            data.all_children.get_mut(&newparent),
+            "No such newparent inode {}",
+            parent
+        );
+        new_parent_children.insert(newname.to_os_string(), ino);
+
+        // Update the inode's parent and name
+        if let Some(inode_value) = data.inodes.get_mut(&ino) {
+            inode_value.parent = newparent;
+            inode_value.name = newname.to_os_string();
+        }
     }
 }
 
@@ -299,13 +344,22 @@ mod tests {
     #[test]
     fn test_new() {
         let converter = PathBufResolver::new();
-        assert!(converter.inodes.read().unwrap().contains_key(&ROOT_INODE));
+
+        // Check if ROOT_INODE exists in the inodes HashMap
+        let data = converter.data.read().expect("Failed to acquire read lock");
+        assert!(data.inodes.contains_key(&ROOT_INODE));
+
+        // Check if next_inode is correctly initialized
         assert_eq!(converter.next_inode.load(Ordering::SeqCst), 2);
-        let inodes = converter.inodes.read().unwrap();
-        let root_inode = inodes.get(&ROOT_INODE).unwrap();
+
+        // Check properties of the root inode
+        let root_inode = data.inodes.get(&ROOT_INODE).expect("Root inode not found");
         assert_eq!(root_inode.parent, ROOT_INODE);
-        assert_eq!(root_inode.children.len(), 0);
-        assert_eq!(root_inode.name_ptr.get(), "");
+        assert_eq!(root_inode.name, OsString::from(""));
+        assert_eq!(root_inode.nlookup.load(Ordering::SeqCst), 0);
+
+        // Check if root inode has no children initially
+        assert!(data.all_children.get(&ROOT_INODE).unwrap().is_empty());
     }
 
     #[test]
@@ -323,6 +377,39 @@ mod tests {
         // Test nested path
         let nested_path = converter.resolve_id(nested_ino);
         assert_eq!(nested_path, PathBuf::from("shallow_file/nested_file"));
+
+        // Verify internal state
+        let data = converter.data.read().expect("Failed to acquire read lock");
+
+        // Check shallow inode
+        let shallow_inode = data
+            .inodes
+            .get(&shallow_ino)
+            .expect("Shallow inode not found");
+        assert_eq!(shallow_inode.parent, ROOT_INODE);
+        assert_eq!(shallow_inode.name, OsString::from("shallow_file"));
+        assert_eq!(shallow_inode.nlookup.load(Ordering::SeqCst), 1);
+
+        // Check nested inode
+        let nested_inode = data
+            .inodes
+            .get(&nested_ino)
+            .expect("Nested inode not found");
+        assert_eq!(nested_inode.parent, shallow_ino);
+        assert_eq!(nested_inode.name, OsString::from("nested_file"));
+        assert_eq!(nested_inode.nlookup.load(Ordering::SeqCst), 1);
+
+        // Check children relationships
+        assert!(data
+            .all_children
+            .get(&ROOT_INODE)
+            .unwrap()
+            .contains_key(OsStr::new("shallow_file")));
+        assert!(data
+            .all_children
+            .get(&shallow_ino)
+            .unwrap()
+            .contains_key(OsStr::new("nested_file")));
     }
 
     #[test]
@@ -333,20 +420,37 @@ mod tests {
         let shallow_ino = converter.lookup(ROOT_INODE, OsStr::new("dir"), (), true);
         let nested_ino = converter.lookup(shallow_ino, OsStr::new("file"), (), true);
 
-        // Get inodes
-        let inodes = converter.inodes.read().unwrap();
+        // Get data
+        let data = converter.data.read().expect("Failed to acquire read lock");
+
         // Verify shallow path
         assert_eq!(shallow_ino, 2);
-        assert!(inodes.contains_key(&shallow_ino));
-        let shallow_inode = inodes.get(&shallow_ino).unwrap();
+        assert!(data.inodes.contains_key(&shallow_ino));
+        let shallow_inode = data.inodes.get(&shallow_ino).unwrap();
         assert_eq!(shallow_inode.parent, ROOT_INODE);
-        assert_eq!(shallow_inode.name_ptr.get(), "dir");
+        assert_eq!(shallow_inode.name, "dir");
 
         // Verify nested path
-        assert!(inodes.contains_key(&nested_ino));
-        let nested_inode = inodes.get(&nested_ino).unwrap();
+        assert!(data.inodes.contains_key(&nested_ino));
+        let nested_inode = data.inodes.get(&nested_ino).unwrap();
         assert_eq!(nested_inode.parent, shallow_ino);
-        assert_eq!(nested_inode.name_ptr.get(), "file");
+        assert_eq!(nested_inode.name, "file");
+
+        // Verify children relationships
+        assert!(data
+            .all_children
+            .get(&ROOT_INODE)
+            .unwrap()
+            .contains_key(OsStr::new("dir")));
+        assert!(data
+            .all_children
+            .get(&shallow_ino)
+            .unwrap()
+            .contains_key(OsStr::new("file")));
+
+        // Verify lookup counts
+        assert_eq!(shallow_inode.nlookup.load(Ordering::SeqCst), 1);
+        assert_eq!(nested_inode.nlookup.load(Ordering::SeqCst), 1);
     }
 
     #[test]
@@ -364,12 +468,48 @@ mod tests {
             ROOT_INODE,
             OsStr::new("new_dir"),
         );
+
+        // Verify renamed shallow path
         let renamed_shallow_path = converter.resolve_id(shallow_ino);
         assert_eq!(renamed_shallow_path, PathBuf::from("new_dir"));
 
         // Verify nested path after rename
         let renamed_nested_path = converter.resolve_id(nested_ino);
         assert_eq!(renamed_nested_path, PathBuf::from("new_dir/file"));
+
+        // Verify internal state
+        {
+            let data = converter.data.read().expect("Failed to acquire read lock");
+
+            // Check that the old name is removed from ROOT_INODE's children
+            assert!(!data
+                .all_children
+                .get(&ROOT_INODE)
+                .unwrap()
+                .contains_key(OsStr::new("dir")));
+
+            // Check that the new name is added to ROOT_INODE's children
+            assert!(data
+                .all_children
+                .get(&ROOT_INODE)
+                .unwrap()
+                .contains_key(OsStr::new("new_dir")));
+
+            // Verify the renamed inode's properties
+            let renamed_inode = data
+                .inodes
+                .get(&shallow_ino)
+                .expect("Renamed inode not found");
+            assert_eq!(renamed_inode.parent, ROOT_INODE);
+            assert_eq!(renamed_inode.name, OsString::from("new_dir"));
+
+            // Verify that the nested inode's parent hasn't changed
+            let nested_inode = data
+                .inodes
+                .get(&nested_ino)
+                .expect("Nested inode not found");
+            assert_eq!(nested_inode.parent, shallow_ino);
+        }
     }
 
     #[test]
@@ -381,22 +521,30 @@ mod tests {
 
         // Remove nested path
         converter.forget(nested_ino, 1);
+
+        // Verify nested path is removed
         {
-            let inodes = converter.inodes.read().unwrap();
-            assert!(!inodes.contains_key(&nested_ino));
-            let shallow_inode = inodes.get(&shallow_ino).unwrap();
-            assert!(!shallow_inode
-                .children
-                .contains_key("file".as_ref() as &OsStr));
+            let data = converter.data.read().expect("Failed to acquire read lock");
+            assert!(!data.inodes.contains_key(&nested_ino));
+            let shallow_children = data
+                .all_children
+                .get(&shallow_ino)
+                .expect("Shallow inode not found");
+            assert!(!shallow_children.contains_key(OsStr::new("file")));
         }
 
         // Remove shallow path
         converter.forget(shallow_ino, 1);
+
+        // Verify shallow path is removed
         {
-            let inodes = converter.inodes.read().unwrap();
-            assert!(!inodes.contains_key(&shallow_ino));
-            let root_inode = inodes.get(&ROOT_INODE).unwrap();
-            assert!(!root_inode.children.contains_key("dir".as_ref() as &OsStr));
+            let data = converter.data.read().expect("Failed to acquire read lock");
+            assert!(!data.inodes.contains_key(&shallow_ino));
+            let root_children = data
+                .all_children
+                .get(&ROOT_INODE)
+                .expect("Root inode not found");
+            assert!(!root_children.contains_key(OsStr::new("dir")));
         }
     }
 }

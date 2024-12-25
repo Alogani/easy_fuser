@@ -4,20 +4,21 @@ use std::path::PathBuf;
 use std::thread;
 use std::time::Duration;
 
-// cargo test --package easy_fuser --test debug_mirror_fs --features "parallel deadlock_detection" -- debug_mirror_fs_mount --nocapture --ignored
+// cargo test --package easy_fuser --test mount_mirror_fs --features "parallel" -- mount_mirror_fs --nocapture --ignored
 
 #[test]
 #[ignore]
-fn debug_mirror_fs_mount() {
-    std::env::set_var("RUST_BACKTRACE", "1");
+fn mount_mirror_fs() {
+    std::env::set_var("RUST_BACKTRACE", "full");
     let _ = env_logger::builder()
         .is_test(true)
         .filter_level(log::LevelFilter::Trace)
         .try_init();
 
     // Set up temporary directories for mount point and source
-    let mount_dir = PathBuf::from("/tmp/easy_fuser_debug_mount");
-    let source_dir = PathBuf::from("/tmp/easy_fuser_debug_source");
+    let mount_dir = PathBuf::from("/tmp/easy_fuser_mirror_fs_mount");
+    //let source_dir = PathBuf::from("/");
+    let source_dir = PathBuf::from("/tmp/easy_fuser_mirror_fs_source");
 
     // Create directories if they don't exist
     let _ = std::process::Command::new("fusermount")
@@ -37,7 +38,11 @@ fn debug_mirror_fs_mount() {
 
     // Mount the filesystem
     println!("Mounting MirrorFs...");
-    let mount_result = mount(fs, &mount_dir, &[], 1);
+    #[cfg(feature = "parallel")]
+    let num_workers = 4;
+    #[cfg(not(feature = "parallel"))]
+    let num_workers = 1;
+    let mount_result = mount(fs, &mount_dir, &[], num_workers);
 
     match mount_result {
         Ok(_) => {

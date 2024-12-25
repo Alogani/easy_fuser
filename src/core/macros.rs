@@ -145,14 +145,12 @@ macro_rules! handle_dir_read {
                     }
                 },
                 // Subsequent reads: retrieve saved iterator
-                _ => match {
-                    dirmap_iter.safe_borrow_mut().remove(&($ino, $offset))
-                 } {
+                _ => match { dirmap_iter.safe_borrow_mut().remove(&($ino, $offset)) } {
                     Some(dirmap_iter) => dirmap_iter,
                     None => {
                         // Case when fuse tries to read again after the final item
                         $reply.ok();
-                        return
+                        return;
                     }
                 },
             };
