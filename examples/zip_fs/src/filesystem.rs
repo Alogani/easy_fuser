@@ -83,9 +83,9 @@ impl FuseHandler<PathBuf> for ZipFs {
         if let Ok(mut archive) = self.archive.write() {
             for i in 0..archive.len() {
                 if let Ok(file) = archive.by_index(i) {
-                    let file_path = PathBuf::from(file.name());
+                    let file_path = file.enclosed_name().unwrap();
                     if file_path.parent() == Some(&file_id) {
-                        let name = file_path.file_name().unwrap().to_owned();
+                        let name = file_path.into_os_string();
                         eprintln!("File name = {:?}", name);
                         let kind = if file.is_dir() { FileKind::Directory } else { FileKind::RegularFile };
                         entries.push((name, kind));
