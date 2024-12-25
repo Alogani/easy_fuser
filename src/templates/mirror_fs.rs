@@ -68,7 +68,7 @@ For more specific implementations or to extend functionality, you can modify the
 */
 
 use std::ffi::{OsStr, OsString};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use crate::posix_fs;
 use crate::prelude::*;
@@ -282,6 +282,10 @@ impl MirrorFs {
             inner: Box::new(FdHandlerHelper::new(inner)),
         }
     }
+
+    pub fn source_dir(&self) -> &Path {
+        self.source_path.as_path()
+    }
 }
 
 impl FuseHandler<PathBuf> for MirrorFs {
@@ -305,6 +309,10 @@ impl MirrorFsReadOnly {
             source_path,
             inner: Box::new(FdHandlerHelper::new(inner)),
         }
+    }
+
+    pub fn source_dir(&self) -> &Path {
+        self.source_path.as_path()
     }
 }
 

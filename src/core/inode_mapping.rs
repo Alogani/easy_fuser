@@ -167,7 +167,6 @@ impl FileIdResolver for ComponentsResolver {
 
     fn lookup(&self, parent: u64, child: &OsStr, _id: (), increment: bool) -> u64 {
         {
-            eprintln!("LOOKUP {:x?} - {:?}", parent, child);
             // Assume optimistic existence of child by acquiring only read lock
             let data = self.data.read().expect("Failed to acquire read lock");
             let children = unwrap!(

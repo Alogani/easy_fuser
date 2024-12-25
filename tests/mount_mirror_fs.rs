@@ -17,7 +17,6 @@ fn mount_mirror_fs() {
 
     // Set up temporary directories for mount point and source
     let mount_dir = PathBuf::from("/tmp/easy_fuser_mirror_fs_mount");
-    //let source_dir = PathBuf::from("/");
     let source_dir = PathBuf::from("/tmp/easy_fuser_mirror_fs_source");
 
     // Create directories if they don't exist

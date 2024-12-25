@@ -145,14 +145,60 @@ mod async_task {
     use super::*;
 
     use std::sync::Arc;
+    use tokio::runtime::Runtime;
+    use tokio::sync::Mutex;
 
-    pub struct FuseDriver {
-        // specific async implementation here
+    pub struct FuseDriver<T, U, R>
+    where
+        T: FileIdType,
+        U: FuseHandler<T>,
+        R: FileIdResolver<FileIdType = T>,
+    {
+        handler: Arc<U>,
+        resolver: Arc<R>,
+        dirmap_iter: Arc<tokio::sync::Mutex<DirIter<FileKind>>>,
+        dirmapplus_iter: Arc<tokio::sync::Mutex<DirIter<FileAttribute>>>,
+        pub runtime: Runtime,
+    }
+
+    impl<T, U, R> FuseDriver<T, U, R>
+    where
+        T: FileIdType,
+        U: FuseHandler<T>,
+        R: FileIdResolver<FileIdType = T>,
+    {
+        pub fn new(handler: U, resolver: R, num_threads: usize) -> FuseDriver<T, U, R> {
+            #[cfg(feature = "deadlock_detection")]
+            spawn_deadlock_checker();
+            FuseDriver {
+                handler: Arc::new(handler),
+                resolver: Arc::new(resolver),
+                dirmap_iter: Arc::new(Mutex::new(HashMap::new())),
+                dirmapplus_iter: Arc::new(Mutex::new(HashMap::new())),
+                runtime: Runtime::new().unwrap(),
+            }
+        }
+
+        pub fn get_handler(&self) -> Arc<U> {
+            self.handler.clone()
+        }
+
+        pub fn get_resolver(&self) -> Arc<R> {
+            self.resolver.clone()
+        }
+
+        pub fn get_dirmap_iter(&self) -> Arc<tokio::sync::Mutex<DirIter<FileKind>>> {
+            self.dirmap_iter.clone()
+        }
+
+        pub fn get_dirmapplus_iter(&self) -> Arc<tokio::sync::Mutex<DirIter<FileAttribute>>> {
+            self.dirmapplus_iter.clone()
+        }
     }
 
     macro_rules! execute_task {
         ($self:expr, $block:block) => {
-            tokio::spawn(async move { $block });
+            $self.runtime.spawn(async move { $block });
         };
     }
 

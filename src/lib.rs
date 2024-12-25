@@ -100,7 +100,7 @@
 //!   scenarios where you want to handle multiple filesystem operations concurrently on separate
 //!   threads. It can improve performance on multi-core systems.
 //!
-//! - `async`: Enables asynchronous operation. This is ideal for high-concurrency scenarios and
+//! - `async`: *_This is not yet implemented_* Enables asynchronous operation. This is ideal for high-concurrency scenarios and
 //!   when you want to integrate the filesystem with asynchronous Rust code. It allows for
 //!   efficient handling of many concurrent operations without the overhead of threads.
 //!
@@ -116,6 +116,9 @@
 //! By leveraging `easy_fuser`, you can focus more on your filesystem's logic and less on the
 //! intricacies of FUSE implementation, making it easier to create robust, efficient, and
 //! maintainable filesystem solutions in Rust.
+
+#[cfg(feature = "async")]
+compile_error!("Feature 'async' is not yet implemented.");
 
 #[cfg(all(
     not(feature = "serial"),
@@ -144,6 +147,7 @@ pub mod types;
 pub mod prelude {
     pub use super::fuse_handler::FuseHandler;
     pub use super::types::*;
+    pub use super::{mount, spawn_mount};
 
     pub use fuser::{BackgroundSession, MountOption};
 }

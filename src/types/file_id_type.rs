@@ -21,7 +21,7 @@ use super::inode::*;
 ///    - Pros: Automatic inode-to-path mapping and caching.
 ///    - Cons: May have performance overhead for large file systems.
 /// 
-/// 3. Vec<OsString>: Uses a vector of path components for identification.
+/// 3. `Vec<OsString>`: Uses a vector of path components for identification.
 ///    - Pros: Slightly lower overhead than PathBuf, allows path to be divided into parts.
 ///    - Cons: Path components are stored in reverse order, which may require additional handling.
 pub trait FileIdType: GetConverter + Debug + Clone + 'static {
@@ -69,10 +69,6 @@ impl FileIdType for Inode {
         minimal_metadata
     }
 }
-
-pub trait PathLike {}
-impl PathLike for PathBuf {}
-impl PathLike for Vec<OsString> {}
 
 impl FileIdType for PathBuf {
     type _Id = ();
