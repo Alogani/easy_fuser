@@ -1,5 +1,13 @@
 # easy_fuser
 
+![CI](https://github.com/Alogani/easy_fuser/actions/workflows/ubuntu.yml/badge.svg)
+[![Crates.io](https://img.shields.io/crates/v/fuser.svg)](https://crates.io/crates/easy_fuser)
+[![Documentation](https://docs.rs/easy_fuser/badge.svg)](https://docs.rs/easy_fuser)
+[![MIT License](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/Alogani/easy_fuser/blob/master/LICENSE.md)
+[![dependency status](https://deps.rs/repo/github/Alogani/easy_fuser/status.svg)](https://deps.rs/repo/github/Alogani/easy_fuser)
+
+## About
+
 `easy_fuser` is a high-level, ergonomic wrapper around the `fuser` crate, designed to simplify
 the process of implementing FUSE (Filesystem in Userspace) filesystems in Rust. It abstracts away
 many of the complexities, offering a more intuitive and Rust-idiomatic approach to filesystem development.
