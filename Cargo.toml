@@ -1,0 +1,33 @@
+[package]
+name = "easy_fuser"
+version = "0.1.0"
+edition = "2021"
+
+[features]
+default = []
+serial = []
+parallel = ["dep:threadpool"]
+async = ["dep:async-trait", "dep:tokio"]
+deadlock_detection = ["parallel", "dep:parking_lot"]
+
+
+[dependencies]
+# Core dependencies
+log = "0.4"
+libc = "0.2"
+fuser = "0.15"
+bitflags = "2.6.0"
+
+# Parallel dependencies
+threadpool = { version = "1.8", optional = true }
+# Parking lot is only used for deadlock_detection if feature set
+parking_lot = { version = "0.12", features = ["deadlock_detection"], optional = true }
+
+# Async dependencies
+# easy_fuser_async_macro = { path = "./easy_fuser_async_macro", optional = true }
+tokio = { version = "1.42.0", features = ["full"], optional = true }
+async-trait = { version = "0.1.83", optional = true }
+
+[dev-dependencies]
+tempfile = "3.14"
+env_logger = "0.11"

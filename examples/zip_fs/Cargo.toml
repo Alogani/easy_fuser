@@ -1,0 +1,16 @@
+[package]
+name = "zip_fs"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+easy_fuser = { path = "../..", features = ["serial"] } # TODO: change to parallel
+zip = "2.2.2"
+clap = { version = "4.5", features = ["derive"] }
+ctrlc = "3.4"
+
+log = "0.4" # TODO: remove
+env_logger = "0.11" # TODO: remove
+
+[dev-dependencies]
+tempfile = "3.2"
