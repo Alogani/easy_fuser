@@ -4,7 +4,8 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-easy_fuser = { path = "../..", features = ["serial"] } # TODO: change to parallel
+easy_fuser = { path = "../..", features = ["serial"] } # Parallel won't help
+threadsafe-lru = "0.1.2"
 zip = "2.2.2"
 clap = { version = "4.5", features = ["derive"] }
 ctrlc = "3.4"

@@ -32,6 +32,10 @@ struct Args {
     #[arg(short, long)]
     mount_point: Option<PathBuf>,
 
+    /// Directory cache size
+    #[arg(short, long, default_value = "1000")]
+    cache_size: usize,
+
     /// Positional arguments: [ZIP_FILE] [MOUNT_POINT]
     #[arg(required = false)]
     args: Vec<PathBuf>,
@@ -59,6 +63,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let mount_point = args.mount_point.ok_or("Mount point is required")?;
         (zip_file, mount_point)
     };
+    let cache_size = args.cache_size;
 
     // Ensure the mount point exists
     std::fs::create_dir_all(&mount_point)?;
@@ -85,7 +90,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         exit(1);
     })?;
 
-    let zip_fs = ZipFs::new(&zip_file)?;
+    let zip_fs = ZipFs::new(&zip_file, cache_size)?;
 
     println!("Mounting ZIP filesystem...");
     println!("ZIP file: {:?}", &zip_file);
