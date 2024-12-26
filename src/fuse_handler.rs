@@ -333,6 +333,9 @@ pub trait FuseHandler<TId: FileIdType>: Send + Sync + 'static {
     /// Read directory contents
     ///
     /// Returns a list of directory entries with minimal metadata.
+    /// 
+    /// Important: The returned file names (OsString) must not contain any slashes ('/').
+    /// Including slashes in the file names will result in undefined behavior.
     fn readdir(
         &self,
         req: &RequestInfo,
@@ -345,6 +348,9 @@ pub trait FuseHandler<TId: FileIdType>: Send + Sync + 'static {
     /// Read directory contents with full file attributes
     ///
     /// Default implementation combines readdir and lookup operations.
+    /// 
+    /// Important: The returned file names (OsString) must not contain any slashes ('/').
+    /// Including slashes in the file names will result in undefined behavior.
     fn readdirplus(
         &self,
         req: &RequestInfo,

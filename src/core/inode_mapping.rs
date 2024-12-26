@@ -94,8 +94,19 @@ unsafe impl Send for OsStrPtr {}
 unsafe impl Sync for OsStrPtr {}
 
 impl OsStrPtr {
-    fn _unsafe_borrow(ptr: &OsStr) -> Self {
-        OsStrPtr(ptr as *const OsStr)
+    // Caller must ensure that os_str will be valid for the lifetime of the OsStrPtr
+    // It should not be freed until the OsStrPtr is dropped
+    // Caveats:
+    // - cloning it before storing
+    // - to_owned() / to_os_string() / etc
+    unsafe fn from(os_str: &OsStr) -> Self {
+        OsStrPtr(os_str as *const OsStr)
+    }
+
+    // This function does exactly the same as OsStrPtr::from()
+    // But uses another name to remember the caller to not use that value after dropping os_str
+    fn unsafe_borrow(os_str: &OsStr) -> Self {
+        unsafe { OsStrPtr::from(os_str) }
     }
 
     fn get(&self) -> &OsStr {
@@ -205,7 +216,7 @@ impl FileIdResolver for ComponentsResolver {
                 "No such parent inode {:x?}",
                 parent
             );
-            if let Some(child_ino) = children.get(&OsStrPtr::_unsafe_borrow(child)) {
+            if let Some(child_ino) = children.get(&OsStrPtr::unsafe_borrow(child)) {
                 if increment {
                     unwrap!(
                         data.inodes.get(child_ino),
@@ -226,7 +237,7 @@ impl FileIdResolver for ComponentsResolver {
             parent
         );
         let owned_child = child.to_os_string();
-        children.insert(OsStrPtr::_unsafe_borrow(&owned_child), new_inode);
+        children.insert(unsafe { OsStrPtr::from(&owned_child) }, new_inode);
         data.inodes.insert(
             new_inode,
             InodeValue {
@@ -262,7 +273,7 @@ impl FileIdResolver for ComponentsResolver {
                 let ino = self.next_inode.fetch_add(1, Ordering::SeqCst);
                 new_children.push((name.clone(), ino));
                 new_inodes.push(ino);
-                parent_children.insert(OsStrPtr::_unsafe_borrow(&name), ino);
+                parent_children.insert(unsafe { OsStrPtr::from(&name) }, ino);
                 inodes.insert(
                     ino,
                     InodeValue {
@@ -282,7 +293,7 @@ impl FileIdResolver for ComponentsResolver {
             let mut new_inodes = Vec::with_capacity(children_len);
 
             for (name, _) in children {
-                if let Some(&existing_ino) = parent_children.get(&OsStrPtr::_unsafe_borrow(&name)) {
+                if let Some(&existing_ino) = parent_children.get(&OsStrPtr::unsafe_borrow(&name)) {
                     // Child already exists, increment if necessary
                     if increment {
                         if let Some(inode_value) = inodes.get(&existing_ino) {
@@ -295,7 +306,7 @@ impl FileIdResolver for ComponentsResolver {
                     let new_ino = self.next_inode.fetch_add(1, Ordering::SeqCst);
                     new_inodes.push(new_ino);
                     result.push((name.clone(), new_ino));
-                    parent_children.insert(OsStrPtr::_unsafe_borrow(&name), new_ino);
+                    parent_children.insert(unsafe { OsStrPtr::from(&name) }, new_ino);
                     inodes.insert(
                         new_ino,
                         InodeValue {
@@ -329,7 +340,7 @@ impl FileIdResolver for ComponentsResolver {
 
                 // Remove the inode from its parent's children
                 if let Some(parent_children) = all_children.get_mut(&parent) {
-                    parent_children.remove(&OsStrPtr::_unsafe_borrow(&name));
+                    parent_children.remove(&OsStrPtr::unsafe_borrow(&name));
                 }
 
                 // Remove the inode and its children
@@ -348,20 +359,20 @@ impl FileIdResolver for ComponentsResolver {
             parent
         );
         let &ino = unwrap!(
-            children.get(&OsStrPtr::_unsafe_borrow(&name)),
+            children.get(&OsStrPtr::unsafe_borrow(&name)),
             "Rename called on non existent child {:?} {:?}",
             parent,
             name
         );
 
-        children.remove(&OsStrPtr::_unsafe_borrow(&name));
+        children.remove(&OsStrPtr::unsafe_borrow(&name));
 
         let new_parent_children = unwrap!(
             data.all_children.get_mut(&newparent),
             "No such newparent inode {}",
             parent
         );
-        new_parent_children.insert(OsStrPtr::_unsafe_borrow(&newname), ino);
+        new_parent_children.insert(unsafe { OsStrPtr::from(&newname) }, ino);
 
         // Update the inode's parent and name
         if let Some(inode_value) = data.inodes.get_mut(&ino) {
@@ -433,10 +444,6 @@ mod tests {
 
     use super::*;
 
-    fn to_osstr_ptr(s: &str) -> OsStrPtr {
-        OsStrPtr::_unsafe_borrow(OsStr::new(s))
-    }
-
     #[test]
     fn test_new() {
         let converter = ComponentsResolver::new();
@@ -504,12 +511,12 @@ mod tests {
             .all_children
             .get(&ROOT_INO)
             .unwrap()
-            .contains_key(&to_osstr_ptr("shallow_file")));
+            .contains_key(&OsStrPtr::unsafe_borrow(OsStr::new("shallow_file"))));
         assert!(data
             .all_children
             .get(&shallow_ino)
             .unwrap()
-            .contains_key(&to_osstr_ptr("nested_file")));
+            .contains_key(&OsStrPtr::unsafe_borrow(OsStr::new("nested_file"))));
     }
 
     #[test]
@@ -559,12 +566,12 @@ mod tests {
             .all_children
             .get(&ROOT_INO)
             .unwrap()
-            .contains_key(&to_osstr_ptr("shallow_file")));
+            .contains_key(&OsStrPtr::unsafe_borrow(OsStr::new("shallow_file"))));
         assert!(data
             .all_children
             .get(&shallow_ino)
             .unwrap()
-            .contains_key(&to_osstr_ptr("nested_file")));
+            .contains_key(&OsStrPtr::unsafe_borrow(OsStr::new("nested_file"))));
     }
 
     #[test]
@@ -596,12 +603,12 @@ mod tests {
             .all_children
             .get(&ROOT_INO)
             .unwrap()
-            .contains_key(&to_osstr_ptr("dir")));
+            .contains_key(&OsStrPtr::unsafe_borrow(OsStr::new("dir"))));
         assert!(data
             .all_children
             .get(&shallow_ino)
             .unwrap()
-            .contains_key(&to_osstr_ptr("file")));
+            .contains_key(&OsStrPtr::unsafe_borrow(OsStr::new("file"))));
 
         // Verify lookup counts
         assert_eq!(shallow_inode.nlookup.load(Ordering::SeqCst), 1);
@@ -641,14 +648,14 @@ mod tests {
                 .all_children
                 .get(&ROOT_INO)
                 .unwrap()
-                .contains_key(&to_osstr_ptr("dir")));
+                .contains_key(&OsStrPtr::unsafe_borrow(OsStr::new("dir"))));
 
             // Check that the new name is added to ROOT_INODE's children
             assert!(data
                 .all_children
                 .get(&ROOT_INO)
                 .unwrap()
-                .contains_key(&to_osstr_ptr("new_dir")));
+                .contains_key(&OsStrPtr::unsafe_borrow(OsStr::new("new_dir"))));
 
             // Verify the renamed inode's properties
             let renamed_inode = data
@@ -685,7 +692,7 @@ mod tests {
                 .all_children
                 .get(&shallow_ino)
                 .expect("Shallow inode not found");
-            assert!(!shallow_children.contains_key(&to_osstr_ptr("file")));
+            assert!(!shallow_children.contains_key(&OsStrPtr::unsafe_borrow(&OsStr::new("file"))));
         }
 
         // Remove shallow path
@@ -699,7 +706,7 @@ mod tests {
                 .all_children
                 .get(&ROOT_INO)
                 .expect("Root inode not found");
-            assert!(!root_children.contains_key(&to_osstr_ptr("dir")));
+            assert!(!root_children.contains_key(&OsStrPtr::unsafe_borrow(OsStr::new("dir"))));
         }
     }
 }
