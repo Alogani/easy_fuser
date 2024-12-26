@@ -1,48 +1,59 @@
+use zip::ZipArchive;
+
+use threadsafe_lru::LruCache;
+
+use easy_fuser::prelude::*;
+use easy_fuser::templates::DefaultFuseHandler;
+
 use std::ffi::{OsStr, OsString};
 use std::path::{Path, PathBuf};
-use std::sync::RwLock;
-use easy_fuser::templates::DefaultFuseHandler;
-use zip::read::{ZipFile, ZipFileSeek};
-use zip::ZipArchive;
+use std::sync::Mutex;
 use std::fs::File;
 use std::io::{Read, Seek};
-use easy_fuser::prelude::*;
 
-use crate::helpers::{create_file_attribute, get_root_attribute};
+use crate::helpers::*;
 
 pub struct ZipFs {
-    archive: RwLock<ZipArchive<File>>,
+    archive: Mutex<ZipArchive<File>>,
+    folder_cache: LruCache<PathBuf, ()>,
     inner_fs: DefaultFuseHandler,
 }
 
 impl ZipFs {
-    pub fn new(zip_path: &Path) -> std::io::Result<Self> {
+    pub fn new(zip_path: &Path, cache_cap: usize) -> std::io::Result<Self> {
         let file = File::open(zip_path)?;
         let archive = ZipArchive::new(file)?;
         Ok(Self {
-            archive: RwLock::new(archive),
+            archive: Mutex::new(archive),
             inner_fs: DefaultFuseHandler::new(),
+            folder_cache: LruCache::new(cache_cap, (cache_cap as f64).sqrt().ceil() as usize),
         })
     }
 
-    fn with_file<F, R>(&self, path: &Path, f: F) -> Option<R>
+    fn with_file<T, F, R>(&self, path: &Path, func: F) -> Option<R>
     where
-        F: FnOnce(&mut ZipFile) -> R,
+        T: ZipExtractor,
+        F: for<'a> FnOnce(&mut T::Output<'a>) -> R,
     {
         let path_str = path.to_str()?;
-        self.archive.write().ok().and_then(|mut archive| {
-            archive.by_name(path_str).ok().map(|mut file| f(&mut file))
-        })
-    }
+        
+        let mut archive = self.archive.lock().ok()?;
+        // Try to find the file without the trailing slash
+        if let Some(ref mut file) = T::get_by_name(&mut archive, path_str) {
+            return Some(func(file))
+        }
 
-    fn with_seekable_file<F, R>(&self, path: &Path, f: F) -> Option<R>
-    where
-        F: FnOnce(&mut ZipFileSeek<File>) -> R,
-    {
-        let path_str = path.to_str()?;
-        self.archive.write().ok().and_then(|mut archive| {
-            archive.by_name_seek(path_str).ok().map(|mut file| f(&mut file))
-        })
+        // If not found, try with a trailing slash (for directories)
+        let path_str_with_slash = format!("{}/", path_str);
+        let result = if let Some(ref mut file) = T::get_by_name(&mut archive, &path_str_with_slash) {
+            // If found with trailing slash, update the folder cache
+            self.folder_cache.insert(path.to_path_buf(), ());
+            Some(func(file))
+        } else {
+            None
+        };
+        return result;
+        
     }
 }
 
@@ -53,7 +64,7 @@ impl FuseHandler<PathBuf> for ZipFs {
 
     fn lookup(&self, _req: &RequestInfo, parent_id: PathBuf, name: &OsStr) -> FuseResult<FileAttribute> {
         let path = parent_id.join(name);
-        self.with_file(&path, |file| create_file_attribute(file))
+        self.with_file::<NonSeekable, _, _>(&path, |file| create_file_attribute(file))
             .ok_or_else(|| PosixError::new(ErrorKind::FileNotFound, "File not found"))
     }
 
@@ -61,12 +72,12 @@ impl FuseHandler<PathBuf> for ZipFs {
         if file_id.is_fuse_root() {
             return Ok(get_root_attribute());
         }
-        self.with_file( &file_id, |file| create_file_attribute(file))
+        self.with_file::<NonSeekable, _, _>( &file_id, |file| create_file_attribute(file))
             .ok_or_else(|| PosixError::new(ErrorKind::FileNotFound, "File not found"))
     }
 
     fn read(&self, _req: &RequestInfo, file_id: PathBuf, _file_handle: FileHandle, seek: SeekFrom, size: u32, _flags: FUSEOpenFlags, _lock_owner: Option<u64>) -> FuseResult<Vec<u8>> {
-        self.with_seekable_file(&file_id, |file| {
+        self.with_file::<Seekable, _, _>(&file_id, |file| {
             let mut buffer = vec![0; size as usize];
             file.seek(seek)?;
             let bytes_read = file.read(&mut buffer)?;
@@ -80,13 +91,22 @@ impl FuseHandler<PathBuf> for ZipFs {
         entries.push((OsString::from("."), FileKind::Directory));
         entries.push((OsString::from(".."), FileKind::Directory));
 
-        if let Ok(mut archive) = self.archive.write() {
+        if let Ok(mut archive) = self.archive.lock() {
             for i in 0..archive.len() {
                 if let Ok(file) = archive.by_index(i) {
                     let file_path = file.enclosed_name().unwrap();
                     if file_path.parent() == Some(&file_id) {
-                        let name = file_path.into_os_string();
-                        eprintln!("File name = {:?}", name);
+                        let mut name_bytes = file_path.into_os_string().into_encoded_bytes();
+                        let name = unsafe {
+                            if name_bytes[name_bytes.len() - 1] == b'/' {
+                                name_bytes.pop();
+                                let name = OsString::from_encoded_bytes_unchecked(name_bytes);
+                                self.folder_cache.insert(file_id.join(name.clone()), ());
+                                name
+                            } else {
+                                OsString::from_encoded_bytes_unchecked(name_bytes)
+                            }
+                        };
                         let kind = if file.is_dir() { FileKind::Directory } else { FileKind::RegularFile };
                         entries.push((name, kind));
                     }

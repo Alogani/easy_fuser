@@ -27,3 +27,11 @@ jobs:
       run: cargo build --verbose --features serial
     - name: Run tests
       run: ./tests/run_all_tests.sh
+    - name: Run tests for examples
+      run: |
+        for dir in examples/*/; do
+          if [ -f "${dir}Cargo.toml" ]; then
+            echo "Running tests in ${dir}"
+            (cd "${dir}" && cargo test)
+          fi
+        done
