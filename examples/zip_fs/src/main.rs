@@ -42,13 +42,6 @@ struct Args {
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    std::env::set_var("RUST_BACKTRACE", "full");
-    let _ = env_logger::builder()
-        .is_test(true)
-        .filter_level(log::LevelFilter::Trace)
-        .try_init();
-
-
     let args = Args::parse();
     let (zip_file, mount_point) = if !args.args.is_empty() {
         if args.args.len() != 2 {
