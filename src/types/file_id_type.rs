@@ -13,12 +13,12 @@ use super::inode::*;
 ///
 /// This trait allows different approaches to file identification:
 ///
-/// 1. Inode: The user provides their own unique inode numbers.
+/// 1. `Inode`: The user provides their own unique inode numbers.
 ///    - Pros: Direct control over inode assignment.
 ///    - Cons: Requires manual management of inode uniqueness.
 ///    - Root: Represented by the constant ROOT_INODE with a value of 1.
 ///
-/// 2. PathBuf: Uses file paths for identification.
+/// 2. `PathBuf`: Uses file paths for identification.
 ///    - Pros: Automatic inode-to-path mapping and caching.
 ///    - Cons: May have performance overhead for large file systems.
 ///    - Root: Represented by an empty string. Paths are relative and never begin with a forward slash.
@@ -129,24 +129,24 @@ impl FileIdType for Vec<OsString> {
 
 /// Usage:
 /// ```text
-/// fn test<T: FileIdType>(metadata: T::Metadata) -> FileAttribute
+/// fn test<TId: FileIdType>(metadata: TId::Metadata) -> FileAttribute
 /// {
-///     let (_a, b) = unpack_metadata::<T>(metadata);
+///     let (_a, b) = unpack_metadata::<TId>(metadata);
 ///     b
 /// }
 /// ```
-pub fn unpack_metadata<T>(metadata: T::Metadata) -> (<T as FileIdType>::_Id, FileAttribute)
+pub fn unpack_metadata<TId>(metadata: TId::Metadata) -> (<TId as FileIdType>::_Id, FileAttribute)
 where
-    T: FileIdType,
+    TId: FileIdType,
 {
-    T::extract_metadata(metadata)
+    TId::extract_metadata(metadata)
 }
 
-pub fn unpack_minimal_metadata<T>(
-    minimal_metadata: T::MinimalMetadata,
-) -> (<T as FileIdType>::_Id, FileKind)
+pub fn unpack_minimal_metadata<TId>(
+    minimal_metadata: TId::MinimalMetadata,
+) -> (<TId as FileIdType>::_Id, FileKind)
 where
-    T: FileIdType,
+    TId: FileIdType,
 {
-    T::extract_minimal_metadata(minimal_metadata)
+    TId::extract_minimal_metadata(minimal_metadata)
 }

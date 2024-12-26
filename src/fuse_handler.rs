@@ -86,9 +86,9 @@ use std::time::Duration;
 
 use crate::types::*;
 
-pub trait FuseHandler<T: FileIdType>: Send + Sync + 'static {
+pub trait FuseHandler<TId: FileIdType>: Send + Sync + 'static {
     /// Delegate unprovided methods to another FuseHandler, enabling composition
-    fn get_inner(&self) -> &dyn FuseHandler<T>;
+    fn get_inner(&self) -> &dyn FuseHandler<TId>;
 
     /// Provide a default Time-To-Live for file metadata
     ///
@@ -108,12 +108,12 @@ pub trait FuseHandler<T: FileIdType>: Send + Sync + 'static {
     }
 
     /// Retrieve file attributes for a directory entry by name and increment the lookup count associated with the inode.
-    fn lookup(&self, req: &RequestInfo, parent_id: T, name: &OsStr) -> FuseResult<T::Metadata> {
+    fn lookup(&self, req: &RequestInfo, parent_id: TId, name: &OsStr) -> FuseResult<TId::Metadata> {
         self.get_inner().lookup(req, parent_id, name)
     }
 
     /// Release references to an inode, if the nlookup count reaches zero (to substract from the number of lookups).
-    fn forget(&self, req: &RequestInfo, file_id: T, nlookup: u64) {
+    fn forget(&self, req: &RequestInfo, file_id: TId, nlookup: u64) {
         self.get_inner().forget(req, file_id, nlookup);
     }
 
@@ -121,7 +121,7 @@ pub trait FuseHandler<T: FileIdType>: Send + Sync + 'static {
     fn getattr(
         &self,
         req: &RequestInfo,
-        file_id: T,
+        file_id: TId,
         file_handle: Option<FileHandle>,
     ) -> FuseResult<FileAttribute> {
         self.get_inner().getattr(req, file_id, file_handle)
@@ -131,14 +131,14 @@ pub trait FuseHandler<T: FileIdType>: Send + Sync + 'static {
     fn setattr(
         &self,
         req: &RequestInfo,
-        file_id: T,
+        file_id: TId,
         attrs: SetAttrRequest,
     ) -> FuseResult<FileAttribute> {
         self.get_inner().setattr(req, file_id, attrs)
     }
 
     /// Read the target of a symbolic link
-    fn readlink(&self, req: &RequestInfo, file_id: T) -> FuseResult<Vec<u8>> {
+    fn readlink(&self, req: &RequestInfo, file_id: TId) -> FuseResult<Vec<u8>> {
         self.get_inner().readlink(req, file_id)
     }
 
@@ -146,12 +146,12 @@ pub trait FuseHandler<T: FileIdType>: Send + Sync + 'static {
     fn mknod(
         &self,
         req: &RequestInfo,
-        parent_id: T,
+        parent_id: TId,
         name: &OsStr,
         mode: u32,
         umask: u32,
         rdev: DeviceType,
-    ) -> FuseResult<T::Metadata> {
+    ) -> FuseResult<TId::Metadata> {
         self.get_inner()
             .mknod(req, parent_id, name, mode, umask, rdev)
     }
@@ -160,21 +160,21 @@ pub trait FuseHandler<T: FileIdType>: Send + Sync + 'static {
     fn mkdir(
         &self,
         req: &RequestInfo,
-        parent_id: T,
+        parent_id: TId,
         name: &OsStr,
         mode: u32,
         umask: u32,
-    ) -> FuseResult<T::Metadata> {
+    ) -> FuseResult<TId::Metadata> {
         self.get_inner().mkdir(req, parent_id, name, mode, umask)
     }
 
     /// Remove a file
-    fn unlink(&self, req: &RequestInfo, parent_id: T, name: &OsStr) -> FuseResult<()> {
+    fn unlink(&self, req: &RequestInfo, parent_id: TId, name: &OsStr) -> FuseResult<()> {
         self.get_inner().unlink(req, parent_id, name)
     }
 
     /// Remove a directory
-    fn rmdir(&self, req: &RequestInfo, parent_id: T, name: &OsStr) -> FuseResult<()> {
+    fn rmdir(&self, req: &RequestInfo, parent_id: TId, name: &OsStr) -> FuseResult<()> {
         self.get_inner().rmdir(req, parent_id, name)
     }
 
@@ -182,10 +182,10 @@ pub trait FuseHandler<T: FileIdType>: Send + Sync + 'static {
     fn symlink(
         &self,
         req: &RequestInfo,
-        parent_id: T,
+        parent_id: TId,
         link_name: &OsStr,
         target: &Path,
-    ) -> FuseResult<T::Metadata> {
+    ) -> FuseResult<TId::Metadata> {
         self.get_inner().symlink(req, parent_id, link_name, target)
     }
 
@@ -193,9 +193,9 @@ pub trait FuseHandler<T: FileIdType>: Send + Sync + 'static {
     fn rename(
         &self,
         req: &RequestInfo,
-        parent_id: T,
+        parent_id: TId,
         name: &OsStr,
-        newparent: T,
+        newparent: TId,
         newname: &OsStr,
         flags: RenameFlags,
     ) -> FuseResult<()> {
@@ -207,10 +207,10 @@ pub trait FuseHandler<T: FileIdType>: Send + Sync + 'static {
     fn link(
         &self,
         req: &RequestInfo,
-        file_id: T,
-        newparent: T,
+        file_id: TId,
+        newparent: TId,
         newname: &OsStr,
-    ) -> FuseResult<T::Metadata> {
+    ) -> FuseResult<TId::Metadata> {
         self.get_inner().link(req, file_id, newparent, newname)
     }
 
@@ -220,7 +220,7 @@ pub trait FuseHandler<T: FileIdType>: Send + Sync + 'static {
     fn open(
         &self,
         req: &RequestInfo,
-        file_id: T,
+        file_id: TId,
         flags: OpenFlags,
     ) -> FuseResult<(FileHandle, FUSEOpenResponseFlags)> {
         self.get_inner().open(req, file_id, flags)
@@ -234,7 +234,7 @@ pub trait FuseHandler<T: FileIdType>: Send + Sync + 'static {
     fn read(
         &self,
         req: &RequestInfo,
-        file_id: T,
+        file_id: TId,
         file_handle: FileHandle,
         seek: SeekFrom,
         size: u32,
@@ -253,7 +253,7 @@ pub trait FuseHandler<T: FileIdType>: Send + Sync + 'static {
     fn write(
         &self,
         req: &RequestInfo,
-        file_id: T,
+        file_id: TId,
         file_handle: FileHandle,
         seek: SeekFrom,
         data: Vec<u8>,
@@ -280,7 +280,7 @@ pub trait FuseHandler<T: FileIdType>: Send + Sync + 'static {
     fn flush(
         &self,
         req: &RequestInfo,
-        file_id: T,
+        file_id: TId,
         file_handle: FileHandle,
         lock_owner: u64,
     ) -> FuseResult<()> {
@@ -295,7 +295,7 @@ pub trait FuseHandler<T: FileIdType>: Send + Sync + 'static {
     fn release(
         &self,
         req: &RequestInfo,
-        file_id: T,
+        file_id: TId,
         file_handle: FileHandle,
         flags: OpenFlags,
         lock_owner: Option<u64>,
@@ -311,7 +311,7 @@ pub trait FuseHandler<T: FileIdType>: Send + Sync + 'static {
     fn fsync(
         &self,
         req: &RequestInfo,
-        file_id: T,
+        file_id: TId,
         file_handle: FileHandle,
         datasync: bool,
     ) -> FuseResult<()> {
@@ -324,7 +324,7 @@ pub trait FuseHandler<T: FileIdType>: Send + Sync + 'static {
     fn opendir(
         &self,
         req: &RequestInfo,
-        file_id: T,
+        file_id: TId,
         flags: OpenFlags,
     ) -> FuseResult<(FileHandle, FUSEOpenResponseFlags)> {
         self.get_inner().opendir(req, file_id, flags)
@@ -336,9 +336,9 @@ pub trait FuseHandler<T: FileIdType>: Send + Sync + 'static {
     fn readdir(
         &self,
         req: &RequestInfo,
-        file_id: T,
+        file_id: TId,
         file_handle: FileHandle,
-    ) -> FuseResult<Vec<(OsString, T::MinimalMetadata)>> {
+    ) -> FuseResult<Vec<(OsString, TId::MinimalMetadata)>> {
         self.get_inner().readdir(req, file_id, file_handle)
     }
 
@@ -348,9 +348,9 @@ pub trait FuseHandler<T: FileIdType>: Send + Sync + 'static {
     fn readdirplus(
         &self,
         req: &RequestInfo,
-        file_id: T,
+        file_id: TId,
         file_handle: FileHandle,
-    ) -> FuseResult<Vec<(OsString, T::Metadata)>> {
+    ) -> FuseResult<Vec<(OsString, TId::Metadata)>> {
         let readdir_result = self.readdir(req, file_id.clone(), file_handle)?;
         let mut result = Vec::with_capacity(readdir_result.len());
         for (name, _) in readdir_result.into_iter() {
@@ -368,7 +368,7 @@ pub trait FuseHandler<T: FileIdType>: Send + Sync + 'static {
     fn releasedir(
         &self,
         req: &RequestInfo,
-        file_id: T,
+        file_id: TId,
         file_handle: FileHandle,
         flags: OpenFlags,
     ) -> FuseResult<()> {
@@ -385,7 +385,7 @@ pub trait FuseHandler<T: FileIdType>: Send + Sync + 'static {
     fn fsyncdir(
         &self,
         req: &RequestInfo,
-        file_id: T,
+        file_id: TId,
         file_handle: FileHandle,
         datasync: bool,
     ) -> FuseResult<()> {
@@ -394,7 +394,7 @@ pub trait FuseHandler<T: FileIdType>: Send + Sync + 'static {
     }
 
     /// Get file system statistics
-    fn statfs(&self, req: &RequestInfo, file_id: T) -> FuseResult<StatFs> {
+    fn statfs(&self, req: &RequestInfo, file_id: TId) -> FuseResult<StatFs> {
         self.get_inner().statfs(req, file_id)
     }
 
@@ -402,7 +402,7 @@ pub trait FuseHandler<T: FileIdType>: Send + Sync + 'static {
     fn setxattr(
         &self,
         req: &RequestInfo,
-        file_id: T,
+        file_id: TId,
         name: &OsStr,
         value: Vec<u8>,
         flags: FUSESetXAttrFlags,
@@ -416,7 +416,7 @@ pub trait FuseHandler<T: FileIdType>: Send + Sync + 'static {
     fn getxattr(
         &self,
         req: &RequestInfo,
-        file_id: T,
+        file_id: TId,
         name: &OsStr,
         size: u32,
     ) -> FuseResult<Vec<u8>> {
@@ -424,12 +424,12 @@ pub trait FuseHandler<T: FileIdType>: Send + Sync + 'static {
     }
 
     /// List extended attribute names
-    fn listxattr(&self, req: &RequestInfo, file_id: T, size: u32) -> FuseResult<Vec<u8>> {
+    fn listxattr(&self, req: &RequestInfo, file_id: TId, size: u32) -> FuseResult<Vec<u8>> {
         self.get_inner().listxattr(req, file_id, size)
     }
 
     /// Remove an extended attribute.
-    fn removexattr(&self, req: &RequestInfo, file_id: T, name: &OsStr) -> FuseResult<()> {
+    fn removexattr(&self, req: &RequestInfo, file_id: TId, name: &OsStr) -> FuseResult<()> {
         self.get_inner().removexattr(req, file_id, name)
     }
 
@@ -438,7 +438,7 @@ pub trait FuseHandler<T: FileIdType>: Send + Sync + 'static {
     /// This method is called for the access() system call. If the 'default_permissions'
     /// mount option is given, this method is not called. This method is not called
     /// under Linux kernel versions 2.4.x
-    fn access(&self, req: &RequestInfo, file_id: T, mask: AccessMask) -> FuseResult<()> {
+    fn access(&self, req: &RequestInfo, file_id: TId, mask: AccessMask) -> FuseResult<()> {
         self.get_inner().access(req, file_id, mask)
     }
 
@@ -446,7 +446,7 @@ pub trait FuseHandler<T: FileIdType>: Send + Sync + 'static {
     fn getlk(
         &self,
         req: &RequestInfo,
-        file_id: T,
+        file_id: TId,
         file_handle: FileHandle,
         lock_owner: u64,
         lock_info: LockInfo,
@@ -464,7 +464,7 @@ pub trait FuseHandler<T: FileIdType>: Send + Sync + 'static {
     fn setlk(
         &self,
         req: &RequestInfo,
-        file_id: T,
+        file_id: TId,
         file_handle: FileHandle,
         lock_owner: u64,
         lock_info: LockInfo,
@@ -478,7 +478,7 @@ pub trait FuseHandler<T: FileIdType>: Send + Sync + 'static {
     ///
     /// Note: This makes sense only for block device backed filesystems mounted
     /// with the 'blkdev' option
-    fn bmap(&self, req: &RequestInfo, file_id: T, blocksize: u32, idx: u64) -> FuseResult<u64> {
+    fn bmap(&self, req: &RequestInfo, file_id: TId, blocksize: u32, idx: u64) -> FuseResult<u64> {
         self.get_inner().bmap(req, file_id, blocksize, idx)
     }
 
@@ -486,7 +486,7 @@ pub trait FuseHandler<T: FileIdType>: Send + Sync + 'static {
     fn ioctl(
         &self,
         req: &RequestInfo,
-        file_id: T,
+        file_id: TId,
         file_handle: FileHandle,
         flags: IOCtlFlags,
         cmd: u32,
@@ -506,12 +506,12 @@ pub trait FuseHandler<T: FileIdType>: Send + Sync + 'static {
     fn create(
         &self,
         req: &RequestInfo,
-        parent_id: T,
+        parent_id: TId,
         name: &OsStr,
         mode: u32,
         umask: u32,
         flags: OpenFlags,
-    ) -> FuseResult<(FileHandle, T::Metadata, FUSEOpenResponseFlags)> {
+    ) -> FuseResult<(FileHandle, TId::Metadata, FUSEOpenResponseFlags)> {
         self.get_inner()
             .create(req, parent_id, name, mode, umask, flags)
     }
@@ -520,7 +520,7 @@ pub trait FuseHandler<T: FileIdType>: Send + Sync + 'static {
     fn fallocate(
         &self,
         req: &RequestInfo,
-        file_id: T,
+        file_id: TId,
         file_handle: FileHandle,
         offset: i64,
         length: i64,
@@ -534,7 +534,7 @@ pub trait FuseHandler<T: FileIdType>: Send + Sync + 'static {
     fn lseek(
         &self,
         req: &RequestInfo,
-        file_id: T,
+        file_id: TId,
         file_handle: FileHandle,
         seek: SeekFrom,
     ) -> FuseResult<i64> {
@@ -546,10 +546,10 @@ pub trait FuseHandler<T: FileIdType>: Send + Sync + 'static {
     fn copy_file_range(
         &self,
         req: &RequestInfo,
-        file_in: T,
+        file_in: TId,
         file_handle_in: FileHandle,
         offset_in: i64,
-        file_out: T,
+        file_out: TId,
         file_handle_out: FileHandle,
         offset_out: i64,
         len: u64,

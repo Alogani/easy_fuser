@@ -71,7 +71,7 @@ macro_rules! fd_handler_readonly_methods {
         fn read(
             &self,
             _req: &RequestInfo,
-            _file_id: T,
+            _file_id: TId,
             file_handle: FileHandle,
             seek: SeekFrom,
             size: u32,
@@ -87,7 +87,7 @@ macro_rules! fd_handler_readonly_methods {
         fn flush(
             &self,
             _req: &RequestInfo,
-            _file_id: T,
+            _file_id: TId,
             file_handle: FileHandle,
             _lock_owner: u64,
         ) -> FuseResult<()> {
@@ -100,7 +100,7 @@ macro_rules! fd_handler_readonly_methods {
         fn release(
             &self,
             _req: &RequestInfo,
-            _file_id: T,
+            _file_id: TId,
             file_handle: FileHandle,
             _flags: OpenFlags,
             _lock_owner: Option<u64>,
@@ -115,7 +115,7 @@ macro_rules! fd_handler_readonly_methods {
         fn fsync(
             &self,
             _req: &RequestInfo,
-            _file_id: T,
+            _file_id: TId,
             file_handle: FileHandle,
             datasync: bool,
         ) -> FuseResult<()> {
@@ -128,7 +128,7 @@ macro_rules! fd_handler_readonly_methods {
         fn lseek(
             &self,
             _req: &RequestInfo,
-            _file_id: T,
+            _file_id: TId,
             file_handle: FileHandle,
             seek: SeekFrom,
         ) -> FuseResult<i64> {
@@ -145,7 +145,7 @@ macro_rules! fd_handler_readwrite_methods {
         fn write(
             &self,
             _req: &RequestInfo,
-            _file_id: T,
+            _file_id: TId,
             file_handle: FileHandle,
             seek: SeekFrom,
             data: Vec<u8>,
@@ -162,7 +162,7 @@ macro_rules! fd_handler_readwrite_methods {
         fn fallocate(
             &self,
             _req: &RequestInfo,
-            _file_id: T,
+            _file_id: TId,
             file_handle: FileHandle,
             offset: i64,
             length: i64,
@@ -177,10 +177,10 @@ macro_rules! fd_handler_readwrite_methods {
         fn copy_file_range(
             &self,
             _req: &RequestInfo,
-            _file_in: T,
+            _file_in: TId,
             file_handle_in: FileHandle,
             offset_in: i64,
-            _file_out: T,
+            _file_out: TId,
             file_handle_out: FileHandle,
             offset_out: i64,
             len: u64,
@@ -200,20 +200,20 @@ macro_rules! fd_handler_readwrite_methods {
 }
 
 /// Specific documentation is located in parent module documentation.
-pub struct FdHandlerHelper<T: FileIdType> {
-    inner: Box<dyn FuseHandler<T>>,
+pub struct FdHandlerHelper<TId: FileIdType> {
+    inner: Box<dyn FuseHandler<TId>>,
 }
 
-impl<T: FileIdType> FdHandlerHelper<T> {
-    pub fn new<U: FuseHandler<T>>(inner: U) -> Self {
+impl<TId: FileIdType> FdHandlerHelper<TId> {
+    pub fn new<THandler: FuseHandler<TId>>(inner: THandler) -> Self {
         Self {
             inner: Box::new(inner),
         }
     }
 }
 
-impl<T: FileIdType> FuseHandler<T> for FdHandlerHelper<T> {
-    fn get_inner(&self) -> &dyn FuseHandler<T> {
+impl<TId: FileIdType> FuseHandler<TId> for FdHandlerHelper<TId> {
+    fn get_inner(&self) -> &dyn FuseHandler<TId> {
         self.inner.as_ref()
     }
 
@@ -222,20 +222,20 @@ impl<T: FileIdType> FuseHandler<T> for FdHandlerHelper<T> {
 }
 
 /// Specific documentation is located in parent module documentation.
-pub struct FdHandlerHelperReadOnly<T: FileIdType> {
-    inner: Box<dyn FuseHandler<T>>,
+pub struct FdHandlerHelperReadOnly<TId: FileIdType> {
+    inner: Box<dyn FuseHandler<TId>>,
 }
 
-impl<T: FileIdType> FdHandlerHelperReadOnly<T> {
-    pub fn new<U: FuseHandler<T>>(inner: U) -> Self {
+impl<TId: FileIdType> FdHandlerHelperReadOnly<TId> {
+    pub fn new<THandler: FuseHandler<TId>>(inner: THandler) -> Self {
         Self {
             inner: Box::new(inner),
         }
     }
 }
 
-impl<T: FileIdType> FuseHandler<T> for FdHandlerHelperReadOnly<T> {
-    fn get_inner(&self) -> &dyn FuseHandler<T> {
+impl<TId: FileIdType> FuseHandler<TId> for FdHandlerHelperReadOnly<TId> {
+    fn get_inner(&self) -> &dyn FuseHandler<TId> {
         self.inner.as_ref()
     }
 

@@ -108,7 +108,7 @@ This crate provides three mutually exclusive feature flags for different concurr
   scenarios where you want to handle multiple filesystem operations concurrently on separate
   threads. It can improve performance on multi-core systems.
 
-- `async`: *_This is not yet implemented_* Enables asynchronous operation. This is ideal for high-concurrency scenarios and
+- `async`: _**This is not yet implemented**_ Enables asynchronous operation. This is ideal for high-concurrency scenarios and
   when you want to integrate the filesystem with asynchronous Rust code. It allows for
   efficient handling of many concurrent operations without the overhead of threads.
 

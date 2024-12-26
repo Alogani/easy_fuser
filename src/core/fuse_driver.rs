@@ -26,11 +26,11 @@ fn get_random_generation() -> u64 {
     Instant::now().elapsed().as_nanos() as u64
 }
 
-impl<T, U, R> fuser::Filesystem for FuseDriver<T, U, R>
+impl<TId, THandler, TResolver> fuser::Filesystem for FuseDriver<TId, THandler, TResolver>
 where
-    T: FileIdType,
-    U: FuseHandler<T>,
-    R: FileIdResolver<FileIdType = T>,
+    TId: FileIdType,
+    THandler: FuseHandler<TId>,
+    TResolver: FileIdResolver<FileIdType = TId>,
 {
     fn init(&mut self, req: &Request, config: &mut KernelConfig) -> Result<(), c_int> {
         let req = RequestInfo::from(req);
@@ -772,7 +772,7 @@ where
             ) {
                 Ok((file_handle, metadata, response_flags)) => {
                     let default_ttl = handler.get_default_ttl();
-                    let (id, file_attr) = unpack_metadata::<T>(metadata);
+                    let (id, file_attr) = unpack_metadata::<TId>(metadata);
                     let ino = resolver.lookup(parent, &name, id, true);
                     let (fuse_attr, ttl, generation) = file_attr.to_fuse(ino);
                     reply.created(
