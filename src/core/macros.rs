@@ -14,7 +14,7 @@ macro_rules! handle_fuse_reply_entry {
         match handler.$function($($args),*) {
             Ok(metadata) => {
                 let default_ttl = handler.get_default_ttl();
-                let (id, file_attr) = unpack_metadata::<T>(metadata);
+                let (id, file_attr) = unpack_metadata::<TId>(metadata);
                 let ino = $resolver.lookup($parent, $name, id, true);
                 let (fuse_attr, ttl, generation) = file_attr.to_fuse(ino);
                 $reply.entry(
@@ -119,7 +119,7 @@ macro_rules! handle_dir_read {
                         let (child_list, attr_list): (Vec<_>, Vec<_>) = children
                             .into_iter()
                             .map(|item| {
-                                let (child_id, child_attr) = $unpack_method::<T>(item.1);
+                                let (child_id, child_attr) = $unpack_method::<TId>(item.1);
                                 ((item.0, child_id), child_attr)
                             })
                             .unzip();

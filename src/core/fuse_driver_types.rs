@@ -9,7 +9,7 @@ use super::inode_mapping::FileIdResolver;
 use crate::fuse_handler::FuseHandler;
 use crate::types::*;
 
-type DirIter<T> = HashMap<(u64, i64), VecDeque<(OsString, u64, T)>>;
+type DirIter<TAttr> = HashMap<(u64, i64), VecDeque<(OsString, u64, TAttr)>>;
 
 #[cfg(feature = "serial")]
 mod serial {
@@ -17,25 +17,25 @@ mod serial {
 
     use std::cell::RefCell;
 
-    pub struct FuseDriver<T, U, R>
+    pub struct FuseDriver<TId, THandler, TResolver>
     where
-        T: FileIdType,
-        U: FuseHandler<T>,
-        R: FileIdResolver<FileIdType = T>,
+        TId: FileIdType,
+        THandler: FuseHandler<TId>,
+        TResolver: FileIdResolver<FileIdType = TId>,
     {
-        handler: U,
-        resolver: R,
+        handler: THandler,
+        resolver: TResolver,
         dirmap_iter: RefCell<DirIter<FileKind>>,
         dirmapplus_iter: RefCell<DirIter<FileAttribute>>,
     }
 
-    impl<T, U, R> FuseDriver<T, U, R>
+    impl<TId, THandler, TResolver> FuseDriver<TId, THandler, TResolver>
     where
-        T: FileIdType,
-        U: FuseHandler<T>,
-        R: FileIdResolver<FileIdType = T>,
+        TId: FileIdType,
+        THandler: FuseHandler<TId>,
+        TResolver: FileIdResolver<FileIdType = TId>,
     {
-        pub fn new(handler: U, resolver: R, _num_threads: usize) -> FuseDriver<T, U, R> {
+        pub fn new(handler: THandler, resolver: TResolver, _num_threads: usize) -> FuseDriver<TId, THandler, TResolver> {
             FuseDriver {
                 handler,
                 resolver,
@@ -44,11 +44,11 @@ mod serial {
             }
         }
 
-        pub fn get_handler(&self) -> &U {
+        pub fn get_handler(&self) -> &THandler {
             &self.handler
         }
 
-        pub fn get_resolver(&self) -> &R {
+        pub fn get_resolver(&self) -> &TResolver {
             &self.resolver
         }
 
@@ -83,26 +83,26 @@ mod parallel {
     #[cfg(not(feature = "deadlock_detection"))]
     use std::sync::{Mutex, MutexGuard};
 
-    pub struct FuseDriver<T, U, R>
+    pub struct FuseDriver<TId, THandler, TResolver>
     where
-        T: FileIdType,
-        U: FuseHandler<T>,
-        R: FileIdResolver<FileIdType = T>,
+        TId: FileIdType,
+        THandler: FuseHandler<TId>,
+        TResolver: FileIdResolver<FileIdType = TId>,
     {
-        handler: Arc<U>,
-        resolver: Arc<R>,
+        handler: Arc<THandler>,
+        resolver: Arc<TResolver>,
         dirmap_iter: Arc<Mutex<DirIter<FileKind>>>,
         dirmapplus_iter: Arc<Mutex<DirIter<FileAttribute>>>,
         pub threadpool: ThreadPool,
     }
 
-    impl<T, U, R> FuseDriver<T, U, R>
+    impl<TId, THandler, TResolver> FuseDriver<TId, THandler, TResolver>
     where
-        T: FileIdType,
-        U: FuseHandler<T>,
-        R: FileIdResolver<FileIdType = T>,
+        TId: FileIdType,
+        THandler: FuseHandler<TId>,
+        TResolver: FileIdResolver<FileIdType = TId>,
     {
-        pub fn new(handler: U, resolver: R, num_threads: usize) -> FuseDriver<T, U, R> {
+        pub fn new(handler: THandler, resolver: TResolver, num_threads: usize) -> FuseDriver<TId, THandler, TResolver> {
             #[cfg(feature = "deadlock_detection")]
             spawn_deadlock_checker();
             FuseDriver {
@@ -114,11 +114,11 @@ mod parallel {
             }
         }
 
-        pub fn get_handler(&self) -> Arc<U> {
+        pub fn get_handler(&self) -> Arc<THandler> {
             self.handler.clone()
         }
 
-        pub fn get_resolver(&self) -> Arc<R> {
+        pub fn get_resolver(&self) -> Arc<TResolver> {
             self.resolver.clone()
         }
 
@@ -148,26 +148,26 @@ mod async_task {
     use tokio::runtime::Runtime;
     use tokio::sync::Mutex;
 
-    pub struct FuseDriver<T, U, R>
+    pub struct FuseDriver<TId, THandler, TResolver>
     where
-        T: FileIdType,
-        U: FuseHandler<T>,
-        R: FileIdResolver<FileIdType = T>,
+        TId: FileIdType,
+        THandler: FuseHandler<TId>,
+        TResolver: FileIdResolver<FileIdType = TId>,
     {
-        handler: Arc<U>,
-        resolver: Arc<R>,
-        dirmap_iter: Arc<tokio::sync::Mutex<DirIter<FileKind>>>,
-        dirmapplus_iter: Arc<tokio::sync::Mutex<DirIter<FileAttribute>>>,
+        handler: Arc<THandler>,
+        resolver: Arc<TResolver>,
+        dirmap_iter: Arc<Mutex<DirIter<FileKind>>>,
+        dirmapplus_iter: Arc<Mutex<DirIter<FileAttribute>>>,
         pub runtime: Runtime,
     }
 
-    impl<T, U, R> FuseDriver<T, U, R>
+    impl<TId, THandler, TResolver> FuseDriver<TId, THandler, TResolver>
     where
-        T: FileIdType,
-        U: FuseHandler<T>,
-        R: FileIdResolver<FileIdType = T>,
+        TId: FileIdType,
+        THandler: FuseHandler<TId>,
+        TResolver: FileIdResolver<FileIdType = TId>,
     {
-        pub fn new(handler: U, resolver: R, num_threads: usize) -> FuseDriver<T, U, R> {
+        pub fn new(handler: THandler, resolver: TResolver, _num_threads: usize) -> FuseDriver<TId, THandler, TResolver> {
             #[cfg(feature = "deadlock_detection")]
             spawn_deadlock_checker();
             FuseDriver {
@@ -179,11 +179,11 @@ mod async_task {
             }
         }
 
-        pub fn get_handler(&self) -> Arc<U> {
+        pub fn get_handler(&self) -> Arc<THandler> {
             self.handler.clone()
         }
 
-        pub fn get_resolver(&self) -> Arc<R> {
+        pub fn get_resolver(&self) -> Arc<TResolver> {
             self.resolver.clone()
         }
 

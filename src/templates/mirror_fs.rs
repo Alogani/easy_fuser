@@ -304,7 +304,7 @@ pub struct MirrorFsReadOnly {
 }
 
 impl MirrorFsReadOnly {
-    pub fn new<U: FuseHandler<PathBuf>>(source_path: PathBuf, inner: U) -> Self {
+    pub fn new<THandler: FuseHandler<PathBuf>>(source_path: PathBuf, inner: THandler) -> Self {
         Self {
             source_path,
             inner: Box::new(FdHandlerHelper::new(inner)),
