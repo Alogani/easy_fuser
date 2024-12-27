@@ -37,11 +37,11 @@ pub(super) unsafe fn fdatasync(fd: c_int) -> c_int {
 ///
 /// Note: This function is not available on all platforms, like BSD, in that case, it will return not implemented.
 pub fn copy_file_range(
-    fd_in: &FileDescriptor,
-    offset_in: i64,
-    fd_out: &FileDescriptor,
-    offset_out: i64,
-    len: u64,
+    _fd_in: &FileDescriptor,
+    _offset_in: i64,
+    _fd_out: &FileDescriptor,
+    _offset_out: i64,
+    _len: u64,
 ) -> Result<u32, PosixError> {
     Err(PosixError::new(
         ErrorKind::FunctionNotImplemented,

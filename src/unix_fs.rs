@@ -61,7 +61,7 @@ pub(crate) mod macos_fs;
 #[cfg(target_os = "macos")]
 use macos_fs as unix_impl;
 
-pub use unix_impl::{copy_file_range, statfs};
+pub use unix_impl::{copy_file_range, statfs, get_errno};
 
 /// Converts a `std::fs::FileType` to the corresponding `FileKind` expected by fuse_api.
 ///
