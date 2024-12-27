@@ -2,6 +2,7 @@ use std::time::{Duration, SystemTime};
 
 use fuser::FileAttr as FuseFileAttr;
 use fuser::{FileType, Request, TimeOrNow};
+use libc::mode_t;
 
 use super::FileHandle;
 use super::LockType;
@@ -43,7 +44,7 @@ pub enum DeviceType {
 }
 
 impl DeviceType {
-    pub fn from_rdev(rdev: u32) -> Self {
+    pub fn from_rdev(rdev: mode_t) -> Self {
         use libc::*;
         // Extract major and minor device numbers (assuming the device number format).
         let major = rdev >> 8; // Major is the upper part of the 32-bit value
@@ -60,7 +61,7 @@ impl DeviceType {
         }
     }
 
-    pub fn to_rdev(&self) -> u32 {
+    pub fn to_rdev(&self) -> mode_t {
         use libc::*;
 
         match self {

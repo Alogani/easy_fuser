@@ -14,10 +14,12 @@ bitflags! {
         const NON_BLOCKING_MODE = libc::O_NONBLOCK;
         const SYNC_DATA_ONLY = libc::O_DSYNC;
         const SYNC_DATA_AND_METADATA = libc::O_SYNC;
+        #[cfg(target_os = "linux")]
         const SYNC_READS_AND_WRITES = libc::O_RSYNC;
         const MUST_BE_DIRECTORY = libc::O_DIRECTORY;
         const DO_NOT_FOLLOW_SYMLINKS = libc::O_NOFOLLOW;
         const CLOSE_ON_EXEC = libc::O_CLOEXEC;
+        #[cfg(target_os = "linux")]
         const TEMPORARY_FILE = libc::O_TMPFILE;
         const _ = !0;
     }
@@ -26,7 +28,9 @@ bitflags! {
 bitflags! {
     #[derive(Debug, Copy, Clone)]
     pub struct RenameFlags: u32 {
+        #[cfg(target_os = "linux")]
         const EXCHANGE = libc::RENAME_EXCHANGE;
+        #[cfg(target_os = "linux")]
         const NOREPLACE = libc::RENAME_NOREPLACE;
         const _ = !0;
     }
@@ -43,9 +47,10 @@ bitflags! {
 bitflags! {
     #[derive(Debug, Copy, Clone)]
     pub struct LockType: i32 {
-        const UNLOCKED = libc::F_UNLCK;
-        const READ_LOCK = libc::F_RDLCK;
-        const WRITE_LOCK = libc::F_WRLCK;
+        // c_short in BSD, c_int in linux
+        const UNLOCKED = libc::F_UNLCK as i32;
+        const READ_LOCK = libc::F_RDLCK as i32;
+        const WRITE_LOCK = libc::F_WRLCK as i32;
         const _ = !0;
     }
 }
