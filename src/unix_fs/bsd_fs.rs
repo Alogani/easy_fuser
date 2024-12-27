@@ -1,4 +1,4 @@
-pub use bsd_fs_like::*;
+pub use super::bsd_like_fs::*;
 
 use std::ffi::c_void;
 

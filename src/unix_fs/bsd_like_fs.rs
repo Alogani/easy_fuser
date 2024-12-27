@@ -1,5 +1,3 @@
-use std::path::Path;
-
 use libc::{self, c_char, c_int, c_uint, off_t};
 
 use super::{cstring_from_path, FileDescriptor, StatFs};

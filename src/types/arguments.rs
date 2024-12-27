@@ -46,10 +46,9 @@ pub enum DeviceType {
 impl DeviceType {
     pub fn from_rdev(rdev: mode_t) -> Self {
         use libc::*;
-        let rdev: u32 = rdev.into();
         // Extract major and minor device numbers (assuming the device number format).
-        let major: u32 = rdev >> 8; // Major is the upper part of the 32-bit value (16 bit on macos)
-        let minor: u32 = rdev & 0xFF; // Minor is the lower 8 bits
+        let major: u32 = (rdev >> 8).into(); // Major is the upper part of the 32-bit value (16 bit on macos)
+        let minor: u32 = (rdev & 0xFF).into(); // Minor is the lower 8 bits
         match rdev {
             x if x & S_IFREG != 0 => DeviceType::RegularFile,
             x if x & S_IFDIR != 0 => DeviceType::Directory,
