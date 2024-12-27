@@ -1,0 +1,65 @@
+name: Nim CI ubuntu
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+
+  build:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v2
+    - name: Setup Rust
+      uses: actions-rs/toolchain@v1
+      with:
+        toolchain: stable
+        override: true
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y libfuse-dev
+    - name: Build
+      run: cargo build --verbose --features serial
+    - name: Run tests
+      run: ./tests/run_all_tests.sh
+    - name: Run tests for examples
+      run: |
+        set -e
+        exit_code=0
+        for dir in examples/*/; do
+          if [ -f "${dir}Cargo.toml" ]; then
+            echo "Running tests in ${dir}"
+            if ! (cd "${dir}" && cargo test); then
+              echo "Tests failed in ${dir}"
+              exit_code=1
+            fi  
+          fi
+        done
+        exit $exit_code
+
+cross-compile:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        target:
+          - x86_64-unknown-freebsd
+          - x86_64-unknown-netbsd
+          - x86_64-unknown-openbsd
+          - x86_64-unknown-dragonfly
+    
+    steps:
+    - uses: actions/checkout@v2
+    - name: Setup Rust
+      uses: actions-rs/toolchain@v1
+      with:
+        toolchain: stable
+        override: true
+    - name: Install cross
+      run: cargo install cross
+    - name: Cross-compile
+      run: cross build --target ${{ matrix.target }} --verbose --features parallel
