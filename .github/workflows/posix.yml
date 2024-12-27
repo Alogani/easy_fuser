@@ -61,5 +61,14 @@ jobs:
           override: true
       - name: Add target
         run: rustup target add ${{ matrix.target }}
+      - name: Install cross
+        run: cargo install cross
       - name: Cross-compile
-        run: cargo build --target ${{ matrix.target }} --verbose --features parallel
+        env:
+          PKG_CONFIG_ALLOW_CROSS: 1
+          PKG_CONFIG_ALL_STATIC: 1
+        run: |
+          mkdir -p .cargo
+          echo '[target.${{ matrix.target }}]' >> .cargo/config.toml
+          echo 'linker = "rust-lld"' >> .cargo/config.toml
+          cross build --target ${{ matrix.target }} --verbose --features parallel
