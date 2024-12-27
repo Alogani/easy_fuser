@@ -1,4 +1,4 @@
-name: Nim CI ubuntu
+name: ubuntu CI
 
 on:
   workflow_dispatch:
@@ -65,13 +65,17 @@ jobs:
         run: rustup target add ${{ matrix.target }}
       - name: Install cross
         run: cargo install cross
+      - name: Set up cross-compilation environment
+        run: |
+          mkdir -p .cargo
+          echo '[target.${{ matrix.target }}]' >> .cargo/config.toml
+          echo 'linker = "rust-lld"' >> .cargo/config.toml
+          echo 'rustflags = ["-C", "link-arg=-lfuse"]' >> .cargo/config.toml
       - name: Cross-compile
         env:
           PKG_CONFIG_ALLOW_CROSS: 1
           PKG_CONFIG_ALL_STATIC: 1
           LIBFUSE_STATIC: 1
+          RUSTFLAGS: "-C target-feature=+crt-static"
         run: |
-          mkdir -p .cargo
-          echo '[target.${{ matrix.target }}]' >> .cargo/config.toml
-          echo 'linker = "rust-lld"' >> .cargo/config.toml
           cross build --target ${{ matrix.target }} --verbose --features parallel
