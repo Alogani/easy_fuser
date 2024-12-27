@@ -11,17 +11,3 @@ freebsd_task:
 
   test_script:
     - cargo test --verbose --features parallel
-
-netbsd_task:
-  netbsd_instance:
-    image_family: netbsd-9-2
-
-  setup_script:
-    - pkgin -y install rust fuse pkgconf
-    - rustup default stable
-
-  build_script:
-    - cargo build --verbose --features parallel
-
-  test_script:
-    - cargo test --verbose --features parallel
