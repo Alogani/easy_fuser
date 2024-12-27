@@ -1,6 +1,6 @@
 use libc::{self, c_char, c_int, c_uint, off_t};
 
-use super::{cstring_from_path, FileDescriptor, StatFs};
+use super::{cstring_from_path, FileDescriptor};
 
 pub(super) fn get_errno() -> i32 {
     unsafe { *libc::__errno()() }

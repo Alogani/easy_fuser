@@ -1,9 +1,10 @@
-pub use bsd_like_fs::*;
+pub use super::bsd_like_fs::*;
 
 use std::ffi::c_void;
 
+use crate::PosixError;
 use libc::{self, c_char, c_int, size_t, ssize_t};
-
+use super::{cstring_from_path, StatFs};
 
 pub(super) unsafe fn setxattr(
     path: *const c_char,
