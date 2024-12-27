@@ -20,7 +20,7 @@ pub(super) unsafe fn setxattr(
     _position: u32,
     _flags: c_int,
 ) -> c_int {
-    libc::extattr_set_file(path, libc::EXTATTR_NAMESPACE_USER, name, value, size)
+    libc::extattr_set_file(path, libc::EXTATTR_NAMESPACE_USER, name, value, size).try_into().unwrap()
 }
 
 pub(super) unsafe fn getxattr(
