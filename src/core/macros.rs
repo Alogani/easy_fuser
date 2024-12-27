@@ -14,7 +14,7 @@ macro_rules! handle_fuse_reply_entry {
         match handler.$function($($args),*) {
             Ok(metadata) => {
                 let default_ttl = handler.get_default_ttl();
-                let (id, file_attr) = unpack_metadata::<TId>(metadata);
+                let (id, file_attr) = TId::extract_metadata(metadata);
                 let ino = $resolver.lookup($parent, $name, id, true);
                 let (fuse_attr, ttl, generation) = file_attr.to_fuse(ino);
                 $reply.entry(
@@ -82,7 +82,7 @@ macro_rules! handle_fuse_reply_attr {
 /// with directory entries or an error code.//
 macro_rules! handle_dir_read {
     ($self:expr, $req:expr, $ino:expr, $fh:expr, $offset:expr, $reply:expr,
-    $handler_method:ident, $unpack_method:ident, $get_iter_method:ident, $reply_type:ty) => {{
+    $handler_method:ident, $get_iter_method:ident, $reply_type:ty) => {{
         // Inner macro to handle readdir vs readdirplus differences
         macro_rules! if_readdir {
             (readdir, $choice1:tt, $choice2:tt) => {
@@ -119,7 +119,11 @@ macro_rules! handle_dir_read {
                         let (child_list, attr_list): (Vec<_>, Vec<_>) = children
                             .into_iter()
                             .map(|item| {
-                                let (child_id, child_attr) = $unpack_method::<TId>(item.1);
+                                let (child_id, child_attr) = if_readdir!(
+                                    $handler_method,
+                                    { TId::extract_minimal_metadata(item.1) },
+                                    { TId::extract_metadata(item.1) }
+                                );
                                 ((item.0, child_id), child_attr)
                             })
                             .unzip();

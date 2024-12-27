@@ -3,7 +3,6 @@ use std::fmt::{Debug, Display};
 pub type FuseResult<T> = Result<T, PosixError>;
 
 /// Shorthand for panicking on Option errors.
-#[macro_export]
 macro_rules! unwrap {
     ($result:expr, $($arg:tt)+) => {
         {
@@ -13,6 +12,7 @@ macro_rules! unwrap {
         }
     };
 }
+pub(crate) use unwrap;
 
 /// Represents a POSIX error with an error code and message.
 #[derive(Clone, PartialEq, Eq)]

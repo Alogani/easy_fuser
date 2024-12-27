@@ -1,5 +1,6 @@
 use std::time::{Duration, SystemTime};
 
+use fuser::FileAttr as FuseFileAttr;
 use fuser::{FileType, Request, TimeOrNow};
 
 use super::FileHandle;
@@ -187,6 +188,33 @@ pub struct FileAttribute {
     /// - Should be unique over the file system's lifetime if exported over NFS
     /// - Should be a new, previously unused number if an inode is reused after deletion
     pub generation: Option<u64>,
+}
+
+/// `FuseFileAttr`, `Option<ttl>`, `Option<generation>`
+impl FileAttribute {
+    pub(crate) fn to_fuse(self, ino: u64) -> (FuseFileAttr, Option<Duration>, Option<u64>) {
+        (
+            FuseFileAttr {
+                ino,
+                size: self.size,
+                blocks: self.blocks,
+                atime: self.atime,
+                mtime: self.mtime,
+                ctime: self.ctime,
+                crtime: self.crtime,
+                kind: self.kind,
+                perm: self.perm,
+                nlink: self.nlink,
+                uid: self.uid,
+                gid: self.gid,
+                rdev: self.rdev,
+                blksize: self.blksize,
+                flags: self.flags,
+            },
+            self.ttl,
+            self.generation,
+        )
+    }
 }
 
 /// Represents a request to set file attributes in a FUSE file system.

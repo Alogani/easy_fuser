@@ -1,3 +1,5 @@
+use crate::core::ROOT_INO;
+
 /// Represents an inode number in a FUSE (Filesystem in Userspace) filesystem.
 ///
 /// `Inode` implements the `FileIdType` trait, which is used as a generic parameter
@@ -24,7 +26,7 @@
 /// using `PathBuf` as `FileIdType`. This alternative approach allows for file
 /// identification based on paths rather than inode numbers.
 
-pub const ROOT_INODE: Inode = Inode(1);
+pub const ROOT_INODE: Inode = Inode(ROOT_INO);
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Inode(u64);

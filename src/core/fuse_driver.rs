@@ -17,20 +17,18 @@ use super::{
     fuse_driver_types::{execute_task, FuseDriver},
     inode_mapping::FileIdResolver,
     macros::*,
+    thread_mode::*,
 };
 use crate::{fuse_handler::FuseHandler, types::*};
-use crate::prelude::private::SafeBorrowable;
-use crate::prelude::private::{unpack_metadata, unpack_minimal_metadata};
 
 fn get_random_generation() -> u64 {
     Instant::now().elapsed().as_nanos() as u64
 }
 
-impl<TId, THandler, TResolver> fuser::Filesystem for FuseDriver<TId, THandler, TResolver>
+impl<TId, THandler> fuser::Filesystem for FuseDriver<TId, THandler>
 where
     TId: FileIdType,
     THandler: FuseHandler<TId>,
-    TResolver: FileIdResolver<FileIdType = TId>,
 {
     fn init(&mut self, req: &Request, config: &mut KernelConfig) -> Result<(), c_int> {
         let req = RequestInfo::from(req);
@@ -540,7 +538,6 @@ where
             offset,
             reply,
             readdir,
-            unpack_minimal_metadata,
             get_dirmap_iter,
             ReplyDirectory
         );
@@ -562,7 +559,6 @@ where
             offset,
             reply,
             readdirplus,
-            unpack_metadata,
             get_dirmapplus_iter,
             ReplyDirectoryPlus
         );
@@ -772,7 +768,7 @@ where
             ) {
                 Ok((file_handle, metadata, response_flags)) => {
                     let default_ttl = handler.get_default_ttl();
-                    let (id, file_attr) = unpack_metadata::<TId>(metadata);
+                    let (id, file_attr) = TId::extract_metadata(metadata);
                     let ino = resolver.lookup(parent, &name, id, true);
                     let (fuse_attr, ttl, generation) = file_attr.to_fuse(ino);
                     reply.created(
