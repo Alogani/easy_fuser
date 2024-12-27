@@ -35,7 +35,11 @@ mod serial {
         THandler: FuseHandler<TId>,
         TResolver: FileIdResolver<FileIdType = TId>,
     {
-        pub fn new(handler: THandler, resolver: TResolver, _num_threads: usize) -> FuseDriver<TId, THandler, TResolver> {
+        pub fn new(
+            handler: THandler,
+            resolver: TResolver,
+            _num_threads: usize,
+        ) -> FuseDriver<TId, THandler, TResolver> {
             FuseDriver {
                 handler,
                 resolver,
@@ -102,7 +106,11 @@ mod parallel {
         THandler: FuseHandler<TId>,
         TResolver: FileIdResolver<FileIdType = TId>,
     {
-        pub fn new(handler: THandler, resolver: TResolver, num_threads: usize) -> FuseDriver<TId, THandler, TResolver> {
+        pub fn new(
+            handler: THandler,
+            resolver: TResolver,
+            num_threads: usize,
+        ) -> FuseDriver<TId, THandler, TResolver> {
             #[cfg(feature = "deadlock_detection")]
             spawn_deadlock_checker();
             FuseDriver {
@@ -167,7 +175,11 @@ mod async_task {
         THandler: FuseHandler<TId>,
         TResolver: FileIdResolver<FileIdType = TId>,
     {
-        pub fn new(handler: THandler, resolver: TResolver, _num_threads: usize) -> FuseDriver<TId, THandler, TResolver> {
+        pub fn new(
+            handler: THandler,
+            resolver: TResolver,
+            _num_threads: usize,
+        ) -> FuseDriver<TId, THandler, TResolver> {
             #[cfg(feature = "deadlock_detection")]
             spawn_deadlock_checker();
             FuseDriver {

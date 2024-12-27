@@ -28,12 +28,12 @@ macro_rules! handle_fuse_reply_entry {
                     if e.kind() == ErrorKind::FileNotFound {
                         // Lookup is preemptivly done in normal situations, we don't need to log an error
                         // eg: before creating a file
-                        info!("{}: {:?}, parent_ino: {:x?}, {:?}", stringify!($function), e , $parent, $req);
+                        info!("{}: parent_ino {:x?}, [{}], {:?}", stringify!($function), $parent, e, $req);
                     } else {
-                        warn!("{}: {:?}, parent_ino: {:x?}, {:?}", stringify!($function), e , $parent, $req);
+                        warn!("{}: parent_ino {:x?}, [{}], {:?}", stringify!($function), $parent, e, $req);
                     };
                 }, {
-                    warn!("{}: {:?}, parent_ino: {:x?}, {:?}", stringify!($function), e , $parent, $req);
+                    warn!("{}: parent_ino {:x?}, [{}], {:?}", stringify!($function), $parent, e, $req);
                 });
                 $reply.error(e.raw_error())
             }
@@ -51,7 +51,7 @@ macro_rules! handle_fuse_reply_attr {
                 $reply.attr(&ttl.unwrap_or(default_ttl), &fuse_attr);
             }
             Err(e) => {
-                warn!("{}: {:?}, ino: {:x?}, {:?}", stringify!($function), e , $ino, $req);
+                warn!("{}: ino {:x?}, [{}], {:?}", stringify!($function), $ino, e, $req);
                 $reply.error(e.raw_error())
             }
         }

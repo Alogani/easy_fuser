@@ -1,5 +1,5 @@
 //! ZipFs: A read-only FUSE filesystem for ZIP archives
-//! 
+//!
 //! This program mounts a ZIP archive as a read-only filesystem using FUSE.
 //! It allows browsing and reading the contents of the ZIP file as if it were
 //! a regular directory structure.
@@ -45,7 +45,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = Args::parse();
     let (zip_file, mount_point) = if !args.args.is_empty() {
         if args.args.len() != 2 {
-            return Err("Expected exactly two positional arguments: <ZIP_FILE> <MOUNT_POINT>".into());
+            return Err(
+                "Expected exactly two positional arguments: <ZIP_FILE> <MOUNT_POINT>".into(),
+            );
         }
         if args.zip_file.is_some() || args.mount_point.is_some() {
             return Err("Cannot mix positional and named arguments".into());

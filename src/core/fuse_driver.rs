@@ -37,7 +37,7 @@ where
         match self.get_handler().init(&req, config) {
             Ok(()) => Ok(()),
             Err(e) => {
-                warn!("init {:?}: {:?}", req, e);
+                warn!("[{}] init {:?}", e, req);
                 Err(e.raw_error())
             }
         }
@@ -147,7 +147,7 @@ where
             match handler.readlink(&req, resolver.resolve_id(ino)) {
                 Ok(link) => reply.data(&link),
                 Err(e) => {
-                    warn!("readlink: {:?}, ino: {:x?}, {:?}", e, ino, req);
+                    warn!("[{}] readlink, ino: {:x?}, {:?}", ino, e, req);
                     reply.error(e.raw_error())
                 }
             };
@@ -225,7 +225,7 @@ where
             match handler.unlink(&req, resolver.resolve_id(parent), &name) {
                 Ok(()) => reply.ok(),
                 Err(e) => {
-                    warn!("unlink: {:?}, parent_ino: {:x?}, {:?}", e, parent, req);
+                    warn!("[{}] unlink: parent_ino: {:x?}, {:?}", parent, e, req);
                     reply.error(e.raw_error())
                 }
             };
@@ -241,7 +241,7 @@ where
             match handler.rmdir(&req, resolver.resolve_id(parent), &name) {
                 Ok(()) => reply.ok(),
                 Err(e) => {
-                    warn!("rmdir: {:?}, parent_ino: {:x?}, {:?}", parent, e, req);
+                    warn!("[{}] rmdir: parent_ino: {:x?}, {:?}", parent, e, req);
                     reply.error(e.raw_error())
                 }
             };
@@ -304,7 +304,7 @@ where
                     reply.ok()
                 }
                 Err(e) => {
-                    warn!("rename: {:?}, parent_ino: {:x?}, {:?}", e, parent, req);
+                    warn!("[{}] rename: parent_ino: {:x?}, {:?}", parent, e, req);
                     reply.error(e.raw_error())
                 }
             }
@@ -356,7 +356,7 @@ where
                     reply.opened(file_handle.into(), response_flags.bits())
                 }
                 Err(e) => {
-                    warn!("open: {:?}, ino: {:x?}, {:?}", e, ino, req);
+                    warn!("open: ino {:x?}, [{}], {:?}", ino, e, req);
                     reply.error(e.raw_error())
                 }
             };
@@ -389,7 +389,7 @@ where
             ) {
                 Ok(data_reply) => reply.data(&data_reply),
                 Err(e) => {
-                    warn!("read: {:?}, ino: {:x?}, {:?}", e, ino, req);
+                    warn!("read: ino {:x?}, [{}], {:?}", ino, e, req);
                     reply.error(e.raw_error())
                 }
             };
@@ -425,7 +425,7 @@ where
             ) {
                 Ok(bytes_written) => reply.written(bytes_written),
                 Err(e) => {
-                    warn!("write: {:?}, ino: {:x?}, {:?}", e, ino, req);
+                    warn!("write: ino {:x?}, [{}], {:?}", ino, e, req);
                     reply.error(e.raw_error())
                 }
             };
@@ -445,7 +445,7 @@ where
             ) {
                 Ok(()) => reply.ok(),
                 Err(e) => {
-                    warn!("flush: {:?}, ino: {:x?}, {:?}", e, ino, req);
+                    warn!("flush: ino {:x?}, [{}], {:?}", ino, e, req);
                     reply.error(e.raw_error())
                 }
             };
@@ -476,7 +476,7 @@ where
             ) {
                 Ok(()) => reply.ok(),
                 Err(e) => {
-                    warn!("release: {:?}, ino: {:x?}, {:?}", e, ino, req);
+                    warn!("release: ino {:x?}, [{}], {:?}", ino, e, req);
                     reply.error(e.raw_error())
                 }
             };
@@ -496,7 +496,7 @@ where
             ) {
                 Ok(()) => reply.ok(),
                 Err(e) => {
-                    warn!("fsync: {:?}, ino: {:x?}, {:?}", e, ino, req);
+                    warn!("fsync: ino {:x?}, [{}], {:?}", ino, e, req);
                     reply.error(e.raw_error())
                 }
             };
@@ -517,7 +517,7 @@ where
                     reply.opened(file_handle.into(), response_flags.bits())
                 }
                 Err(e) => {
-                    warn!("opendir: {:?}, ino: {:x?}, {:?}", e, ino, req);
+                    warn!("opendir: ino {:x?}, [{}], {:?}", ino, e, req);
                     reply.error(e.raw_error())
                 }
             };
@@ -581,7 +581,7 @@ where
             ) {
                 Ok(()) => reply.ok(),
                 Err(e) => {
-                    warn!("releasedir: {:?}, ino: {:x?}, {:?}", e, ino, req);
+                    warn!("releasedir: ino {:x?}, [{}], {:?}", ino, e, req);
                     reply.error(e.raw_error())
                 }
             };
@@ -601,7 +601,7 @@ where
             ) {
                 Ok(()) => reply.ok(),
                 Err(e) => {
-                    warn!("fsyncdir: {:?}, ino: {:x?}, {:?}", e, ino, req);
+                    warn!("fsyncdir: ino {:x?}, [{}], {:?}", ino, e, req);
                     reply.error(e.raw_error())
                 }
             };
@@ -625,7 +625,7 @@ where
                     statfs.fragment_size,
                 ),
                 Err(e) => {
-                    warn!("statfs: {:?}, ino: {:x?}, {:?}", e, ino, req);
+                    warn!("statfs: ino {:x?}, [{}], {:?}", ino, e, req);
                     reply.error(e.raw_error())
                 }
             };
@@ -658,7 +658,7 @@ where
             ) {
                 Ok(()) => reply.ok(),
                 Err(e) => {
-                    warn!("setxattr: {:?}, ino: {:x?}, {:?}", e, ino, req);
+                    warn!("setxattr: ino {:x?}, [{}], {:?}", ino, e, req);
                     reply.error(e.raw_error())
                 }
             };
@@ -682,7 +682,7 @@ where
                     }
                 }
                 Err(e) => {
-                    warn!("getxattr: {:?}, ino: {:x?}, {:?}", e, ino, req);
+                    warn!("getxattr: ino {:x?}, [{}], {:?}", ino, e, req);
                     reply.error(e.raw_error())
                 }
             };
@@ -705,7 +705,7 @@ where
                     }
                 }
                 Err(e) => {
-                    warn!("listxattr: {:?}, ino: {:x?}, {:?}", e, ino, req);
+                    warn!("listxattr: ino {:x?}, [{}], {:?}", ino, e, req);
                     reply.error(e.raw_error())
                 }
             };
@@ -721,7 +721,7 @@ where
             match handler.removexattr(&req, resolver.resolve_id(ino), &name) {
                 Ok(()) => reply.ok(),
                 Err(e) => {
-                    warn!("removexattr: {:?}, ino: {:x?}, {:?}", e, ino, req);
+                    warn!("removexattr: ino {:x?}, [{}], {:?}", ino, e, req);
                     reply.error(e.raw_error())
                 }
             };
@@ -740,7 +740,7 @@ where
             ) {
                 Ok(()) => reply.ok(),
                 Err(e) => {
-                    warn!("access: {:?}, ino: {:x?}, {:?}", e, ino, req);
+                    warn!("access: ino {:x?}, [{}], {:?}", ino, e, req);
                     reply.error(e.raw_error())
                 }
             };
@@ -784,7 +784,7 @@ where
                     );
                 }
                 Err(e) => {
-                    warn!("create: {:?}, parent_ino: {:x?}, {:?}", e, parent, req);
+                    warn!("create: {:?}, parent_ino: {:x?}, {:?}", parent, e, req);
                     reply.error(e.raw_error())
                 }
             };
@@ -827,7 +827,7 @@ where
                     lock_info.pid,
                 ),
                 Err(e) => {
-                    warn!("getlk: {:?}, ino: {:x?}, {:?}", e, ino, req);
+                    warn!("getlk: ino {:x?}, [{}], {:?}", ino, e, req);
                     reply.error(e.raw_error())
                 }
             };
@@ -867,7 +867,7 @@ where
             ) {
                 Ok(()) => reply.ok(),
                 Err(e) => {
-                    warn!("setlk: {:?}, ino: {:x?}, {:?}", e, ino, req);
+                    warn!("setlk: ino {:x?}, [{}], {:?}", ino, e, req);
                     reply.error(e.raw_error())
                 }
             };
@@ -882,7 +882,7 @@ where
             match handler.bmap(&req, resolver.resolve_id(ino), blocksize, idx) {
                 Ok(block) => reply.bmap(block),
                 Err(e) => {
-                    warn!("bmap: {:?}, ino: {:x?}, {:?}", e, ino, req);
+                    warn!("bmap: ino {:x?}, [{}], {:?}", ino, e, req);
                     reply.error(e.raw_error())
                 }
             };
@@ -916,7 +916,7 @@ where
             ) {
                 Ok((result, data)) => reply.ioctl(result, &data),
                 Err(e) => {
-                    warn!("ioctl: {:?}, ino: {:x?}, {:?}", e, ino, req);
+                    warn!("ioctl: ino {:x?}, [{}], {:?}", ino, e, req);
                     reply.error(e.raw_error())
                 }
             };
@@ -947,7 +947,7 @@ where
             ) {
                 Ok(()) => reply.ok(),
                 Err(e) => {
-                    warn!("fallocate: {:?}, ino: {:x?}, {:?}", e, ino, req);
+                    warn!("fallocate: ino {:x?}, [{}], {:?}", ino, e, req);
                     reply.error(e.raw_error())
                 }
             };
@@ -975,7 +975,7 @@ where
             ) {
                 Ok(new_offset) => reply.offset(new_offset),
                 Err(e) => {
-                    warn!("lseek: {:?}, ino: {:x?}, {:?}", e, ino, req);
+                    warn!("lseek: ino {:x?}, [{}], {:?}", ino, e, req);
                     reply.error(e.raw_error())
                 }
             };
@@ -1012,7 +1012,7 @@ where
             ) {
                 Ok(bytes_written) => reply.written(bytes_written),
                 Err(e) => {
-                    warn!("copy_file_range: {:?}, ino: {:x?}, {:?}", e, ino_in, req);
+                    warn!("copy_file_range: ino {:x?}, [{}], {:?}", ino_in, e, req);
                     reply.error(e.raw_error())
                 }
             };

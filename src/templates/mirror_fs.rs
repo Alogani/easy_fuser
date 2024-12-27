@@ -70,9 +70,11 @@ For more specific implementations or to extend functionality, you can modify the
 use std::ffi::{OsStr, OsString};
 use std::path::{Path, PathBuf};
 
+use fd_handler_helper::*;
+
 use crate::posix_fs;
 use crate::prelude::*;
-use crate::templates::FdHandlerHelper;
+use crate::templates::*;
 
 macro_rules! mirror_fs_readonly_methods {
     () => {
@@ -269,21 +271,27 @@ macro_rules! mirror_fs_readwrite_methods {
     };
 }
 
+pub trait MirrorFsTrait: FuseHandler<PathBuf> {
+    fn new<U: FuseHandler<PathBuf>>(source_path: PathBuf, inner: U) -> Self;
+
+    fn source_dir(&self) -> &Path;
+}
+
 /// Specific documentation is located in parent module documentation.
 pub struct MirrorFs {
     source_path: PathBuf,
     inner: Box<FdHandlerHelper<PathBuf>>,
 }
 
-impl MirrorFs {
-    pub fn new<U: FuseHandler<PathBuf>>(source_path: PathBuf, inner: U) -> Self {
+impl MirrorFsTrait for MirrorFs {
+    fn new<U: FuseHandler<PathBuf>>(source_path: PathBuf, inner: U) -> Self {
         Self {
             source_path,
             inner: Box::new(FdHandlerHelper::new(inner)),
         }
     }
 
-    pub fn source_dir(&self) -> &Path {
+    fn source_dir(&self) -> &Path {
         self.source_path.as_path()
     }
 }
@@ -300,18 +308,18 @@ impl FuseHandler<PathBuf> for MirrorFs {
 /// Specific documentation is located in parent module documentation.
 pub struct MirrorFsReadOnly {
     source_path: PathBuf,
-    inner: Box<FdHandlerHelper<PathBuf>>,
+    inner: Box<FdHandlerHelperReadOnly<PathBuf>>,
 }
 
-impl MirrorFsReadOnly {
-    pub fn new<THandler: FuseHandler<PathBuf>>(source_path: PathBuf, inner: THandler) -> Self {
+impl MirrorFsTrait for MirrorFsReadOnly {
+    fn new<THandler: FuseHandler<PathBuf>>(source_path: PathBuf, inner: THandler) -> Self {
         Self {
             source_path,
-            inner: Box::new(FdHandlerHelper::new(inner)),
+            inner: Box::new(FdHandlerHelperReadOnly::new(inner)),
         }
     }
 
-    pub fn source_dir(&self) -> &Path {
+    fn source_dir(&self) -> &Path {
         self.source_path.as_path()
     }
 }

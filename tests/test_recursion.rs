@@ -1,5 +1,5 @@
 use easy_fuser::spawn_mount;
-use easy_fuser::templates::{DefaultFuseHandler, MirrorFs};
+use easy_fuser::templates::{mirror_fs::*, DefaultFuseHandler};
 
 use std::fs;
 use std::path::PathBuf;
@@ -7,7 +7,7 @@ use std::process::Command;
 use std::time::{Duration, Instant};
 
 /// In theory, this test shouldn't work, but for an unknown reason it works
-/// 
+///
 /// However, when trying this kind of mount in a terminal, it hangs
 
 #[test]

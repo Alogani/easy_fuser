@@ -1,14 +1,12 @@
-use easy_fuser::mount;
-use easy_fuser::templates::{DefaultFuseHandler, MirrorFs};
+use easy_fuser::prelude::*;
+use easy_fuser::templates::{mirror_fs::*, DefaultFuseHandler};
 use std::path::PathBuf;
 use std::thread;
 use std::time::Duration;
 
 // cargo test --package easy_fuser --test mount_mirror_fs --features "parallel" -- mount_mirror_fs --nocapture --ignored
 
-#[test]
-#[ignore]
-fn mount_mirror_fs() {
+fn mount_fs<FS: MirrorFsTrait>() {
     std::env::set_var("RUST_BACKTRACE", "full");
     let _ = env_logger::builder()
         .is_test(true)
@@ -33,7 +31,7 @@ fn mount_mirror_fs() {
     println!("Source directory: {:?}", source_dir);
 
     // Create the MirrorFs
-    let fs = MirrorFs::new(source_dir, DefaultFuseHandler::new());
+    let fs = FS::new(source_dir, DefaultFuseHandler::new());
 
     // Mount the filesystem
     println!("Mounting MirrorFs...");
@@ -57,4 +55,16 @@ fn mount_mirror_fs() {
 
     // Note: This part will only be reached if mounting fails
     println!("Exiting debug mount.");
+}
+
+#[test]
+#[ignore]
+fn mount_mirror_fs() {
+    mount_fs::<MirrorFs>();
+}
+
+#[test]
+#[ignore]
+fn mount_mirror_fs_read_only() {
+    mount_fs::<MirrorFsReadOnly>();
 }
