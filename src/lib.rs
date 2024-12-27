@@ -27,21 +27,23 @@ pub mod templates;
 pub mod posix_fs;
 pub mod types;
 
+pub use fuser::{BackgroundSession, MountOption, Session, SessionUnmounter};
+
 pub mod prelude {
     pub use super::fuse_handler::FuseHandler;
     pub use super::types::*;
     pub use super::{mount, spawn_mount};
 
-    pub use fuser::{BackgroundSession, MountOption, Session, SessionUnmounter};
+    pub use super::{BackgroundSession, MountOption, Session, SessionUnmounter};
 }
 
 // Implentation of the high-level functions
 use std::io;
 use std::path::Path;
 
+use prelude::*;
 use core::FuseDriver;
 use fuser::{mount2, spawn_mount2};
-use prelude::{BackgroundSession, FileIdType, FuseHandler, MountOption};
 
 /// Mounts a FUSE filesystem at the specified mountpoint.
 ///

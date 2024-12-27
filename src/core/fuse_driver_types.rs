@@ -70,8 +70,6 @@ mod serial {
 
 #[cfg(feature = "parallel")]
 mod parallel {
-    use crate::core::InodeResolvable;
-
     use super::*;
 
     use std::sync::Arc;
@@ -162,14 +160,13 @@ mod async_task {
     where
         TId: FileIdType,
         THandler: FuseHandler<TId>,
-        TResolver: TId::Resolver,
     {
         pub fn new(handler: THandler, _num_threads: usize) -> FuseDriver<TId, THandler> {
             #[cfg(feature = "deadlock_detection")]
             spawn_deadlock_checker();
             FuseDriver {
                 handler: Arc::new(handler),
-                resolver: Arc::new(TId::Resolver::new()),
+                resolver: Arc::new(TId::create_resolver()),
                 dirmap_iter: Arc::new(Mutex::new(HashMap::new())),
                 dirmapplus_iter: Arc::new(Mutex::new(HashMap::new())),
                 runtime: Runtime::new().unwrap(),
@@ -184,11 +181,11 @@ mod async_task {
             self.resolver.clone()
         }
 
-        pub fn get_dirmap_iter(&self) -> Arc<tokio::sync::Mutex<DirIter<FileKind>>> {
+        pub fn get_dirmap_iter(&self) -> Arc<Mutex<DirIter<FileKind>>> {
             self.dirmap_iter.clone()
         }
 
-        pub fn get_dirmapplus_iter(&self) -> Arc<tokio::sync::Mutex<DirIter<FileAttribute>>> {
+        pub fn get_dirmapplus_iter(&self) -> Arc<Mutex<DirIter<FileAttribute>>> {
             self.dirmapplus_iter.clone()
         }
     }

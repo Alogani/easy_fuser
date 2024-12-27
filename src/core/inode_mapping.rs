@@ -7,7 +7,7 @@ use std::{
 
 use std::sync::{atomic::AtomicU64, RwLock};
 
-use crate::{types::*, unwrap};
+use crate::types::*;
 
 pub(crate) const ROOT_INO: u64 = 1;
 

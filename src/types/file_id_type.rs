@@ -52,9 +52,17 @@ pub trait FileIdType:
     #[doc(hidden)]
     type _Id;
 
+    /// Returns a displayable representation of the file identifier.
+    ///
+    /// This method provides a human-readable string representation of the file identifier,
+    /// which can be useful for debugging, logging, or user-facing output.
     fn display(&self) -> impl Display;
 
-    fn is_fuse_root(&self) -> bool;
+    /// Checks if this file identifier represents the root of the filesystem.
+    ///
+    /// This method determines whether the current file identifier corresponds to the
+    /// topmost directory in the filesystem hierarchy.
+    fn is_filesystem_root(&self) -> bool;
 
     #[doc(hidden)]
     fn extract_metadata(metadata: Self::Metadata) -> (Self::_Id, FileAttribute);
@@ -71,7 +79,7 @@ impl FileIdType for Inode {
         format!("{:?}", self)
     }
 
-    fn is_fuse_root(&self) -> bool {
+    fn is_filesystem_root(&self) -> bool {
         *self == ROOT_INODE
     }
 
@@ -93,7 +101,7 @@ impl FileIdType for PathBuf {
         Path::display(self)
     }
 
-    fn is_fuse_root(&self) -> bool {
+    fn is_filesystem_root(&self) -> bool {
         self.as_os_str().is_empty()
     }
 
@@ -119,7 +127,7 @@ impl FileIdType for Vec<OsString> {
             .join(" | ")
     }
 
-    fn is_fuse_root(&self) -> bool {
+    fn is_filesystem_root(&self) -> bool {
         self.is_empty()
     }
 
