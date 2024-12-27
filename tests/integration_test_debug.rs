@@ -1,4 +1,4 @@
-use easy_fuser::spawn_mount;
+use easy_fuser::prelude::*;
 use easy_fuser::templates::{mirror_fs::*, DefaultFuseHandler};
 
 use std::fs::{self, File};
@@ -30,9 +30,10 @@ fn test_mirror_fs_operations() {
 
     // Create and mount the MirrorFs
     println!("7. Creating MirrorFs");
-    let fs = MirrorFs::new(source_path.clone(), DefaultFuseHandler::new());
+    //let fs = MirrorFs::new(source_path.clone(), DefaultFuseHandler::new());
+    let fs = DefaultFuseHandler::new();
     println!("8. Spawning mount");
-    let session = spawn_mount(fs, &mntpoint, &[], num_threads).unwrap();
+    let session = spawn_mount::<Inode, _>(fs, &mntpoint, &[], num_threads).unwrap();
 
     // Create a file and check its existence
     println!("9. Creating test file");
