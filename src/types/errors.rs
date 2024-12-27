@@ -1,3 +1,6 @@
+use std::any::Any;
+use crate::unix_fs::get_errno;
+
 use std::fmt::{Debug, Display};
 
 pub type FuseResult<T> = Result<T, PosixError>;
@@ -64,9 +67,6 @@ impl PosixError {
         self.code
     }
 }
-use std::any::Any;
-
-use crate::unix_fs::linux_fs::get_errno;
 
 impl<E> From<E> for PosixError
 where

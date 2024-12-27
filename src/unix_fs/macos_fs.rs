@@ -8,9 +8,12 @@ use libc::{self, c_char, c_int, size_t, ssize_t};
 use libc::{fcntl, fstore_t, ftruncate, off_t, ENOTSUP, F_ALLOCATECONTIG, F_PREALLOCATE};
 use std::path::Path;
 
+// Define FALLOC_FL_KEEP_SIZE constant
+const FALLOC_FL_KEEP_SIZE: c_int = 1;
+
 pub(super) unsafe fn fallocate(fd: c_int, mode: c_int, offset: off_t, len: off_t) -> c_int {
     // Check for unsupported modes
-    if mode != 0 && mode != libc::FALLOC_FL_KEEP_SIZE {
+    if mode != 0 && mode != FALLOC_FL_KEEP_SIZE {
         // Set errno to "Operation not supported"
         *libc::__error() = ENOTSUP;
         return -1;

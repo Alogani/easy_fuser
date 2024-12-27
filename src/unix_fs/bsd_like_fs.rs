@@ -5,11 +5,11 @@ use super::{cstring_from_path, FileDescriptor};
 use crate::{ErrorKind, PosixError};
 
 pub(super) fn get_errno() -> i32 {
-    unsafe { *libc::__error()() }
+    unsafe { *libc::__error() }
 }
 
 pub(super) fn set_errno(errno: i32) {
-    unsafe { *libc::__error()() = errno };
+    unsafe { *libc::__error() = errno };
 }
 
 // Flags are ignored
