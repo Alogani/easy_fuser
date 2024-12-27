@@ -51,7 +51,7 @@ impl PosixError {
         U: ToString,
     {
         Self {
-            code: unsafe { *libc::__errno_location() },
+            code: get_errno(),
             msg: msg.to_string(),
         }
     }
@@ -65,6 +65,8 @@ impl PosixError {
     }
 }
 use std::any::Any;
+
+use crate::unix_fs::linux_fs::get_errno;
 
 impl<E> From<E> for PosixError
 where

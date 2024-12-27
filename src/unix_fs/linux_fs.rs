@@ -5,7 +5,7 @@ use libc::{self, c_char, c_int, c_uint, off_t, size_t, ssize_t};
 
 use super::{cstring_from_path, FileDescriptor, StatFs};
 
-pub(super) fn get_errno() -> i32 {
+pub(crate) fn get_errno() -> i32 {
     unsafe { *libc::__errno_location() }
 }
 
@@ -13,11 +13,17 @@ pub(super) fn set_errno(errno: i32) {
     unsafe { *libc::__errno_location() = errno };
 }
 
-pub(super) unsafe fn renameat2(olddirfd: c_int, oldpath: *const c_char, newdirfd: c_int, newpath: *const c_char, flags: c_uint) -> c_int {
+pub(super) unsafe fn renameat2(
+    olddirfd: c_int,
+    oldpath: *const c_char,
+    newdirfd: c_int,
+    newpath: *const c_char,
+    flags: c_uint,
+) -> c_int {
     libc::renameat2(olddirfd, oldpath, newdirfd, newpath, flags)
 }
 
-pub(super) unsafe fn flush(fd: c_int) -> c_int {
+pub(super) unsafe fn fdatasync(fd: c_int) -> c_int {
     libc::fdatasync(fd)
 }
 
@@ -45,18 +51,11 @@ pub(super) unsafe fn getxattr(
     libc::getxattr(path, name, value, size)
 }
 
-pub(super) unsafe fn listxattr(
-    path: *const c_char,
-    list: *mut c_char,
-    size: size_t,
-) -> ssize_t {
+pub(super) unsafe fn listxattr(path: *const c_char, list: *mut c_char, size: size_t) -> ssize_t {
     libc::listxattr(path, list, size)
 }
 
-pub(super) unsafe fn removexattr(
-    path: *const c_char,
-    name: *const c_char,
-) -> c_int {
+pub(super) unsafe fn removexattr(path: *const c_char, name: *const c_char) -> c_int {
     libc::removexattr(path, name)
 }
 
@@ -95,7 +94,7 @@ pub fn statfs(path: &Path) -> Result<StatFs, PosixError> {
 /// It copies `len` bytes from the file descriptor `fd_in` starting at offset `offset_in`
 /// to the file descriptor `fd_out` starting at offset `offset_out`. The function returns
 /// the number of bytes actually copied, which may be less than requested.
-/// 
+///
 /// Note: This function is not available on all platforms, like BSD, in that case, it will return not implemented.
 pub fn copy_file_range(
     fd_in: &FileDescriptor,

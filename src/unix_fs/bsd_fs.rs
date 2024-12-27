@@ -6,6 +6,10 @@ use libc::{self, c_char, c_int, size_t, ssize_t};
 
 use super::{cstring_from_path, FileDescriptor, StatFs};
 
+pub(super) unsafe fn fallocate(fd: c_int, _mode: c_int, offset: off_t, len: off_t) -> c_int {
+    libc::posix_fallocate(fd, offset, len)
+}
+
 pub(super) unsafe fn setxattr(
     path: *const c_char,
     name: *const c_char,

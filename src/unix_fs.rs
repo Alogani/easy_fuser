@@ -39,7 +39,7 @@ use crate::types::*;
 use libc::{c_char, c_void, timespec};
 
 #[cfg(target_os = "linux")]
-mod linux_fs;
+pub(crate) mod linux_fs;
 #[cfg(target_os = "linux")]
 use linux_fs as unix_impl;
 
@@ -49,15 +49,15 @@ use linux_fs as unix_impl;
     target_os = "openbsd",
     target_os = "netbsd"
 ))]
-mod bsd_like_fs;
+pub(crate) mod bsd_like_fs;
 
 #[cfg(any(target_os = "freebsd", target_os = "openbsd", target_os = "netbsd"))]
-mod bsd_fs;
+pub(crate) mod bsd_fs;
 #[cfg(any(target_os = "freebsd", target_os = "openbsd", target_os = "netbsd"))]
 use bsd_fs as unix_impl;
 
 #[cfg(target_os = "macos")]
-mod macos_fs;
+pub(crate) mod macos_fs;
 #[cfg(target_os = "macos")]
 use macos_fs as unix_impl;
 
@@ -593,7 +593,7 @@ pub fn write(fd: &FileDescriptor, seek: SeekFrom, data: &[u8]) -> Result<u32, Po
 ///
 /// This function is equivalent to the FUSE `flush` operation and uses the system's fdatasync call.
 pub fn flush(fd: &FileDescriptor) -> Result<(), PosixError> {
-    let result = unsafe { unix_impl::flush(fd.clone().into()) };
+    let result = unsafe { unix_impl::fdatasync(fd.clone().into()) };
     if result == -1 {
         return Err(PosixError::last_error(format!("{:?}: flush failed", fd)));
     }
@@ -612,7 +612,7 @@ pub fn fsync(fd: &FileDescriptor, datasync: bool) -> Result<(), PosixError> {
     let fd = fd.clone().into();
     let result = unsafe {
         if datasync {
-            libc::fdatasync(fd)
+            unix_impl::fdatasync(fd)
         } else {
             libc::fsync(fd)
         }

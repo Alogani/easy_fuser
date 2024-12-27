@@ -70,11 +70,11 @@ impl DeviceType {
             DeviceType::CharacterDevice { major, minor } => {
                 let device = ((major & 0xFF) << 8) | (minor & 0xFF);
                 (device as mode_t) | S_IFCHR
-            },
+            }
             DeviceType::BlockDevice { major, minor } => {
                 let device = ((major & 0xFF) << 8) | (minor & 0xFF);
                 (device as mode_t) | S_IFBLK
-            },
+            }
             DeviceType::NamedPipe => S_IFIFO,
             DeviceType::Socket => S_IFSOCK,
             DeviceType::Symlink => S_IFLNK,

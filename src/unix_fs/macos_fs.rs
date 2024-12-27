@@ -2,9 +2,48 @@ pub use super::bsd_like_fs::*;
 
 use std::ffi::c_void;
 
+use super::{cstring_from_path, StatFs};
 use crate::PosixError;
 use libc::{self, c_char, c_int, size_t, ssize_t};
-use super::{cstring_from_path, StatFs};
+use libc::{fcntl, fstore_t, ftruncate, off_t, ENOTSUP, F_ALLOCATECONTIG, F_PREALLOCATE};
+use std::path::Path;
+
+pub(super) unsafe fn fallocate(fd: c_int, mode: c_int, offset: off_t, len: off_t) -> c_int {
+    // Check for unsupported modes
+    if mode != 0 && mode != libc::FALLOC_FL_KEEP_SIZE {
+        // Set errno to "Operation not supported"
+        *libc::__error() = ENOTSUP;
+        return -1;
+    }
+
+    // First, try to allocate contiguous space
+    let mut fst: fstore_t = std::mem::zeroed();
+    fst.fst_flags = F_ALLOCATECONTIG;
+    fst.fst_posmode = libc::F_PEOFPOSMODE;
+    fst.fst_offset = offset;
+    fst.fst_length = len;
+
+    let mut result = fcntl(fd, F_PREALLOCATE, &fst as *const fstore_t);
+
+    if result != 0 {
+        // If contiguous allocation failed, try non-contiguous allocation
+        fst.fst_flags = 0;
+        result = fcntl(fd, F_PREALLOCATE, &fst as *const fstore_t);
+    }
+    if result != 0 {
+        return -1;
+    }
+
+    // If FALLOC_FL_KEEP_SIZE is not set, adjust the file size
+    if mode != libc::FALLOC_FL_KEEP_SIZE {
+        result = ftruncate(fd, offset + len);
+        if result != 0 {
+            return -1;
+        }
+    }
+
+    0 // Success
+}
 
 pub(super) unsafe fn setxattr(
     path: *const c_char,

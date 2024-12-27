@@ -2,12 +2,14 @@ use libc::{self, c_char, c_int, c_uint, off_t};
 
 use super::{cstring_from_path, FileDescriptor};
 
+use crate::{ErrorKind, PosixError};
+
 pub(super) fn get_errno() -> i32 {
-    unsafe { *libc::__errno()() }
+    unsafe { *libc::__error()() }
 }
 
 pub(super) fn set_errno(errno: i32) {
-    unsafe { *libc::__errno()() = errno };
+    unsafe { *libc::__error()() = errno };
 }
 
 // Flags are ignored
@@ -21,12 +23,8 @@ pub(super) unsafe fn renameat2(
     libc::renameat(olddirfd, oldpath, newdirfd, newpath)
 }
 
-pub(super) unsafe fn flush(fd: c_int) -> c_int {
+pub(super) unsafe fn fdatasync(fd: c_int) -> c_int {
     libc::fsync(fd)
-}
-
-pub(super) unsafe fn fallocate(fd: c_int, offset: off_t, len: off_t) -> c_int {
-    libc::posix_fallocate(fd, offset, len)
 }
 
 /// Copies a range of data from one file to another.
