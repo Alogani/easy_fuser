@@ -4,7 +4,7 @@ use super::{cstring_from_path, FileDescriptor};
 
 use crate::{ErrorKind, PosixError};
 
-pub(super) fn get_errno() -> i32 {
+pub(crate) fn get_errno() -> i32 {
     unsafe { *libc::__error() }
 }
 
