@@ -1,6 +1,6 @@
 use std::ops::{Deref, DerefMut};
 
-pub trait SafeBorrowable {
+pub(crate) trait SafeBorrowable {
     type Guard<'a>: Deref + DerefMut
     where
         Self: 'a;

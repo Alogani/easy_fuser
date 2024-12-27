@@ -39,6 +39,7 @@ pub mod prelude {
 use std::io;
 use std::path::Path;
 
+use core::FuseDriver;
 use fuser::{mount2, spawn_mount2};
 use prelude::{BackgroundSession, FileIdType, FuseHandler, MountOption};
 
@@ -77,8 +78,7 @@ where
     if num_threads > 1 {
         panic!("num_threads cannot be superior to 1 when feature serial is enabled");
     }
-    let id_resolver = T::get_converter();
-    let driver = core::FuseDriver::new(filesystem, id_resolver, num_threads);
+    let driver = FuseDriver::new(filesystem, num_threads);
     mount2(driver, mountpoint, options)
 }
 
@@ -122,7 +122,6 @@ where
     if num_threads > 1 {
         panic!("num_threads cannot be superior to 1 when feature serial is enabled");
     }
-    let id_resolver = T::get_converter();
-    let driver = core::FuseDriver::new(filesystem, id_resolver, num_threads);
+    let driver = FuseDriver::new(filesystem, num_threads);
     spawn_mount2(driver, mountpoint, options)
 }

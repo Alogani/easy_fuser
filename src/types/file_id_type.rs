@@ -6,7 +6,7 @@ use std::{
 
 use fuser::FileType as FileKind;
 
-use crate::core::GetConverter;
+use crate::core::InodeResolvable;
 
 use super::arguments::FileAttribute;
 use super::inode::*;
@@ -30,7 +30,7 @@ use super::inode::*;
 ///    - Cons: Path components are stored in reverse order, which may require additional handling.
 ///    - Root: Represented by an empty vector.
 pub trait FileIdType:
-    'static + GetConverter + Debug + Clone + PartialEq + Eq + std::hash::Hash
+    'static + Debug + Clone + PartialEq + Eq + std::hash::Hash + InodeResolvable
 {
     /// Full metadata type for the file system.
     ///
@@ -49,13 +49,16 @@ pub trait FileIdType:
     /// For PathBuf-based: FileKind
     /// - User only needs to provide FileKind; Inode is managed internally.
     type MinimalMetadata;
+    #[doc(hidden)]
     type _Id;
 
     fn display(&self) -> impl Display;
 
     fn is_fuse_root(&self) -> bool;
 
+    #[doc(hidden)]
     fn extract_metadata(metadata: Self::Metadata) -> (Self::_Id, FileAttribute);
+    #[doc(hidden)]
     fn extract_minimal_metadata(minimal_metadata: Self::MinimalMetadata) -> (Self::_Id, FileKind);
 }
 
@@ -72,12 +75,10 @@ impl FileIdType for Inode {
         *self == ROOT_INODE
     }
 
-    /// For internal usage
     fn extract_metadata(metadata: Self::Metadata) -> (Self::_Id, FileAttribute) {
         metadata
     }
 
-    /// For internal usage
     fn extract_minimal_metadata(minimal_metadata: Self::MinimalMetadata) -> (Self::_Id, FileKind) {
         minimal_metadata
     }
@@ -129,28 +130,4 @@ impl FileIdType for Vec<OsString> {
     fn extract_minimal_metadata(minimal_metadata: Self::MinimalMetadata) -> (Self::_Id, FileKind) {
         ((), minimal_metadata)
     }
-}
-
-/// Usage:
-/// ```text
-/// fn test<TId: FileIdType>(metadata: TId::Metadata) -> FileAttribute
-/// {
-///     let (_a, b) = unpack_metadata::<TId>(metadata);
-///     b
-/// }
-/// ```
-pub fn unpack_metadata<TId>(metadata: TId::Metadata) -> (<TId as FileIdType>::_Id, FileAttribute)
-where
-    TId: FileIdType,
-{
-    TId::extract_metadata(metadata)
-}
-
-pub fn unpack_minimal_metadata<TId>(
-    minimal_metadata: TId::MinimalMetadata,
-) -> (<TId as FileIdType>::_Id, FileKind)
-where
-    TId: FileIdType,
-{
-    TId::extract_minimal_metadata(minimal_metadata)
 }

@@ -2,6 +2,7 @@ mod fuse_driver;
 mod fuse_driver_types;
 mod inode_mapping;
 mod macros;
+mod thread_mode;
 
-pub use fuse_driver_types::FuseDriver;
-pub use inode_mapping::GetConverter;
+pub(crate) use fuse_driver_types::FuseDriver;
+pub(crate) use inode_mapping::{InodeResolvable, ROOT_INO};
