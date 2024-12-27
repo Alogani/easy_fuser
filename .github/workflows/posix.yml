@@ -59,7 +59,7 @@ jobs:
         with:
           toolchain: stable
           override: true
-      - name: Install cross
-        run: cargo install cross
+      - name: Add target
+        run: rustup target add ${{ matrix.target }}
       - name: Cross-compile
-        run: cross build --target ${{ matrix.target }} --verbose --features parallel
+        run: cargo build --target ${{ matrix.target }} --verbose --features parallel
