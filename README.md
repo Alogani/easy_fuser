@@ -21,7 +21,7 @@ many of the complexities, offering a more intuitive and Rust-idiomatic approach 
   use cases and performance requirements.
 
 - **Flexible File Identification**: Supports both path-based and inode-based operations,
-  allowing you to choose between `Inode` and `PathBuf` as your file identifier type. This
+  allowing you to choose between `Inode`, `PathBuf`, or `Vec<OsString>` as your file identifier type. This
   offers flexibility in how you represent and manage file identities, suitable for different
   filesystem structures and performance requirements.
 

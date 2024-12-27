@@ -1,5 +1,5 @@
 use super::errors::*;
-use crate::posix_fs::release;
+use crate::unix_fs::release;
 use std::ops::Deref;
 
 /// Represents a file handle in the FUSE filesystem.

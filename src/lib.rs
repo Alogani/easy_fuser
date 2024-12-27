@@ -24,23 +24,26 @@ mod fuse_handler;
 
 pub mod templates;
 
-pub mod posix_fs;
 pub mod types;
+pub mod unix_fs;
+
+pub use fuser::{BackgroundSession, MountOption, Session, SessionUnmounter};
 
 pub mod prelude {
     pub use super::fuse_handler::FuseHandler;
     pub use super::types::*;
     pub use super::{mount, spawn_mount};
 
-    pub use fuser::{BackgroundSession, MountOption, Session, SessionUnmounter};
+    pub use super::{BackgroundSession, MountOption, Session, SessionUnmounter};
 }
 
 // Implentation of the high-level functions
 use std::io;
 use std::path::Path;
 
+use core::FuseDriver;
 use fuser::{mount2, spawn_mount2};
-use prelude::{BackgroundSession, FileIdType, FuseHandler, MountOption};
+use prelude::*;
 
 /// Mounts a FUSE filesystem at the specified mountpoint.
 ///
@@ -77,8 +80,7 @@ where
     if num_threads > 1 {
         panic!("num_threads cannot be superior to 1 when feature serial is enabled");
     }
-    let id_resolver = T::get_converter();
-    let driver = core::FuseDriver::new(filesystem, id_resolver, num_threads);
+    let driver = FuseDriver::new(filesystem, num_threads);
     mount2(driver, mountpoint, options)
 }
 
@@ -122,7 +124,6 @@ where
     if num_threads > 1 {
         panic!("num_threads cannot be superior to 1 when feature serial is enabled");
     }
-    let id_resolver = T::get_converter();
-    let driver = core::FuseDriver::new(filesystem, id_resolver, num_threads);
+    let driver = FuseDriver::new(filesystem, num_threads);
     spawn_mount2(driver, mountpoint, options)
 }

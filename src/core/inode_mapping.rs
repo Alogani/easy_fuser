@@ -7,33 +7,59 @@ use std::{
 
 use std::sync::{atomic::AtomicU64, RwLock};
 
-use crate::{types::*, unwrap};
+use crate::types::*;
 
-pub const ROOT_INO: u64 = 1;
+pub(crate) const ROOT_INO: u64 = 1;
 
-pub trait GetConverter {
-    type Resolver: FileIdResolver<FileIdType = Self>;
-    fn get_converter() -> Self::Resolver;
+/// Trait to allow a FileIdType to be mapped to use a converter
+pub trait InodeResolvable {
+    type Resolver: FileIdResolver<ResolvedType = Self>;
+
+    fn create_resolver() -> Self::Resolver;
+}
+
+impl InodeResolvable for PathBuf {
+    type Resolver = PathResolver;
+
+    fn create_resolver() -> Self::Resolver {
+        PathResolver::new()
+    }
+}
+
+impl InodeResolvable for Inode {
+    type Resolver = InodeResolver;
+
+    fn create_resolver() -> Self::Resolver {
+        InodeResolver::new()
+    }
+}
+
+impl InodeResolvable for Vec<OsString> {
+    type Resolver = ComponentsResolver;
+
+    fn create_resolver() -> Self::Resolver {
+        ComponentsResolver::new()
+    }
 }
 
 /// FileIdResolver
 /// FileIdResolver handles its data behind Locks if needed and should not be nested inside a Mutex
 pub trait FileIdResolver: Send + Sync + 'static {
-    type FileIdType: FileIdType;
+    type ResolvedType: FileIdType;
 
     fn new() -> Self;
-    fn resolve_id(&self, ino: u64) -> Self::FileIdType;
+    fn resolve_id(&self, ino: u64) -> Self::ResolvedType;
     fn lookup(
         &self,
         parent: u64,
         child: &OsStr,
-        id: <Self::FileIdType as FileIdType>::_Id,
+        id: <Self::ResolvedType as FileIdType>::_Id,
         increment: bool,
     ) -> u64;
     fn add_children(
         &self,
         parent: u64,
-        children: Vec<(OsString, <Self::FileIdType as FileIdType>::_Id)>,
+        children: Vec<(OsString, <Self::ResolvedType as FileIdType>::_Id)>,
         increment: bool,
     ) -> Vec<(OsString, u64)>;
     fn forget(&self, ino: u64, nlookup: u64);
@@ -42,21 +68,14 @@ pub trait FileIdResolver: Send + Sync + 'static {
 
 pub struct InodeResolver {}
 
-impl GetConverter for Inode {
-    type Resolver = InodeResolver;
-    fn get_converter() -> Self::Resolver {
-        InodeResolver::new()
-    }
-}
-
 impl FileIdResolver for InodeResolver {
-    type FileIdType = Inode;
+    type ResolvedType = Inode;
 
     fn new() -> Self {
         Self {}
     }
 
-    fn resolve_id(&self, ino: u64) -> Self::FileIdType {
+    fn resolve_id(&self, ino: u64) -> Self::ResolvedType {
         Inode::from(ino)
     }
 
@@ -151,15 +170,8 @@ struct InodeValue {
     name: OsString,
 }
 
-impl GetConverter for Vec<OsString> {
-    type Resolver = ComponentsResolver;
-    fn get_converter() -> Self::Resolver {
-        ComponentsResolver::new()
-    }
-}
-
 impl FileIdResolver for ComponentsResolver {
-    type FileIdType = Vec<OsString>;
+    type ResolvedType = Vec<OsString>;
 
     fn new() -> Self {
         let mut inodes = HashMap::new();
@@ -187,7 +199,7 @@ impl FileIdResolver for ComponentsResolver {
         }
     }
 
-    fn resolve_id(&self, ino: u64) -> Self::FileIdType {
+    fn resolve_id(&self, ino: u64) -> Self::ResolvedType {
         let inodes = &self
             .data
             .read()
@@ -385,15 +397,8 @@ pub struct PathResolver {
     resolver: ComponentsResolver,
 }
 
-impl GetConverter for PathBuf {
-    type Resolver = PathResolver;
-    fn get_converter() -> Self::Resolver {
-        PathResolver::new()
-    }
-}
-
 impl FileIdResolver for PathResolver {
-    type FileIdType = PathBuf;
+    type ResolvedType = PathBuf;
 
     fn new() -> Self {
         PathResolver {
@@ -401,7 +406,7 @@ impl FileIdResolver for PathResolver {
         }
     }
 
-    fn resolve_id(&self, ino: u64) -> Self::FileIdType {
+    fn resolve_id(&self, ino: u64) -> Self::ResolvedType {
         self.resolver
             .resolve_id(ino)
             .iter()
@@ -413,7 +418,7 @@ impl FileIdResolver for PathResolver {
         &self,
         parent: u64,
         child: &OsStr,
-        id: <Self::FileIdType as FileIdType>::_Id,
+        id: <Self::ResolvedType as FileIdType>::_Id,
         increment: bool,
     ) -> u64 {
         self.resolver.lookup(parent, child, id, increment)
@@ -422,7 +427,7 @@ impl FileIdResolver for PathResolver {
     fn add_children(
         &self,
         parent: u64,
-        children: Vec<(OsString, <Self::FileIdType as FileIdType>::_Id)>,
+        children: Vec<(OsString, <Self::ResolvedType as FileIdType>::_Id)>,
         increment: bool,
     ) -> Vec<(OsString, u64)> {
         self.resolver.add_children(parent, children, increment)

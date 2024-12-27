@@ -1,6 +1,8 @@
 use std::time::{Duration, SystemTime};
 
+use fuser::FileAttr as FuseFileAttr;
 use fuser::{FileType, Request, TimeOrNow};
+use libc::mode_t;
 
 use super::FileHandle;
 use super::LockType;
@@ -42,11 +44,11 @@ pub enum DeviceType {
 }
 
 impl DeviceType {
-    pub fn from_rdev(rdev: u32) -> Self {
+    pub fn from_rdev(rdev: mode_t) -> Self {
         use libc::*;
         // Extract major and minor device numbers (assuming the device number format).
-        let major = rdev >> 8; // Major is the upper part of the 32-bit value
-        let minor = rdev & 0xFF; // Minor is the lower 8 bits
+        let major: u32 = (rdev >> 8).into(); // Major is the upper part of the 32-bit value (16 bit on macos)
+        let minor: u32 = (rdev & 0xFF).into(); // Minor is the lower 8 bits
         match rdev {
             x if x & S_IFREG != 0 => DeviceType::RegularFile,
             x if x & S_IFDIR != 0 => DeviceType::Directory,
@@ -59,14 +61,20 @@ impl DeviceType {
         }
     }
 
-    pub fn to_rdev(&self) -> u32 {
+    pub fn to_rdev(&self) -> mode_t {
         use libc::*;
 
         match self {
             DeviceType::RegularFile => S_IFREG,
             DeviceType::Directory => S_IFDIR,
-            DeviceType::CharacterDevice { major, minor } => (major << 8) | (minor & 0xFF) | S_IFCHR,
-            DeviceType::BlockDevice { major, minor } => (major << 8) | (minor & 0xFF) | S_IFBLK,
+            DeviceType::CharacterDevice { major, minor } => {
+                let device = ((major & 0xFF) << 8) | (minor & 0xFF);
+                (device as mode_t) | S_IFCHR
+            }
+            DeviceType::BlockDevice { major, minor } => {
+                let device = ((major & 0xFF) << 8) | (minor & 0xFF);
+                (device as mode_t) | S_IFBLK
+            }
             DeviceType::NamedPipe => S_IFIFO,
             DeviceType::Socket => S_IFSOCK,
             DeviceType::Symlink => S_IFLNK,
@@ -187,6 +195,33 @@ pub struct FileAttribute {
     /// - Should be unique over the file system's lifetime if exported over NFS
     /// - Should be a new, previously unused number if an inode is reused after deletion
     pub generation: Option<u64>,
+}
+
+/// `FuseFileAttr`, `Option<ttl>`, `Option<generation>`
+impl FileAttribute {
+    pub(crate) fn to_fuse(self, ino: u64) -> (FuseFileAttr, Option<Duration>, Option<u64>) {
+        (
+            FuseFileAttr {
+                ino,
+                size: self.size,
+                blocks: self.blocks,
+                atime: self.atime,
+                mtime: self.mtime,
+                ctime: self.ctime,
+                crtime: self.crtime,
+                kind: self.kind,
+                perm: self.perm,
+                nlink: self.nlink,
+                uid: self.uid,
+                gid: self.gid,
+                rdev: self.rdev,
+                blksize: self.blksize,
+                flags: self.flags,
+            },
+            self.ttl,
+            self.generation,
+        )
+    }
 }
 
 /// Represents a request to set file attributes in a FUSE file system.
