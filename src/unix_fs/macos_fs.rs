@@ -38,7 +38,7 @@ pub(super) unsafe fn fallocate(fd: c_int, mode: c_int, offset: off_t, len: off_t
     }
 
     // If FALLOC_FL_KEEP_SIZE is not set, adjust the file size
-    if mode != libc::FALLOC_FL_KEEP_SIZE {
+    if mode != FALLOC_FL_KEEP_SIZE {
         result = ftruncate(fd, offset + len);
         if result != 0 {
             return -1;
