@@ -79,7 +79,7 @@ impl FuseHandler<PathBuf> for ZipFs {
         file_id: PathBuf,
         _file_handle: Option<FileHandle>,
     ) -> FuseResult<FileAttribute> {
-        if file_id.is_fuse_root() {
+        if file_id.is_filesystem_root() {
             return Ok(get_root_attribute());
         }
         self.with_file::<NonSeekable, _, _>(&file_id, |file| create_file_attribute(file))
