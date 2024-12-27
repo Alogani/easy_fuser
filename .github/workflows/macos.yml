@@ -25,7 +25,7 @@ jobs:
     - name: Build
       run: cargo build --verbose --features serial
     - name: Run tests
-      run: ./tests/run_all_tests.sh
+      run: cargo test --features serial --test integration_test_debug -- --nocapture
     - name: Run tests for examples
       run: |
         set -e
