@@ -1,13 +1,13 @@
-freebsd_task:
-  freebsd_instance:
-    image_family: freebsd-13-1
+freebsd_instance:
+  image_family: freebsd-14-0
 
+task:
+  name: FreeBSD
   setup_script:
-    - pkg install -y rust fusefs-libs pkgconf
-    - rustup default stable
-
+    - pkg install -y pkgconf fusefs-libs fusefs-libs3 rust
   build_script:
-    - cargo build --verbose --features parallel
-
+    - cargo build --all --all-targets
+  doc_script:
+    - cargo doc --all --no-deps --features=abi-7-21
   test_script:
     - cargo test --verbose --features parallel
