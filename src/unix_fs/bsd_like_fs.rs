@@ -1,6 +1,6 @@
-use libc::{self, c_char, c_int, c_uint, off_t};
+use libc::{self, c_char, c_int, c_uint};
 
-use super::{cstring_from_path, FileDescriptor};
+use super::FileDescriptor;
 
 use crate::{ErrorKind, PosixError};
 
