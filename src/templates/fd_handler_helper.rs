@@ -63,8 +63,8 @@ let read_only_handler = FdHandlerHelperReadOnly::new(inner_handler); // or Defau
 ```
 */
 
-use crate::posix_fs;
 use crate::prelude::*;
+use crate::unix_fs;
 
 macro_rules! fd_handler_readonly_methods {
     () => {
@@ -79,7 +79,7 @@ macro_rules! fd_handler_readonly_methods {
             _lock_owner: Option<u64>,
         ) -> FuseResult<Vec<u8>> {
             match FileDescriptor::try_from(file_handle) {
-                Ok(fd) => posix_fs::read(&fd, seek, size),
+                Ok(fd) => unix_fs::read(&fd, seek, size),
                 Err(e) => Err(e.into()),
             }
         }
@@ -92,7 +92,7 @@ macro_rules! fd_handler_readonly_methods {
             _lock_owner: u64,
         ) -> FuseResult<()> {
             match FileDescriptor::try_from(file_handle) {
-                Ok(fd) => posix_fs::flush(&fd),
+                Ok(fd) => unix_fs::flush(&fd),
                 Err(e) => Err(e.into()),
             }
         }
@@ -107,7 +107,7 @@ macro_rules! fd_handler_readonly_methods {
             _flush: bool,
         ) -> FuseResult<()> {
             match FileDescriptor::try_from(file_handle) {
-                Ok(fd) => posix_fs::release(fd),
+                Ok(fd) => unix_fs::release(fd),
                 Err(e) => Err(e.into()),
             }
         }
@@ -120,7 +120,7 @@ macro_rules! fd_handler_readonly_methods {
             datasync: bool,
         ) -> FuseResult<()> {
             match FileDescriptor::try_from(file_handle) {
-                Ok(fd) => posix_fs::fsync(&fd, datasync),
+                Ok(fd) => unix_fs::fsync(&fd, datasync),
                 Err(e) => Err(e.into()),
             }
         }
@@ -133,7 +133,7 @@ macro_rules! fd_handler_readonly_methods {
             seek: SeekFrom,
         ) -> FuseResult<i64> {
             match FileDescriptor::try_from(file_handle) {
-                Ok(fd) => posix_fs::lseek(&fd, seek),
+                Ok(fd) => unix_fs::lseek(&fd, seek),
                 Err(e) => Err(e.into()),
             }
         }
@@ -154,7 +154,7 @@ macro_rules! fd_handler_readwrite_methods {
             _lock_owner: Option<u64>,
         ) -> FuseResult<u32> {
             match FileDescriptor::try_from(file_handle) {
-                Ok(fd) => posix_fs::write(&fd, seek, &data),
+                Ok(fd) => unix_fs::write(&fd, seek, &data),
                 Err(e) => Err(e.into()),
             }
         }
@@ -169,7 +169,7 @@ macro_rules! fd_handler_readwrite_methods {
             mode: i32,
         ) -> FuseResult<()> {
             match FileDescriptor::try_from(file_handle) {
-                Ok(fd) => posix_fs::fallocate(&fd, offset, length, mode),
+                Ok(fd) => unix_fs::fallocate(&fd, offset, length, mode),
                 Err(e) => Err(e.into()),
             }
         }
@@ -191,7 +191,7 @@ macro_rules! fd_handler_readwrite_methods {
                 FileDescriptor::try_from(file_handle_out),
             ) {
                 (Ok(fd_in), Ok(fd_out)) => {
-                    posix_fs::copy_file_range(&fd_in, offset_in, &fd_out, offset_out, len)
+                    unix_fs::copy_file_range(&fd_in, offset_in, &fd_out, offset_out, len)
                 }
                 (Err(e), _) | (_, Err(e)) => Err(e.into()),
             }
