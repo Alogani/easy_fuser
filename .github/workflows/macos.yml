@@ -1,11 +1,12 @@
 name: macOS CI
 
-on:
-  workflow_dispatch:
-  push:
-    branches: [ main ]
-  pull_request:
-    branches: [ main ]
+# Deactivated the workflow
+# on:
+#   workflow_dispatch:
+#   push:
+#     branches: [ main ]
+#   pull_request:
+#     branches: [ main ]
 
 jobs:
 
@@ -25,7 +26,7 @@ jobs:
     - name: Build
       run: cargo build --verbose --features serial
     - name: Run tests
-      run: cargo test --features serial --test integration_test_debug -- --nocapture
+      run: ./tests/run_all_tests.sh
     - name: Run tests for examples
       run: |
         set -e
