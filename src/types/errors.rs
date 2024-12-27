@@ -1,3 +1,6 @@
+use std::any::Any;
+use crate::unix_fs::get_errno;
+
 use std::fmt::{Debug, Display};
 
 pub type FuseResult<T> = Result<T, PosixError>;
@@ -51,7 +54,7 @@ impl PosixError {
         U: ToString,
     {
         Self {
-            code: unsafe { *libc::__errno_location() },
+            code: get_errno(),
             msg: msg.to_string(),
         }
     }
@@ -64,7 +67,6 @@ impl PosixError {
         self.code
     }
 }
-use std::any::Any;
 
 impl<E> From<E> for PosixError
 where
@@ -181,7 +183,6 @@ pub enum ErrorKind {
     ObjectIsRemote,
     NoLocksAvailable,
     FunctionNotImplemented,
-    LibraryError,
     NotSupported,
     IllegalByteSequence,
     BadMessage,
@@ -269,7 +270,6 @@ impl From<i32> for ErrorKind {
             libc::EREMOTE => Self::ObjectIsRemote,
             libc::ENOLCK => Self::NoLocksAvailable,
             libc::ENOSYS => Self::FunctionNotImplemented,
-            libc::ELIBEXEC => Self::LibraryError,
             libc::ENOTSUP => Self::NotSupported,
             libc::EILSEQ => Self::IllegalByteSequence,
             libc::EBADMSG => Self::BadMessage,
@@ -359,7 +359,6 @@ impl From<ErrorKind> for i32 {
             ErrorKind::ObjectIsRemote => libc::EREMOTE,
             ErrorKind::NoLocksAvailable => libc::ENOLCK,
             ErrorKind::FunctionNotImplemented => libc::ENOSYS,
-            ErrorKind::LibraryError => libc::ELIBEXEC,
             ErrorKind::NotSupported => libc::ENOTSUP,
             ErrorKind::IllegalByteSequence => libc::EILSEQ,
             ErrorKind::BadMessage => libc::EBADMSG,
@@ -454,7 +453,6 @@ mod tests {
             ErrorKind::ObjectIsRemote,
             ErrorKind::NoLocksAvailable,
             ErrorKind::FunctionNotImplemented,
-            ErrorKind::LibraryError,
             ErrorKind::NotSupported,
             ErrorKind::IllegalByteSequence,
             ErrorKind::BadMessage,

@@ -91,5 +91,5 @@ fn test_mirror_fs_operations() {
     assert_eq!(truncated_len, truncate_len);
 
     // Clean up
-    session.join();
+    drop(session);
 }

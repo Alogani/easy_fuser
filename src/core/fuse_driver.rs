@@ -181,7 +181,7 @@ where
                     &name,
                     mode,
                     umask,
-                    DeviceType::from_rdev(rdev)
+                    DeviceType::from_rdev(rdev.try_into().unwrap())
                 )
             );
         });
