@@ -1,7 +1,10 @@
 use std::{fs::File, time::UNIX_EPOCH};
 
 use easy_fuser::prelude::*;
-use zip::{read::{ZipFile, ZipFileSeek}, ZipArchive};
+use zip::{
+    read::{ZipFile, ZipFileSeek},
+    ZipArchive,
+};
 
 pub fn get_root_attribute() -> FileAttribute {
     FileAttribute {
@@ -32,7 +35,11 @@ pub fn create_file_attribute(file: &ZipFile) -> FileAttribute {
         mtime: UNIX_EPOCH,
         ctime: UNIX_EPOCH,
         crtime: UNIX_EPOCH,
-        kind: if file.is_dir() { FileKind::Directory } else { FileKind::RegularFile },
+        kind: if file.is_dir() {
+            FileKind::Directory
+        } else {
+            FileKind::RegularFile
+        },
         perm: 0o444,
         nlink: 1,
         uid: 0,
@@ -44,7 +51,6 @@ pub fn create_file_attribute(file: &ZipFile) -> FileAttribute {
         generation: None,
     }
 }
-
 
 pub struct NonSeekable;
 pub struct Seekable;
@@ -66,7 +72,10 @@ impl ZipExtractor for NonSeekable {
 impl ZipExtractor for Seekable {
     type Output<'a> = ZipFileSeek<'a, File>;
 
-    fn get_by_name<'a>(archive: &'a mut ZipArchive<File>, name: &str) -> Option<ZipFileSeek<'a, File>> {
+    fn get_by_name<'a>(
+        archive: &'a mut ZipArchive<File>,
+        name: &str,
+    ) -> Option<ZipFileSeek<'a, File>> {
         archive.by_name_seek(name).ok()
     }
 }

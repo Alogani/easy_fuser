@@ -128,7 +128,6 @@ impl std::hash::Hash for OsStrPtr {
     }
 }
 
-
 struct InodeData {
     inodes: HashMap<u64, InodeValue>,
     // Storing here instead of a HashMap for each children simplify the borrowing rules
@@ -203,7 +202,7 @@ impl FileIdResolver for ComponentsResolver {
             path_components.push(inode_value.name.clone());
             current_ino = inode_value.parent;
         }
-        
+
         path_components
     }
 
@@ -382,7 +381,6 @@ impl FileIdResolver for ComponentsResolver {
     }
 }
 
-
 pub struct PathResolver {
     resolver: ComponentsResolver,
 }
@@ -396,19 +394,21 @@ impl GetConverter for PathBuf {
 
 impl FileIdResolver for PathResolver {
     type FileIdType = PathBuf;
-    
+
     fn new() -> Self {
         PathResolver {
             resolver: ComponentsResolver::new(),
         }
     }
-    
+
     fn resolve_id(&self, ino: u64) -> Self::FileIdType {
-        self.resolver.resolve_id(ino)
-            .iter().rev()
+        self.resolver
+            .resolve_id(ino)
+            .iter()
+            .rev()
             .collect::<PathBuf>()
     }
-    
+
     fn lookup(
         &self,
         parent: u64,
@@ -418,7 +418,7 @@ impl FileIdResolver for PathResolver {
     ) -> u64 {
         self.resolver.lookup(parent, child, id, increment)
     }
-    
+
     fn add_children(
         &self,
         parent: u64,
@@ -427,15 +427,14 @@ impl FileIdResolver for PathResolver {
     ) -> Vec<(OsString, u64)> {
         self.resolver.add_children(parent, children, increment)
     }
-    
+
     fn forget(&self, ino: u64, nlookup: u64) {
         self.resolver.forget(ino, nlookup);
     }
-    
+
     fn rename(&self, parent: u64, name: &OsStr, newparent: u64, newname: &OsStr) {
         self.resolver.rename(parent, name, newparent, newname);
     }
-
 }
 
 #[cfg(test)]
@@ -527,7 +526,6 @@ mod tests {
         let shallow_ino = converter.lookup(ROOT_INO, OsStr::new("shallow_file"), (), true);
         let nested_ino = converter.lookup(shallow_ino, OsStr::new("nested_file"), (), true);
 
-        
         // Test root path
         let root_path = converter.resolve_id(ROOT_INO);
         assert_eq!(root_path, Path::new(""));
@@ -541,7 +539,11 @@ mod tests {
         assert_eq!(nested_path, Path::new("shallow_file").join("nested_file"));
 
         // Verify internal state
-        let data = converter.resolver.data.read().expect("Failed to acquire read lock");
+        let data = converter
+            .resolver
+            .data
+            .read()
+            .expect("Failed to acquire read lock");
 
         // Check shallow inode
         let shallow_inode = data
@@ -624,12 +626,7 @@ mod tests {
         let nested_ino = converter.lookup(shallow_ino, OsStr::new("file"), (), true);
 
         // Rename shallow path
-        converter.rename(
-            ROOT_INO,
-            OsStr::new("dir"),
-            ROOT_INO,
-            OsStr::new("new_dir"),
-        );
+        converter.rename(ROOT_INO, OsStr::new("dir"), ROOT_INO, OsStr::new("new_dir"));
 
         // Verify renamed shallow path
         let renamed_shallow_path = converter.resolve_id(shallow_ino);

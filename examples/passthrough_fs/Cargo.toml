@@ -2,6 +2,7 @@
 name = "passthrough_fs"
 version = "0.1.2"
 edition = "2021"
+description = "A FUSE passthrough filesystem example using easy_fuser"
 
 [dependencies]
 easy_fuser = { path = "../..", features = ["serial"] }

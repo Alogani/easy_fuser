@@ -1,5 +1,7 @@
 use std::{
-    ffi::OsString, fmt::{Debug, Display}, path::{Path, PathBuf}
+    ffi::OsString,
+    fmt::{Debug, Display},
+    path::{Path, PathBuf},
 };
 
 use fuser::FileType as FileKind;
@@ -22,12 +24,14 @@ use super::inode::*;
 ///    - Pros: Automatic inode-to-path mapping and caching.
 ///    - Cons: May have performance overhead for large file systems.
 ///    - Root: Represented by an empty string. Paths are relative and never begin with a forward slash.
-/// 
+///
 /// 3. `Vec<OsString>`: Uses a vector of path components for identification.
 ///    - Pros: Slightly lower overhead than PathBuf, allows path to be divided into parts.
 ///    - Cons: Path components are stored in reverse order, which may require additional handling.
 ///    - Root: Represented by an empty vector.
-pub trait FileIdType: 'static + GetConverter + Debug + Clone + PartialEq + Eq + std::hash::Hash {
+pub trait FileIdType:
+    'static + GetConverter + Debug + Clone + PartialEq + Eq + std::hash::Hash
+{
     /// Full metadata type for the file system.
     ///
     /// For Inode-based: (Inode, FileAttribute)
@@ -111,7 +115,7 @@ impl FileIdType for Vec<OsString> {
         self.iter()
             .map(|os_str| os_str.to_string_lossy().into_owned())
             .collect::<Vec<_>>()
-            .join( " | ")
+            .join(" | ")
     }
 
     fn is_fuse_root(&self) -> bool {

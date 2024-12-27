@@ -2,6 +2,7 @@
 name = "zip_fs"
 version = "0.1.0"
 edition = "2021"
+description = "A read-only FUSE filesystem for ZIP archives using easy_fuser"
 
 [dependencies]
 easy_fuser = { path = "../..", features = ["serial"] }

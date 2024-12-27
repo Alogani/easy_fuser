@@ -15,7 +15,7 @@
 /// ## Example: Custom Filesystem with MirrorFs as base
 ///
 /// ```rust, no_run
-/// use easy_fuser::templates::{MirrorFsReadOnly, DefaultFuseHandler};
+/// use easy_fuser::templates::{DefaultFuseHandler, mirror_fs::*};
 /// use easy_fuser::prelude::*;
 /// use std::path::{Path, PathBuf};
 /// use std::ffi::OsStr;
@@ -333,7 +333,7 @@ pub trait FuseHandler<TId: FileIdType>: Send + Sync + 'static {
     /// Read directory contents
     ///
     /// Returns a list of directory entries with minimal metadata.
-    /// 
+    ///
     /// Important: The returned file names (OsString) must not contain any slashes ('/').
     /// Including slashes in the file names will result in undefined behavior.
     fn readdir(
@@ -348,7 +348,7 @@ pub trait FuseHandler<TId: FileIdType>: Send + Sync + 'static {
     /// Read directory contents with full file attributes
     ///
     /// Default implementation combines readdir and lookup operations.
-    /// 
+    ///
     /// Important: The returned file names (OsString) must not contain any slashes ('/').
     /// Including slashes in the file names will result in undefined behavior.
     fn readdirplus(
@@ -544,8 +544,7 @@ pub trait FuseHandler<TId: FileIdType>: Send + Sync + 'static {
         file_handle: FileHandle,
         seek: SeekFrom,
     ) -> FuseResult<i64> {
-        self.get_inner()
-            .lseek(req, file_id, file_handle, seek)
+        self.get_inner().lseek(req, file_id, file_handle, seek)
     }
 
     /// Copy the specified range from the source inode to the destination inode

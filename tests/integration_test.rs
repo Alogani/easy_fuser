@@ -1,5 +1,5 @@
 use easy_fuser::spawn_mount;
-use easy_fuser::templates::{DefaultFuseHandler, MirrorFs};
+use easy_fuser::templates::{mirror_fs::*, DefaultFuseHandler};
 
 use std::fs::{self, File};
 use std::io::Write;

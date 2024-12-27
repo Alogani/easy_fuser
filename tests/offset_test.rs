@@ -1,5 +1,5 @@
 use easy_fuser::spawn_mount;
-use easy_fuser::templates::{DefaultFuseHandler, MirrorFs};
+use easy_fuser::templates::{mirror_fs::*, DefaultFuseHandler};
 
 use std::fs::{self, File};
 use std::io::{Read, Seek, SeekFrom, Write};
@@ -13,7 +13,7 @@ fn test_mirror_fs_file_offsets() {
 
     let mntpoint = mount_dir.path().to_path_buf();
     let source_path = source_dir.path().to_path_buf();
-    
+
     #[cfg(feature = "serial")]
     let num_threads = 1;
     #[cfg(feature = "parallel")]
@@ -46,7 +46,11 @@ fn test_mirror_fs_file_offsets() {
     assert_eq!(&buffer, b"World");
 
     // Test writing at different offsets
-    let mut file = fs::OpenOptions::new().read(true).write(true).open(&test_file).unwrap();
+    let mut file = fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(&test_file)
+        .unwrap();
 
     // Write at an offset
     file.seek(SeekFrom::Start(7)).unwrap();

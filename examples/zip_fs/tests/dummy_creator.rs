@@ -21,8 +21,8 @@ fn main() {
 pub fn create_dummy_zip<P: AsRef<Path>>(zip_path: P) -> Result<(), Box<dyn std::error::Error>> {
     let file = File::create(zip_path)?;
     let mut zip = zip::ZipWriter::new(file);
-    let options = FileOptions::<()>::default()//+
-        .compression_method(zip::CompressionMethod::Stored)//+
+    let options = FileOptions::<()>::default() //+
+        .compression_method(zip::CompressionMethod::Stored) //+
         .unix_permissions(0o755);
 
     zip.start_file("file1.txt", options)?;

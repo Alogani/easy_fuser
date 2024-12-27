@@ -64,10 +64,21 @@ impl PosixError {
         self.code
     }
 }
+use std::any::Any;
 
-impl From<std::io::Error> for PosixError {
-    fn from(value: std::io::Error) -> Self {
-        PosixError::new(value.raw_os_error().unwrap_or(0), format!("{}", value))
+impl<E> From<E> for PosixError
+where
+    E: std::error::Error + 'static,
+{
+    fn from(e: E) -> Self {
+        if let Some(io_error) = (&e as &dyn Any).downcast_ref::<std::io::Error>() {
+            PosixError::new(
+                io_error.raw_os_error().unwrap_or(libc::EIO),
+                io_error.to_string(),
+            )
+        } else {
+            PosixError::new(libc::EIO, e.to_string())
+        }
     }
 }
 

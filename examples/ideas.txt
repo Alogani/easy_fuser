@@ -1,5 +1,5 @@
-zip_fs
-ftp_fs
+in_memory
+random_fs
 sql_fs
 
 extended_attrs_fs
