@@ -1,37 +1,70 @@
+//! FtpFs: A read-only FUSE filesystem for FTP servers
+//!
+//! This program mounts an FTP server as a read-only filesystem using FUSE.
+//! It allows browsing and reading the contents of the FTP server as if it were
+//! a regular directory structure on the local machine.
+//!
+//! Usage:
+//!     ftp_fs <SERVER> <PORT> <MOUNT_POINT>
+//!     ftp_fs --server <SERVER> --port <PORT> --mount-point <MOUNT_POINT>
+//!
+//! Additional options:
+//!     --username <USERNAME>    FTP username (default: "anonymous")
+//!     --password <PASSWORD>    FTP password (default: "")
+//!     --dir-detection <METHOD> Method to detect directories (default: "mlsd")
+//!
+//! IMPORTANT: This implementation is not recommended for production use.
+//! It is highly unreliable, slow, and unoptimized. It may lead to unexpected
+//! behavior, data inconsistencies, or performance issues. Use at your own risk
+//! and only for educational or experimental purposes.
+
 use std::path::PathBuf;
 use std::process::exit;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
-use clap::Parser;
+use clap::{Parser, ValueEnum};
 use ctrlc;
 
 mod helpers;
 mod filesystem;
 use filesystem::FtpFs;
 
+
+#[derive(ValueEnum, Debug, PartialEq, Clone)]
+pub enum DirectoryDetectionMethod {
+    CwdCdup,
+    List,
+    Mlsd,
+    FileSize,
+}
+
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 struct Args {
-    /// FTP server address (e.g., ftp.example.com:21)
+    /// FTP server address (e.g., ftp.example.com)
     #[arg(short, long)]
     server: Option<String>,
 
+    /// FTP server port (e.g., 21)
+    #[arg(short, long)]
+    port: Option<u32>,
+
     /// FTP username (use 'anonymous' for anonymous access)
-    #[arg(short, long, default_value = "anonymous")]
+    #[arg(long, default_value = "anonymous")]
     username: String,
 
     /// FTP password (can be empty for anonymous access)
-    #[arg(short, long, default_value = "")]
+    #[arg(long, default_value = "")]
     password: String,
 
     /// Mount point for the FTP filesystem
     #[arg(short, long)]
     mount_point: Option<PathBuf>,
 
-    /// Directory cache size
-    #[arg(short, long, default_value = "1000")]
-    cache_size: usize,
+    /// Method to detect directories, unreliable and dependant on the server
+    #[arg(long, default_value = "mlsd")]
+    dir_detection: DirectoryDetectionMethod,
 
     /// Positional arguments: [SERVER] [MOUNT_POINT]
     #[arg(required = false)]
@@ -39,23 +72,31 @@ struct Args {
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    #[cfg(feature = "logging")]
+    std::env::set_var("RUST_BACKTRACE", "full");
+    #[cfg(feature = "logging")]
+    let _ = env_logger::builder()
+        .is_test(true)
+        .filter_level(log::LevelFilter::Debug)
+        .try_init();
+
     let args = Args::parse();
-    let (server, mount_point) = if !args.args.is_empty() {
-        if args.args.len() != 2 {
+    let (server, port, mount_point) = if !args.args.is_empty() {
+        if args.args.len() != 3 {
             return Err(
-                "Expected exactly two positional arguments: <SERVER> <MOUNT_POINT>".into(),
+                "Expected exactly three positional arguments: <SERVER> <PORT> <MOUNT_POINT>".into(),
             );
         }
         if args.server.is_some() || args.mount_point.is_some() {
             return Err("Cannot mix positional and named arguments".into());
         }
-        (args.args[0].clone(), PathBuf::from(&args.args[1]))
+        (args.args[0].clone(), args.args[1].parse::<u32>()?, PathBuf::from(&args.args[2]))
     } else {
         let server = args.server.ok_or("FTP server address is required")?;
+        let port = args.port.ok_or("FTP server port is required")?;
         let mount_point = args.mount_point.ok_or("Mount point is required")?;
-        (server, mount_point)
+        (server, port, mount_point)
     };
-    let cache_size = args.cache_size;
 
     // Ensure the mount point exists
     std::fs::create_dir_all(&mount_point)?;
@@ -82,7 +123,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         exit(1);
     })?;
 
-    let ftp_fs = FtpFs::new(&server, &args.username, &args.password, cache_size)?;
+    let ftp_fs = FtpFs::new(&server, &args.username, port, &args.password, args.dir_detection)?;
 
     println!("Mounting FTP filesystem...");
     println!("FTP server: {}", &server);

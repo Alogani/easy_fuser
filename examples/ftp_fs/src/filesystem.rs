@@ -3,38 +3,38 @@ use easy_fuser::templates::DefaultFuseHandler;
 use std::ffi::{OsStr, OsString};
 use std::path::PathBuf;
 use std::sync::Mutex;
-use threadsafe_lru::LruCache;
 use suppaftp::FtpStream;
 use std::io;
 use io::{Read, Seek, SeekFrom};
 use std::error;
 
-use crate::helpers::*;
+use crate::{helpers::*, DirectoryDetectionMethod};
 
 pub struct FtpFs {
     ftp_client: Mutex<FtpStream>,
-    folder_cache: LruCache<PathBuf, ()>,
+    detection_method: DirectoryDetectionMethod,
     inner_fs: DefaultFuseHandler,
 }
 
 impl FtpFs {
-    pub fn new(url: &str, username: &str, password: &str, cache_cap: usize) -> Result<Self, Box<dyn error::Error>> {
-        let mut ftp_stream = FtpStream::connect(url)?;
+    pub fn new(url: &str, username: &str, port: u32, password: &str, detection_method: DirectoryDetectionMethod) -> Result<Self, Box<dyn error::Error>> {
+        let mut ftp_stream = FtpStream::connect(
+            format!("{}:{}", url, port))?;
         ftp_stream.login(username, password)?;
         
         Ok(Self {
             ftp_client: Mutex::new(ftp_stream),
+            detection_method,
             inner_fs: DefaultFuseHandler::new(),
-            folder_cache: LruCache::new(cache_cap, (cache_cap as f64).sqrt().ceil() as usize),
         })
     }
 
-    fn with_ftp<F, R>(&self, func: F) -> Option<R>
+    fn with_ftp<F, R>(&self, func: F) -> FuseResult<R>
     where
         F: FnOnce(&mut FtpStream) -> FuseResult<R>,
     {
-        let mut ftp_client = self.ftp_client.lock().ok()?;
-        func(&mut ftp_client).ok()
+        let mut ftp_client = self.ftp_client.lock().unwrap();
+        func(&mut ftp_client)
     }
 }
 
@@ -46,13 +46,9 @@ impl FuseHandler<PathBuf> for FtpFs {
     fn lookup(&self, _req: &RequestInfo, parent_id: PathBuf, name: &OsStr) -> FuseResult<FileAttribute> {
         let path = parent_id.join(name);
         self.with_ftp(|ftp| {
-            let pathname = path.to_str().unwrap();
-            let size = ftp.size(pathname)?;
-            let modify_time = ftp.mdtm(pathname)?;
-            let is_dir = ftp.list(Some(pathname)).is_ok();
-            Ok(create_file_attribute(size as u64, modify_time, is_dir))
+            get_file_attribute(ftp, &path, &self.detection_method)
+                .ok_or_else(|| PosixError::new(ErrorKind::FileNotFound, "File not found"))
         })
-        .ok_or_else(|| PosixError::new(ErrorKind::FileNotFound, "File not found"))
     }
 
     fn getattr(&self, _req: &RequestInfo, file_id: PathBuf, _file_handle: Option<FileHandle>) -> FuseResult<FileAttribute> {
@@ -60,13 +56,9 @@ impl FuseHandler<PathBuf> for FtpFs {
             return Ok(get_root_attribute());
         }
         self.with_ftp(|ftp| {
-            let pathname = file_id.to_str().unwrap();
-            let size = ftp.size(pathname)?;
-            let modify_time = ftp.mdtm(pathname)?;
-            let is_dir = ftp.list(Some(pathname)).is_ok();
-            Ok(create_file_attribute(size as u64, modify_time, is_dir))
+            get_file_attribute(ftp, &file_id, &self.detection_method)
+                .ok_or_else(|| PosixError::new(ErrorKind::FileNotFound, "File not found"))
         })
-        .ok_or_else(|| PosixError::new(ErrorKind::FileNotFound, "File not found"))
     }
 
     fn read(&self, _req: &RequestInfo, file_id: PathBuf, _file_handle: FileHandle, offset: SeekFrom, size: u32, _flags: FUSEOpenFlags, _lock_owner: Option<u64>) -> FuseResult<Vec<u8>> {
@@ -78,7 +70,7 @@ impl FuseHandler<PathBuf> for FtpFs {
             buffer.truncate(bytes_read);
             Ok(buffer)
         })
-        .ok_or_else(|| PosixError::new(ErrorKind::FileNotFound, "File not found"))
+        .or(Err(PosixError::new(ErrorKind::FileNotFound, "File not found")))
     }
 
     fn readdir(&self, _req: &RequestInfo, file_id: PathBuf, _file_handle: FileHandle) -> FuseResult<Vec<(OsString, FileKind)>> {
@@ -97,7 +89,7 @@ impl FuseHandler<PathBuf> for FtpFs {
                 }
             }
             Ok(())
-        }).ok_or(PosixError::new(ErrorKind::InputOutputError, "Failed to read directory"))?;
+        }).or(Err(PosixError::new(ErrorKind::InputOutputError, "Failed to read directory")))?;
 
         Ok(entries)
     }

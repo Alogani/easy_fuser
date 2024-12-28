@@ -4,13 +4,17 @@ version = "0.1.0"
 edition = "2021"
 description = "A read-only FUSE filesystem for FTP servers using easy_fuser"
 
+[features]
+logging = ["dep:env_logger"]
+
 [dependencies]
 easy_fuser = { path = "../..", features = ["parallel"] }
-threadsafe-lru = "0.1.2"
 clap = { version = "4.5", features = ["derive"] }
 ctrlc = "3.4"
 suppaftp = { version = "^6", features = ["native-tls"] }
 chrono = "0.4"
+log = "0.4"
+env_logger = { version = "0.11", optional = true }
 
 [dev-dependencies]
 tempfile = "3.2"
