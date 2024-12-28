@@ -9,8 +9,8 @@
 
 use std::path::{Path, PathBuf};
 use std::{env, error::Error};
-use tokio::signal;
 use tokio::runtime::Runtime;
+use tokio::signal;
 
 use unftp_sbe_fs::ServerExt;
 
@@ -26,11 +26,13 @@ pub fn spawn_ftp_server(serve_dir: &Path, port: u16) -> std::thread::JoinHandle<
     })
 }
 
-
-pub async fn run_ftp_server(serve_dir: &Path, port: u16) -> Result<(), Box<dyn Error + Send + Sync>> {
+pub async fn run_ftp_server(
+    serve_dir: &Path,
+    port: u16,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
     eprintln!("Starting FTP server on 127.0.0.1:{}", port);
     let serve_dir = PathBuf::from(serve_dir);
-    
+
     let server = libunftp::Server::with_fs(serve_dir)
         .greeting("Welcome to my FTP server")
         .passive_ports(50000..65535)
@@ -65,10 +67,8 @@ fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
     let serve_dir = PathBuf::from(&args[1]);
     let port: u16 = args[2].parse()?;
 
-    let rt  = Runtime::new().unwrap();
+    let rt = Runtime::new().unwrap();
     let handle = rt.handle();
-    let res = handle.block_on(async {
-        run_ftp_server(&serve_dir, port).await
-    });
+    let res = handle.block_on(async { run_ftp_server(&serve_dir, port).await });
     Ok(res?)
 }

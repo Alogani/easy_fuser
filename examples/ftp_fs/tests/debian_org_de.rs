@@ -33,17 +33,23 @@ fn test_debian_ftp_mount_and_read() {
 
     // Check if the mounted filesystem contains the expected file
     let file_path = mount_path.join("debian/doc/constitution.txt");
-    assert!(file_path.exists(), "The constitution.txt file does not exist");
+    assert!(
+        file_path.exists(),
+        "The constitution.txt file does not exist"
+    );
 
     // Read file contents as bytes
     let mut file = File::open(&file_path).expect("Failed to open constitution.txt");
     let mut contents = Vec::new();
-    file.read_to_end(&mut contents).expect("Failed to read constitution.txt");
+    file.read_to_end(&mut contents)
+        .expect("Failed to read constitution.txt");
 
     // Check if the file begins with the expected content
     let expected_content = b"Constitution for the Debian Project";
     assert!(
-        contents.windows(expected_content.len()).any(|window| window == expected_content),
+        contents
+            .windows(expected_content.len())
+            .any(|window| window == expected_content),
         "The file does not contain the expected content"
     );
 
