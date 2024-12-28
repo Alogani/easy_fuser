@@ -1,4 +1,4 @@
-name: Nim CI ubuntu
+name: CI Ubuntu
 
 on:
   workflow_dispatch:
@@ -16,9 +16,12 @@ jobs:
       run: |
         sudo apt-get update
         sudo apt-get install -y libfuse-dev
+    - name: Set PKG_CONFIG_PATH
+      run: |
+        echo "/usr/lib/x86_64-linux-gnu/pkgconfig" >> $GITHUB_ENV
 
   build_and_test:
-    name: "ubuntu continuous integration"
+    name: "Main tests"
     needs: install_dependencies
     runs-on: ubuntu-latest
     strategy:
@@ -40,7 +43,7 @@ jobs:
       run: cargo test  --verbose --features ${{ matrix.feature }}
 
   test_examples:
-    name: "Test Examples folder"
+    name: "Examples crates"
     needs: install_dependencies
     runs-on: ubuntu-latest
     steps:
