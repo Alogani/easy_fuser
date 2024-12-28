@@ -65,6 +65,9 @@ To avoid this issue, ensure that the mountpoint is not located within the mirror
 
 ## Note
 For more specific implementations or to extend functionality, you can modify these handlers or use them as a reference for implementing your own FuseHandler.
+
+If you intend to enforce read-only at the fuse level,
+prefer the usage of option `MountOption::RO` instead of `MirrorFsReadOnly`.
 */
 
 use std::ffi::{OsStr, OsString};
@@ -78,14 +81,9 @@ use crate::unix_fs;
 
 macro_rules! mirror_fs_readonly_methods {
     () => {
-        fn lookup(
-            &self,
-            _req: &RequestInfo,
-            parent_id: PathBuf,
-            name: &OsStr,
-        ) -> FuseResult<FileAttribute> {
-            let file_path = self.source_path.join(parent_id).join(name);
-            unix_fs::lookup(&file_path)
+        fn access(&self, _req: &RequestInfo, file_id: PathBuf, mask: AccessMask) -> FuseResult<()> {
+            let file_path = self.source_path.join(file_id);
+            unix_fs::access(&file_path, mask)
         }
 
         fn getattr(
@@ -100,9 +98,35 @@ macro_rules! mirror_fs_readonly_methods {
             result
         }
 
-        fn readlink(&self, _req: &RequestInfo, file_id: PathBuf) -> FuseResult<Vec<u8>> {
+        fn getxattr(
+            &self,
+            _req: &RequestInfo,
+            file_id: PathBuf,
+            name: &OsStr,
+            size: u32,
+        ) -> FuseResult<Vec<u8>> {
             let file_path = self.source_path.join(file_id);
-            unix_fs::readlink(&file_path)
+            unix_fs::getxattr(&file_path, name, size)
+        }
+
+        fn listxattr(
+            &self,
+            _req: &RequestInfo,
+            file_id: PathBuf,
+            size: u32,
+        ) -> FuseResult<Vec<u8>> {
+            let file_path = self.source_path.join(file_id);
+            unix_fs::listxattr(&file_path, size)
+        }
+
+        fn lookup(
+            &self,
+            _req: &RequestInfo,
+            parent_id: PathBuf,
+            name: &OsStr,
+        ) -> FuseResult<FileAttribute> {
+            let file_path = self.source_path.join(parent_id).join(name);
+            unix_fs::lookup(&file_path)
         }
 
         fn open(
@@ -133,134 +157,20 @@ macro_rules! mirror_fs_readonly_methods {
             Ok(result)
         }
 
+        fn readlink(&self, _req: &RequestInfo, file_id: PathBuf) -> FuseResult<Vec<u8>> {
+            let file_path = self.source_path.join(file_id);
+            unix_fs::readlink(&file_path)
+        }
+
         fn statfs(&self, _req: &RequestInfo, file_id: PathBuf) -> FuseResult<StatFs> {
             let file_path = self.source_path.join(file_id);
             unix_fs::statfs(&file_path)
-        }
-
-        fn getxattr(
-            &self,
-            _req: &RequestInfo,
-            file_id: PathBuf,
-            name: &OsStr,
-            size: u32,
-        ) -> FuseResult<Vec<u8>> {
-            let file_path = self.source_path.join(file_id);
-            unix_fs::getxattr(&file_path, name, size)
-        }
-
-        fn listxattr(
-            &self,
-            _req: &RequestInfo,
-            file_id: PathBuf,
-            size: u32,
-        ) -> FuseResult<Vec<u8>> {
-            let file_path = self.source_path.join(file_id);
-            unix_fs::listxattr(&file_path, size)
-        }
-
-        fn access(&self, _req: &RequestInfo, file_id: PathBuf, mask: AccessMask) -> FuseResult<()> {
-            let file_path = self.source_path.join(file_id);
-            unix_fs::access(&file_path, mask)
         }
     };
 }
 
 macro_rules! mirror_fs_readwrite_methods {
     () => {
-        fn setattr(
-            &self,
-            _req: &RequestInfo,
-            file_id: PathBuf,
-            attrs: SetAttrRequest,
-        ) -> FuseResult<FileAttribute> {
-            let file_path = self.source_path.join(file_id);
-            unix_fs::setattr(&file_path, attrs)
-        }
-
-        fn mknod(
-            &self,
-            _req: &RequestInfo,
-            parent_id: PathBuf,
-            name: &OsStr,
-            mode: u32,
-            umask: u32,
-            rdev: DeviceType,
-        ) -> FuseResult<FileAttribute> {
-            let file_path = self.source_path.join(parent_id).join(name);
-            unix_fs::mknod(&file_path, mode, umask, rdev)
-        }
-
-        fn mkdir(
-            &self,
-            _req: &RequestInfo,
-            parent_id: PathBuf,
-            name: &OsStr,
-            mode: u32,
-            umask: u32,
-        ) -> FuseResult<FileAttribute> {
-            let file_path = self.source_path.join(parent_id).join(name);
-            unix_fs::mkdir(&file_path, mode, umask)
-        }
-
-        fn unlink(&self, _req: &RequestInfo, parent_id: PathBuf, name: &OsStr) -> FuseResult<()> {
-            let file_path = self.source_path.join(parent_id).join(name);
-            unix_fs::unlink(&file_path)
-        }
-
-        fn rmdir(&self, _req: &RequestInfo, parent_id: PathBuf, name: &OsStr) -> FuseResult<()> {
-            let file_path = self.source_path.join(parent_id).join(name);
-            unix_fs::rmdir(&file_path)
-        }
-
-        fn symlink(
-            &self,
-            _req: &RequestInfo,
-            parent_id: PathBuf,
-            link_name: &OsStr,
-            target: &std::path::Path,
-        ) -> FuseResult<FileAttribute> {
-            let file_path = self.source_path.join(parent_id).join(link_name);
-            unix_fs::symlink(&file_path, target)
-        }
-
-        fn rename(
-            &self,
-            _req: &RequestInfo,
-            parent_id: PathBuf,
-            name: &OsStr,
-            newparent: PathBuf,
-            newname: &OsStr,
-            flags: RenameFlags,
-        ) -> FuseResult<()> {
-            let oldpath = self.source_path.join(parent_id).join(name);
-            let newpath = self.source_path.join(newparent).join(newname);
-            unix_fs::rename(&oldpath, &newpath, flags)
-        }
-
-        fn setxattr(
-            &self,
-            _req: &RequestInfo,
-            file_id: PathBuf,
-            name: &OsStr,
-            value: Vec<u8>,
-            flags: FUSESetXAttrFlags,
-            position: u32,
-        ) -> FuseResult<()> {
-            let file_path = self.source_path.join(file_id);
-            unix_fs::setxattr(&file_path, name, &value, flags, position)
-        }
-
-        fn removexattr(
-            &self,
-            _req: &RequestInfo,
-            file_id: PathBuf,
-            name: &OsStr,
-        ) -> FuseResult<()> {
-            let file_path = self.source_path.join(file_id);
-            unix_fs::removexattr(&file_path, name)
-        }
-
         fn create(
             &self,
             _req: &RequestInfo,
@@ -277,6 +187,99 @@ macro_rules! mirror_fs_readwrite_methods {
                 file_attr,
                 FUSEOpenResponseFlags::empty(),
             ))
+        }
+
+        fn mkdir(
+            &self,
+            _req: &RequestInfo,
+            parent_id: PathBuf,
+            name: &OsStr,
+            mode: u32,
+            umask: u32,
+        ) -> FuseResult<FileAttribute> {
+            let file_path = self.source_path.join(parent_id).join(name);
+            unix_fs::mkdir(&file_path, mode, umask)
+        }
+
+        fn mknod(
+            &self,
+            _req: &RequestInfo,
+            parent_id: PathBuf,
+            name: &OsStr,
+            mode: u32,
+            umask: u32,
+            rdev: DeviceType,
+        ) -> FuseResult<FileAttribute> {
+            let file_path = self.source_path.join(parent_id).join(name);
+            unix_fs::mknod(&file_path, mode, umask, rdev)
+        }
+
+        fn removexattr(
+            &self,
+            _req: &RequestInfo,
+            file_id: PathBuf,
+            name: &OsStr,
+        ) -> FuseResult<()> {
+            let file_path = self.source_path.join(file_id);
+            unix_fs::removexattr(&file_path, name)
+        }
+
+        fn rename(
+            &self,
+            _req: &RequestInfo,
+            parent_id: PathBuf,
+            name: &OsStr,
+            newparent: PathBuf,
+            newname: &OsStr,
+            flags: RenameFlags,
+        ) -> FuseResult<()> {
+            let oldpath = self.source_path.join(parent_id).join(name);
+            let newpath = self.source_path.join(newparent).join(newname);
+            unix_fs::rename(&oldpath, &newpath, flags)
+        }
+
+        fn rmdir(&self, _req: &RequestInfo, parent_id: PathBuf, name: &OsStr) -> FuseResult<()> {
+            let file_path = self.source_path.join(parent_id).join(name);
+            unix_fs::rmdir(&file_path)
+        }
+
+        fn setattr(
+            &self,
+            _req: &RequestInfo,
+            file_id: PathBuf,
+            attrs: SetAttrRequest,
+        ) -> FuseResult<FileAttribute> {
+            let file_path = self.source_path.join(file_id);
+            unix_fs::setattr(&file_path, attrs)
+        }
+
+        fn setxattr(
+            &self,
+            _req: &RequestInfo,
+            file_id: PathBuf,
+            name: &OsStr,
+            value: Vec<u8>,
+            flags: FUSESetXAttrFlags,
+            position: u32,
+        ) -> FuseResult<()> {
+            let file_path = self.source_path.join(file_id);
+            unix_fs::setxattr(&file_path, name, &value, flags, position)
+        }
+
+        fn symlink(
+            &self,
+            _req: &RequestInfo,
+            parent_id: PathBuf,
+            link_name: &OsStr,
+            target: &std::path::Path,
+        ) -> FuseResult<FileAttribute> {
+            let file_path = self.source_path.join(parent_id).join(link_name);
+            unix_fs::symlink(&file_path, target)
+        }
+
+        fn unlink(&self, _req: &RequestInfo, parent_id: PathBuf, name: &OsStr) -> FuseResult<()> {
+            let file_path = self.source_path.join(parent_id).join(name);
+            unix_fs::unlink(&file_path)
         }
     };
 }
