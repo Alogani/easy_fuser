@@ -1,17 +1,16 @@
 use std::time::{Duration, SystemTime};
-
 use easy_fuser::prelude::*;
-use chrono::prelude::*;
+use chrono::NaiveDateTime;
 
 
-pub fn create_file_attribute(size: u64, modify_time: DateTime<Utc>, is_dir: bool) -> FileAttribute {
+pub fn create_file_attribute(size: u64, modify_time: NaiveDateTime, is_dir: bool) -> FileAttribute {
     FileAttribute {
         size,
         blocks: (size + 511) / 512,
-        atime: SystemTime::UNIX_EPOCH + Duration::from_secs(modify_time.timestamp() as u64),
-        mtime: SystemTime::UNIX_EPOCH + Duration::from_secs(modify_time.timestamp() as u64),
-        ctime: SystemTime::UNIX_EPOCH + Duration::from_secs(modify_time.timestamp() as u64),
-        crtime: SystemTime::UNIX_EPOCH + Duration::from_secs(modify_time.timestamp() as u64),
+        atime: SystemTime::UNIX_EPOCH + Duration::from_secs(modify_time.and_utc().timestamp() as u64),
+        mtime: SystemTime::UNIX_EPOCH + Duration::from_secs(modify_time.and_utc().timestamp() as u64),
+        ctime: SystemTime::UNIX_EPOCH + Duration::from_secs(modify_time.and_utc().timestamp() as u64),
+        crtime: SystemTime::UNIX_EPOCH + Duration::from_secs(modify_time.and_utc().timestamp() as u64),
         kind: if is_dir { FileKind::Directory } else { FileKind::RegularFile },
         perm: 0o755,
         nlink: 1,

@@ -10,3 +10,11 @@ threadsafe-lru = "0.1.2"
 clap = { version = "4.5", features = ["derive"] }
 ctrlc = "3.4"
 suppaftp = { version = "^6", features = ["native-tls"] }
+chrono = "0.4"
+
+[dev-dependencies]
+tempfile = "3.2"
+libunftp = "0.20"
+unftp-sbe-fs = "0.2"
+async-trait = "0.1.68"
+tokio = { version = "1.42", features = ["full"] }

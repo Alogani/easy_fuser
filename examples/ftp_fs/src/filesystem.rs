@@ -1,16 +1,15 @@
 use easy_fuser::prelude::*;
 use easy_fuser::templates::DefaultFuseHandler;
 use std::ffi::{OsStr, OsString};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::Mutex;
 use threadsafe_lru::LruCache;
-use ftp::{FtpError, FtpStream};
+use suppaftp::FtpStream;
 use std::io;
 use io::{Read, Seek, SeekFrom};
 use std::error;
 
 use crate::helpers::*;
-use chrono::prelude::*;
 
 pub struct FtpFs {
     ftp_client: Mutex<FtpStream>,
@@ -48,31 +47,31 @@ impl FuseHandler<PathBuf> for FtpFs {
         let path = parent_id.join(name);
         self.with_ftp(|ftp| {
             let pathname = path.to_str().unwrap();
-            let size = ftp.size(pathname)?.unwrap_or(0) as u64;
+            let size = ftp.size(pathname)?;
             let modify_time = ftp.mdtm(pathname)?;
             let is_dir = ftp.list(Some(pathname)).is_ok();
-            Ok(create_file_attribute(size, modify_time, is_dir))
+            Ok(create_file_attribute(size as u64, modify_time, is_dir))
         })
         .ok_or_else(|| PosixError::new(ErrorKind::FileNotFound, "File not found"))
     }
 
     fn getattr(&self, _req: &RequestInfo, file_id: PathBuf, _file_handle: Option<FileHandle>) -> FuseResult<FileAttribute> {
-        if file_id.is_fuse_root() {
+        if file_id.is_filesystem_root() {
             return Ok(get_root_attribute());
         }
         self.with_ftp(|ftp| {
             let pathname = file_id.to_str().unwrap();
-            let size = ftp.size(pathname)?.unwrap_or(0) as u64;
-            let modify_time = ftp.mdtm(pathname)?.unwrap_or(Utc::now());
+            let size = ftp.size(pathname)?;
+            let modify_time = ftp.mdtm(pathname)?;
             let is_dir = ftp.list(Some(pathname)).is_ok();
-            Ok(create_file_attribute(size, modify_time, is_dir))
+            Ok(create_file_attribute(size as u64, modify_time, is_dir))
         })
         .ok_or_else(|| PosixError::new(ErrorKind::FileNotFound, "File not found"))
     }
 
     fn read(&self, _req: &RequestInfo, file_id: PathBuf, _file_handle: FileHandle, offset: SeekFrom, size: u32, _flags: FUSEOpenFlags, _lock_owner: Option<u64>) -> FuseResult<Vec<u8>> {
         self.with_ftp(|ftp| {
-            let mut cursor = ftp.simple_retr(file_id.to_str().unwrap())?;
+            let mut cursor = ftp.retr_as_buffer(file_id.to_str().unwrap())?;
             cursor.seek(offset)?;
             let mut buffer = vec![0; size as usize];
             let bytes_read = cursor.read(&mut buffer)?;
