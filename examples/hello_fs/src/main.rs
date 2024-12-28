@@ -1,8 +1,8 @@
 //! Largely inspired from: https://github.com/cberner/fuser/blob/v0.15.1/examples/hello.rs
-//!
+//! 
 //! Give you an example of how to create a simple FUSE filesystem in Rust without using templates
 //! Use templates if you want to jumpstart your implementation!
-//!
+//! 
 //! It uses Inode as FileIdType for teaching purpose,
 //! but many user will feel more conformtable using PathBuf (see the other examples)
 
@@ -81,19 +81,6 @@ impl FuseHandler<Inode> for HelloFS {
         TTL
     }
 
-    fn getattr(
-        &self,
-        _req: &RequestInfo,
-        file_id: Inode,
-        _file_handle: Option<FileHandle>,
-    ) -> FuseResult<FileAttribute> {
-        match file_id {
-            ROOT_INODE => Ok(HELLO_DIR_ATTR.1),
-            inode if inode == HELLO_TXT_ATTR.0 => Ok(HELLO_TXT_ATTR.1),
-            _ => Err(ErrorKind::FileNotFound.to_error("")),
-        }
-    }
-
     fn lookup(
         &self,
         _req: &RequestInfo,
@@ -105,6 +92,19 @@ impl FuseHandler<Inode> for HelloFS {
         } else {
             // Or PosixError::new(ErrorKind::FileNotFound, "")
             Err(ErrorKind::FileNotFound.to_error(""))
+        }
+    }
+
+    fn getattr(
+        &self,
+        _req: &RequestInfo,
+        file_id: Inode,
+        _file_handle: Option<FileHandle>,
+    ) -> FuseResult<FileAttribute> {
+        match file_id {
+            ROOT_INODE => Ok(HELLO_DIR_ATTR.1),
+            inode if inode == HELLO_TXT_ATTR.0 => Ok(HELLO_TXT_ATTR.1),
+            _ => Err(ErrorKind::FileNotFound.to_error("")),
         }
     }
 
