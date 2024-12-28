@@ -27,17 +27,16 @@ jobs:
       run: cargo build --verbose --features serial
     - name: Run tests
       run: ./tests/run_all_tests.sh
-    - name: Run tests for examples
+    - name: Run tests of crates inside examples folder
       run: |
-        set -e
-        exit_code=0
+        crate_dir="$(pwd)"
         for dir in examples/*/; do
           if [ -f "${dir}Cargo.toml" ]; then
             echo "Running tests in ${dir}"
             if ! (cd "${dir}" && cargo test); then
               echo "Tests failed in ${dir}"
-              exit_code=1
-            fi  
+              exit 1
+            fi
+            cd "$crate_dir"
           fi
         done
-        exit $exit_code
