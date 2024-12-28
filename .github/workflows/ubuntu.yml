@@ -42,17 +42,8 @@ jobs:
     - uses: actions/checkout@v4
     - name: Run tests of crates inside examples folder
       run: |
-        pwd
-        echo "ls ."
-        ls
-        echo "ls .."
-        ls ..
-        echo "ls ../.."
-        ls ../..
-        set -e
         exit_code=0
-        crate_dir="$pwd"
-        pwd
+        crate_dir="$(pwd)"
         for dir in examples/*/; do
           if [ -f "${dir}Cargo.toml" ]; then
             echo "Running tests in ${dir}"
