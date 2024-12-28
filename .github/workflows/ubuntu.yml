@@ -39,6 +39,7 @@ jobs:
     name: "Examples crates"
     runs-on: ubuntu-latest
     steps:
+    - uses: actions/checkout@v4
     - name: Run tests of crates inside examples folder
       run: |
         pwd
