@@ -32,6 +32,7 @@ jobs:
         set -e
         exit_code=0
         for dir in examples/*/; do
+          pwd
           echo "Checking directory: ${dir}"
           if [ -f "${dir}Cargo.toml" ]; then
             echo "Found Cargo.toml in ${dir}"
