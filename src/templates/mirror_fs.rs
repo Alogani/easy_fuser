@@ -14,7 +14,7 @@ The `MirrorFs` struct implements the `FuseHandler` trait, providing a way to cre
 
 - Both variants use a `PathBuf` to represent the repository path they're mirroring.
 - They wrap another `FuseHandler<PathBuf>` implementation, allowing for composition of filesystem behaviors.
-- Most FUSE operations are implemented by translating paths and delegating to the `posix_fs` module.
+- Most FUSE operations are implemented by translating paths and delegating to the `unix_fs` module.
 - The implementation uses macros to define common methods for both read-only and read-write variants.
 
 ## Usage
@@ -75,9 +75,9 @@ use std::path::{Path, PathBuf};
 
 use fd_handler_helper::*;
 
-use crate::posix_fs;
 use crate::prelude::*;
 use crate::templates::*;
+use crate::unix_fs;
 
 macro_rules! mirror_fs_readonly_methods {
     () => {
@@ -88,7 +88,7 @@ macro_rules! mirror_fs_readonly_methods {
             name: &OsStr,
         ) -> FuseResult<FileAttribute> {
             let file_path = self.source_path.join(parent_id).join(name);
-            posix_fs::lookup(&file_path)
+            unix_fs::lookup(&file_path)
         }
 
         fn getattr(
@@ -98,14 +98,14 @@ macro_rules! mirror_fs_readonly_methods {
             _file_handle: Option<FileHandle>,
         ) -> FuseResult<FileAttribute> {
             let file_path = self.source_path.join(file_id);
-            let fd = posix_fs::open(file_path.as_ref(), OpenFlags::empty())?;
-            let result = posix_fs::getattr(&fd);
+            let fd = unix_fs::open(file_path.as_ref(), OpenFlags::empty())?;
+            let result = unix_fs::getattr(&fd);
             result
         }
 
         fn readlink(&self, _req: &RequestInfo, file_id: PathBuf) -> FuseResult<Vec<u8>> {
             let file_path = self.source_path.join(file_id);
-            posix_fs::readlink(&file_path)
+            unix_fs::readlink(&file_path)
         }
 
         fn open(
@@ -115,7 +115,7 @@ macro_rules! mirror_fs_readonly_methods {
             flags: OpenFlags,
         ) -> FuseResult<(FileHandle, FUSEOpenResponseFlags)> {
             let file_path = self.source_path.join(file_id);
-            let mut fd = posix_fs::open(file_path.as_ref(), flags)?;
+            let mut fd = unix_fs::open(file_path.as_ref(), flags)?;
             Ok((fd.take_to_file_handle()?, FUSEOpenResponseFlags::empty()))
         }
 
@@ -126,7 +126,7 @@ macro_rules! mirror_fs_readonly_methods {
             _file_handle: FileHandle,
         ) -> FuseResult<Vec<(OsString, FileKind)>> {
             let folder_path = self.source_path.join(file_id);
-            let children = posix_fs::readdir(folder_path.as_ref())?;
+            let children = unix_fs::readdir(folder_path.as_ref())?;
             let mut result = Vec::new();
             result.push((OsString::from("."), FileKind::Directory));
             result.push((OsString::from(".."), FileKind::Directory));
@@ -138,7 +138,7 @@ macro_rules! mirror_fs_readonly_methods {
 
         fn statfs(&self, _req: &RequestInfo, file_id: PathBuf) -> FuseResult<StatFs> {
             let file_path = self.source_path.join(file_id);
-            posix_fs::statfs(&file_path)
+            unix_fs::statfs(&file_path)
         }
 
         fn getxattr(
@@ -149,7 +149,7 @@ macro_rules! mirror_fs_readonly_methods {
             size: u32,
         ) -> FuseResult<Vec<u8>> {
             let file_path = self.source_path.join(file_id);
-            posix_fs::getxattr(&file_path, name, size)
+            unix_fs::getxattr(&file_path, name, size)
         }
 
         fn listxattr(
@@ -159,12 +159,12 @@ macro_rules! mirror_fs_readonly_methods {
             size: u32,
         ) -> FuseResult<Vec<u8>> {
             let file_path = self.source_path.join(file_id);
-            posix_fs::listxattr(&file_path, size)
+            unix_fs::listxattr(&file_path, size)
         }
 
         fn access(&self, _req: &RequestInfo, file_id: PathBuf, mask: AccessMask) -> FuseResult<()> {
             let file_path = self.source_path.join(file_id);
-            posix_fs::access(&file_path, mask)
+            unix_fs::access(&file_path, mask)
         }
     };
 }
@@ -178,7 +178,7 @@ macro_rules! mirror_fs_readwrite_methods {
             attrs: SetAttrRequest,
         ) -> FuseResult<FileAttribute> {
             let file_path = self.source_path.join(file_id);
-            posix_fs::setattr(&file_path, attrs)
+            unix_fs::setattr(&file_path, attrs)
         }
 
         fn mknod(
@@ -191,7 +191,7 @@ macro_rules! mirror_fs_readwrite_methods {
             rdev: DeviceType,
         ) -> FuseResult<FileAttribute> {
             let file_path = self.source_path.join(parent_id).join(name);
-            posix_fs::mknod(&file_path, mode, umask, rdev)
+            unix_fs::mknod(&file_path, mode, umask, rdev)
         }
 
         fn mkdir(
@@ -203,17 +203,17 @@ macro_rules! mirror_fs_readwrite_methods {
             umask: u32,
         ) -> FuseResult<FileAttribute> {
             let file_path = self.source_path.join(parent_id).join(name);
-            posix_fs::mkdir(&file_path, mode, umask)
+            unix_fs::mkdir(&file_path, mode, umask)
         }
 
         fn unlink(&self, _req: &RequestInfo, parent_id: PathBuf, name: &OsStr) -> FuseResult<()> {
             let file_path = self.source_path.join(parent_id).join(name);
-            posix_fs::unlink(&file_path)
+            unix_fs::unlink(&file_path)
         }
 
         fn rmdir(&self, _req: &RequestInfo, parent_id: PathBuf, name: &OsStr) -> FuseResult<()> {
             let file_path = self.source_path.join(parent_id).join(name);
-            posix_fs::rmdir(&file_path)
+            unix_fs::rmdir(&file_path)
         }
 
         fn symlink(
@@ -224,7 +224,7 @@ macro_rules! mirror_fs_readwrite_methods {
             target: &std::path::Path,
         ) -> FuseResult<FileAttribute> {
             let file_path = self.source_path.join(parent_id).join(link_name);
-            posix_fs::symlink(&file_path, target)
+            unix_fs::symlink(&file_path, target)
         }
 
         fn rename(
@@ -238,7 +238,7 @@ macro_rules! mirror_fs_readwrite_methods {
         ) -> FuseResult<()> {
             let oldpath = self.source_path.join(parent_id).join(name);
             let newpath = self.source_path.join(newparent).join(newname);
-            posix_fs::rename(&oldpath, &newpath, flags)
+            unix_fs::rename(&oldpath, &newpath, flags)
         }
 
         fn setxattr(
@@ -247,11 +247,21 @@ macro_rules! mirror_fs_readwrite_methods {
             file_id: PathBuf,
             name: &OsStr,
             value: Vec<u8>,
-            _flags: FUSESetXAttrFlags,
+            flags: FUSESetXAttrFlags,
             position: u32,
         ) -> FuseResult<()> {
             let file_path = self.source_path.join(file_id);
-            posix_fs::setxattr(&file_path, name, &value, position)
+            unix_fs::setxattr(&file_path, name, &value, flags, position)
+        }
+
+        fn removexattr(
+            &self,
+            _req: &RequestInfo,
+            file_id: PathBuf,
+            name: &OsStr,
+        ) -> FuseResult<()> {
+            let file_path = self.source_path.join(file_id);
+            unix_fs::removexattr(&file_path, name)
         }
 
         fn create(
@@ -264,7 +274,7 @@ macro_rules! mirror_fs_readwrite_methods {
             flags: OpenFlags,
         ) -> FuseResult<(FileHandle, FileAttribute, FUSEOpenResponseFlags)> {
             let file_path = self.source_path.join(parent_id).join(name);
-            let (mut fd, file_attr) = posix_fs::create(&file_path, mode, umask, flags)?;
+            let (mut fd, file_attr) = unix_fs::create(&file_path, mode, umask, flags)?;
             Ok((
                 fd.take_to_file_handle()?,
                 file_attr,

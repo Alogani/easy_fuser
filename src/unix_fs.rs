@@ -22,6 +22,11 @@
 //! Note: Some operations, especially those involving symlinks, may require
 //! special handling or additional considerations.
 
+/*
+Platform specific notes:
+- mode_t is a u16 on bsd and u32 on linux
+*/
+
 use std::path::Path;
 use std::time::{Duration, SystemTime};
 
@@ -32,6 +37,32 @@ use std::os::unix::fs::*;
 
 use crate::types::*;
 use libc::{c_char, c_void, timespec};
+
+#[cfg(target_os = "linux")]
+pub(crate) mod linux_fs;
+#[cfg(target_os = "linux")]
+use linux_fs as unix_impl;
+
+#[cfg(any(
+    target_os = "macos",
+    target_os = "freebsd",
+    target_os = "openbsd",
+    target_os = "netbsd"
+))]
+pub(crate) mod bsd_like_fs;
+
+#[cfg(any(target_os = "freebsd", target_os = "openbsd", target_os = "netbsd"))]
+pub(crate) mod bsd_fs;
+#[cfg(any(target_os = "freebsd", target_os = "openbsd", target_os = "netbsd"))]
+use bsd_fs as unix_impl;
+
+#[cfg(target_os = "macos")]
+pub(crate) mod macos_fs;
+#[cfg(target_os = "macos")]
+use macos_fs as unix_impl;
+
+pub use unix_impl::{copy_file_range, statfs};
+pub(crate) use unix_impl::get_errno;
 
 /// Converts a `std::fs::FileType` to the corresponding `FileKind` expected by fuse_api.
 ///
@@ -81,14 +112,6 @@ pub fn convert_fileattribute(metadata: fs::Metadata) -> FileAttribute {
         ttl: None,
         generation: None,
     }
-}
-
-fn get_errno() -> i32 {
-    unsafe { *libc::__errno_location() }
-}
-
-fn set_errno(errno: i32) {
-    unsafe { *libc::__errno_location() = errno };
 }
 
 fn convert_stat_struct(statbuf: libc::stat) -> Option<FileAttribute> {
@@ -211,7 +234,7 @@ pub fn setattr(path: &Path, attrs: SetAttrRequest) -> Result<FileAttribute, Posi
 
     // update permissions
     if let Some(mode) = attrs.mode {
-        let result = unsafe { libc::chmod(c_path.as_ptr(), mode) };
+        let result = unsafe { libc::chmod(c_path.as_ptr(), mode.try_into().unwrap()) };
         if result == -1 {
             return Err(PosixError::last_error(format!(
                 "{}: chmod failed in setattr",
@@ -339,7 +362,13 @@ pub fn mknod(
 ) -> Result<FileAttribute, PosixError> {
     let c_path = cstring_from_path(path)?;
     let final_mode = mode & !umask;
-    let ret = unsafe { libc::mknod(c_path.as_ptr(), final_mode, rdev.to_rdev() as libc::dev_t) };
+    let ret = unsafe {
+        libc::mknod(
+            c_path.as_ptr(),
+            final_mode.try_into().unwrap(),
+            rdev.to_rdev() as libc::dev_t,
+        )
+    };
     if ret == -1 {
         return Err(PosixError::last_error(format!(
             "{}: mknod failed",
@@ -355,7 +384,7 @@ pub fn mknod(
 pub fn mkdir(path: &Path, mode: u32, umask: u32) -> Result<FileAttribute, PosixError> {
     let c_path = cstring_from_path(path)?;
     let final_mode = mode & !umask;
-    let ret = unsafe { libc::mkdir(c_path.as_ptr(), final_mode) };
+    let ret = unsafe { libc::mkdir(c_path.as_ptr(), final_mode.try_into().unwrap()) };
     if ret == -1 {
         return Err(PosixError::last_error(format!(
             "{}: mkdir failed in setattr",
@@ -416,13 +445,14 @@ pub fn symlink(path: &Path, target: &Path) -> Result<FileAttribute, PosixError> 
 
 /// Renames a file or directory from the old path to the new path.
 ///
-/// This function is equivalent to the FUSE `rename` operation and uses the system's renameat2 call.
+/// This function is equivalent to the FUSE `rename` operation.
 /// It allows for specifying additional flags to control the rename operation.
+/// However, those flags will be ignored on other platforms than linux.
 pub fn rename(oldpath: &Path, newpath: &Path, flags: RenameFlags) -> Result<(), PosixError> {
     let old_cstr = cstring_from_path(oldpath)?;
     let new_cstr = cstring_from_path(newpath)?;
     let result = unsafe {
-        libc::renameat2(
+        unix_impl::renameat2(
             libc::AT_FDCWD, // Current working directory for the old path
             old_cstr.as_ptr(),
             libc::AT_FDCWD, // Current working directory for the new path
@@ -564,7 +594,7 @@ pub fn write(fd: &FileDescriptor, seek: SeekFrom, data: &[u8]) -> Result<u32, Po
 ///
 /// This function is equivalent to the FUSE `flush` operation and uses the system's fdatasync call.
 pub fn flush(fd: &FileDescriptor) -> Result<(), PosixError> {
-    let result = unsafe { libc::fdatasync(fd.clone().into()) };
+    let result = unsafe { unix_impl::fdatasync(fd.clone().into()) };
     if result == -1 {
         return Err(PosixError::last_error(format!("{:?}: flush failed", fd)));
     }
@@ -583,7 +613,7 @@ pub fn fsync(fd: &FileDescriptor, datasync: bool) -> Result<(), PosixError> {
     let fd = fd.clone().into();
     let result = unsafe {
         if datasync {
-            libc::fdatasync(fd)
+            unix_impl::fdatasync(fd)
         } else {
             libc::fsync(fd)
         }
@@ -612,10 +642,10 @@ pub fn readdir(path: &Path) -> Result<Vec<(OsString, FileKind)>, PosixError> {
 
     let mut result = Vec::new();
     loop {
-        set_errno(0);
+        unix_impl::set_errno(0);
         let entry = unsafe { libc::readdir(dir) };
         if entry.is_null() {
-            if get_errno() != 0 {
+            if unix_impl::get_errno() != 0 {
                 unsafe { libc::closedir(dir) };
                 return Err(PosixError::last_error(format!(
                     "{}: readdir failed",
@@ -675,34 +705,6 @@ pub fn release(fd: FileDescriptor) -> Result<(), PosixError> {
     Ok(())
 }
 
-/// Retrieves file system statistics for the specified path.
-///
-/// This function is equivalent to the FUSE `statfs` operation.
-pub fn statfs(path: &Path) -> Result<StatFs, PosixError> {
-    let c_path = cstring_from_path(path)?;
-    let mut stat: libc::statvfs64 = unsafe { std::mem::zeroed() };
-
-    // Use statvfs64 to get file system stats
-    let result = unsafe { libc::statvfs64(c_path.as_ptr(), &mut stat) };
-    if result != 0 {
-        return Err(PosixError::last_error(format!(
-            "{}: statfs failed",
-            path.display()
-        )));
-    }
-
-    Ok(StatFs {
-        total_blocks: stat.f_blocks as u64,
-        free_blocks: stat.f_bfree as u64,
-        available_blocks: stat.f_bavail as u64,
-        total_files: stat.f_files as u64,
-        free_files: stat.f_ffree as u64,
-        block_size: stat.f_bsize as u32,
-        max_filename_length: stat.f_namemax as u32,
-        fragment_size: stat.f_frsize as u32,
-    })
-}
-
 /// Sets an extended attribute for a file or directory.
 ///
 /// This function is equivalent to the FUSE `setxattr` operation. It allows setting
@@ -712,13 +714,20 @@ pub fn statfs(path: &Path) -> Result<StatFs, PosixError> {
 /// * `path` - A reference to the `Path` of the file or directory.
 /// * `name` - The name of the extended attribute as an `OsStr`.
 /// * `value` - The value of the extended attribute as a byte slice.
-/// * `position` - The position at which to set the value (usually 0 for the entire attribute).
+/// * `flags` - Additional flags for the setxattr operation.
+/// * `position` - The position at which to set the value (usually 0 for the entire attribute), ignored in linux
 ///
 /// # Notes
 /// - Extended attributes are additional metadata that can be associated with files or directories.
 /// - The behavior may vary depending on the underlying filesystem support for extended attributes.
 /// - Some filesystems may have limitations on attribute names or value sizes.
-pub fn setxattr(path: &Path, name: &OsStr, value: &[u8], position: u32) -> Result<(), PosixError> {
+pub fn setxattr(
+    path: &Path,
+    name: &OsStr,
+    value: &[u8],
+    flags: FUSESetXAttrFlags,
+    position: u32,
+) -> Result<(), PosixError> {
     let c_path = cstring_from_path(path)?;
     let c_name = CString::new(name.as_bytes()).map_err(|_| {
         PosixError::new(
@@ -730,21 +739,13 @@ pub fn setxattr(path: &Path, name: &OsStr, value: &[u8], position: u32) -> Resul
         )
     })?;
     let ret = unsafe {
-        libc::setxattr(
+        unix_impl::setxattr(
             c_path.as_ptr(),
             c_name.as_ptr(),
             value.as_ptr() as *const c_void,
             value.len(),
-            i32::try_from(position).map_err(|_| {
-                PosixError::new(
-                    ErrorKind::InvalidArgument,
-                    format!(
-                        "{}: Out-of-bound position argument ({}) in setxattr",
-                        path.display(),
-                        position
-                    ),
-                )
-            })?,
+            position,
+            flags.bits(),
         )
     };
 
@@ -791,7 +792,7 @@ pub fn getxattr(path: &Path, name: &OsStr, size: u32) -> Result<Vec<u8>, PosixEr
 
     let mut buf = vec![0u8; size as usize];
     let ret = unsafe {
-        libc::getxattr(
+        unix_impl::getxattr(
             c_path.as_ptr(),
             c_name.as_ptr(),
             buf.as_mut_ptr() as *mut c_void,
@@ -832,7 +833,8 @@ pub fn getxattr(path: &Path, name: &OsStr, size: u32) -> Result<Vec<u8>, PosixEr
 pub fn listxattr(path: &Path, size: u32) -> Result<Vec<u8>, PosixError> {
     let c_path = cstring_from_path(path)?;
     let mut buf = vec![0u8; size as usize];
-    let ret = unsafe { libc::listxattr(c_path.as_ptr(), buf.as_mut_ptr() as *mut i8, buf.len()) };
+    let ret =
+        unsafe { unix_impl::listxattr(c_path.as_ptr(), buf.as_mut_ptr() as *mut i8, buf.len()) };
 
     if ret == -1 {
         return Err(PosixError::last_error(format!(
@@ -843,6 +845,45 @@ pub fn listxattr(path: &Path, size: u32) -> Result<Vec<u8>, PosixError> {
 
     buf.truncate(ret as usize);
     Ok(buf)
+}
+
+/// Removes an extended attribute from a file or directory.
+///
+/// This function is equivalent to the FUSE `removexattr` operation. It removes
+/// the specified extended attribute from the file or directory at the given path.
+///
+/// # Arguments
+/// * `path` - A reference to the `Path` of the file or directory.
+/// * `name` - The name of the extended attribute to remove as an `OsStr`.
+///
+/// # Notes
+/// - If the specified attribute does not exist, this function may return an error.
+/// - Some filesystems may not support extended attributes, in which case this function
+///   may return an error.
+/// - Removing system-critical extended attributes may affect file system behavior.
+pub fn removexattr(path: &Path, name: &OsStr) -> Result<(), PosixError> {
+    let c_path = cstring_from_path(path)?;
+    let c_name = CString::new(name.as_bytes()).map_err(|_| {
+        PosixError::new(
+            ErrorKind::InvalidArgument,
+            format!(
+                "{}: CString conversion failed in removexattr",
+                Path::display(name.as_ref())
+            ),
+        )
+    })?;
+
+    let ret = unsafe { unix_impl::removexattr(c_path.as_ptr(), c_name.as_ptr()) };
+
+    if ret == -1 {
+        return Err(PosixError::last_error(format!(
+            "{}: removexattr failed. Name: {}",
+            path.display(),
+            Path::display(name.as_ref())
+        )));
+    }
+
+    Ok(())
 }
 
 /// Checks file accessibility based on the process's real user and group IDs.
@@ -913,7 +954,7 @@ pub fn fallocate(
     length: i64,
     mode: i32,
 ) -> Result<(), PosixError> {
-    let result = unsafe { libc::fallocate(fd.clone().into(), mode, offset, length) };
+    let result = unsafe { unix_impl::fallocate(fd.clone().into(), mode, offset, length) };
     if result == -1 {
         return Err(PosixError::last_error(format!(
             "{:?}: fallocate failed",
@@ -943,36 +984,6 @@ pub fn lseek(fd: &FileDescriptor, seek: SeekFrom) -> Result<i64, PosixError> {
         )));
     }
     Ok(result)
-}
-
-/// Copies a range of data from one file to another.
-///
-/// This function is equivalent to the FUSE `copy_file_range` operation.
-///
-/// It copies `len` bytes from the file descriptor `fd_in` starting at offset `offset_in`
-/// to the file descriptor `fd_out` starting at offset `offset_out`. The function returns
-/// the number of bytes actually copied, which may be less than requested.
-pub fn copy_file_range(
-    fd_in: &FileDescriptor,
-    offset_in: i64,
-    fd_out: &FileDescriptor,
-    offset_out: i64,
-    len: u64,
-) -> Result<u32, PosixError> {
-    let result = unsafe {
-        libc::copy_file_range(
-            fd_in.clone().into(),
-            offset_in as *mut libc::off_t,
-            fd_out.clone().into(),
-            offset_out as *mut libc::off_t,
-            len as usize,
-            0, // placeholder
-        )
-    };
-    if result == -1 {
-        return Err(PosixError::last_error("copyfilerange failed"));
-    }
-    Ok(result as u32)
 }
 
 #[cfg(test)]

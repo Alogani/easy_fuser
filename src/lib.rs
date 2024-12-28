@@ -24,8 +24,8 @@ mod fuse_handler;
 
 pub mod templates;
 
-pub mod posix_fs;
 pub mod types;
+pub mod unix_fs;
 
 pub use fuser::{BackgroundSession, MountOption, Session, SessionUnmounter};
 
@@ -41,9 +41,9 @@ pub mod prelude {
 use std::io;
 use std::path::Path;
 
-use prelude::*;
 use core::FuseDriver;
 use fuser::{mount2, spawn_mount2};
+use prelude::*;
 
 /// Mounts a FUSE filesystem at the specified mountpoint.
 ///
