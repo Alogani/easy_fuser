@@ -29,23 +29,36 @@ jobs:
       run: ./tests/run_all_tests.sh
     - name: Run tests for examples
       run: |
-        set -e
-        exit_code=0
-        ls
-        for dir in examples/*/; do
-          echo $dir
-          echo "Checking directory: ${dir}"
-          if [ -f "${dir}Cargo.toml" ]; then
-            echo "Found Cargo.toml in ${dir}"
-            echo "Running tests in ${dir}"
-            if ! (cd "${dir}" && cargo test --verbose); then
-              echo "Tests failed in ${dir}"
-              exit_code=1
+          set -e
+          exit_code=0
+          echo "Current directory:"
+          pwd
+          echo "Contents of current directory:"
+          ls -la
+          echo "Contents of examples directory (if it exists):"
+          ls -la examples || echo "examples directory does not exist"
+          echo "Attempting to list example directories:"
+          for dir in examples/*/; do
+            echo "Found directory: $dir"
+          done
+          echo "Checking each potential example directory:"
+          for dir in examples/*/; do
+            if [ -d "$dir" ]; then
+              echo "Checking directory: ${dir}"
+              if [ -f "${dir}Cargo.toml" ]; then
+                echo "Found Cargo.toml in ${dir}"
+                echo "Running tests in ${dir}"
+                if ! (cd "${dir}" && cargo test --verbose); then
+                  echo "Tests failed in ${dir}"
+                  exit_code=1
+                else
+                  echo "Tests passed in ${dir}"
+                fi  
+              else
+                echo "No Cargo.toml found in ${dir}"
+              fi
             else
-              echo "Tests passed in ${dir}"
-            fi  
-          else
-            echo "No Cargo.toml found in ${dir}"
-          fi
-        done
-        exit $exit_code
+              echo "Not a directory: ${dir}"
+            fi
+          done
+          exit $exit_code
