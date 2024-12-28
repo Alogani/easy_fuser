@@ -26,17 +26,20 @@ use crate::core::ROOT_INO;
 /// using `PathBuf` as `FileIdType`. This alternative approach allows for file
 /// identification based on paths rather than inode numbers.
 
-pub const ROOT_INODE: Inode = Inode(ROOT_INO);
+pub const ROOT_INODE: Inode = Inode::from(ROOT_INO);
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Inode(u64);
 
-impl From<u64> for Inode {
-    /// Converts a u64 into an Inode.
-    ///
-    /// This allows for easy creation of Inode instances from raw inode numbers.
-    fn from(value: u64) -> Self {
+impl Inode {
+    /// Allow const creation of Inode.
+    pub const fn from(value: u64) -> Self {
         Inode(value)
+    }
+
+    /// Convenience for creating a new Inode
+    pub fn next(&self) -> Self {
+        Inode::from(u64::from(self.clone()) + 1)
     }
 }
 
@@ -46,5 +49,14 @@ impl From<Inode> for u64 {
     /// This allows for easy creation of Inode instances from raw inode numbers.
     fn from(value: Inode) -> Self {
         value.0
+    }
+}
+
+impl From<u64> for Inode {
+    /// Converts a number into an Inode.
+    ///
+    /// This allows for easy creation of Inode instances from raw inode numbers.
+    fn from(value: u64) -> Self {
+        Inode(value)
     }
 }
