@@ -44,8 +44,8 @@ impl InMemoryFS {
                     kind: FileKind::Directory,
                     perm: 0o755,
                     nlink: 2,
-                    uid: 501,
-                    gid: 20,
+                    uid: 0,
+                    gid: 0,
                     rdev: 0,
                     flags: 0,
                     blksize: 512,
@@ -88,6 +88,66 @@ impl FuseHandler<Inode> for InMemoryFS {
             .ok_or_else(|| ErrorKind::FileNotFound.to_error(""))
     }
 
+    fn setattr(
+        &self,
+        _req: &RequestInfo,
+        file_id: Inode,
+        attrs: SetAttrRequest,
+    ) -> FuseResult<FileAttribute> {
+        let mut fs = self.fs.lock().unwrap();
+        
+        if let Some(node) = fs.inodes.get_mut(&file_id) {
+            // Update mode if provided
+            if let Some(new_mode) = attrs.mode {
+                node.attr.perm = new_mode as u16;
+            }
+
+            // Update uid if provided
+            if let Some(new_uid) = attrs.uid {
+                node.attr.uid = new_uid;
+            }
+
+            // Update gid if provided
+            if let Some(new_gid) = attrs.gid {
+                node.attr.gid = new_gid;
+            }
+
+            // Update size if provided
+            if let Some(new_size) = attrs.size {
+                node.attr.size = new_size;
+                if new_size as usize > node.data.len() {
+                    node.data.resize(new_size as usize, 0);
+                } else {
+                    node.data.truncate(new_size as usize);
+                }
+            }
+
+            // Update atime if provided
+            if let Some(new_atime) = attrs.atime {
+                node.attr.atime = match new_atime {
+                    TimeOrNow::SpecificTime(time) => time,
+                    TimeOrNow::Now => SystemTime::now(),
+                };
+            }
+
+            // Update mtime if provided
+            if let Some(new_mtime) = attrs.mtime {
+                node.attr.mtime = match new_mtime {
+                    TimeOrNow::SpecificTime(time) => time,
+                    TimeOrNow::Now => SystemTime::now(),
+                };
+            }
+
+            // Always update ctime when attributes are changed
+            node.attr.ctime = SystemTime::now();
+
+            Ok(node.attr.clone())
+        } else {
+            Err(ErrorKind::FileNotFound.to_error(""))
+        }
+    }
+
+
     fn read(&self, _req: &RequestInfo, ino: Inode, _fh: FileHandle, offset: SeekFrom, size: u32, _flags: FUSEOpenFlags, _lock_owner: Option<u64>) -> FuseResult<Vec<u8>> {
         let fs = self.fs.lock().unwrap();
         if let Some(node) = fs.inodes.get(&ino) {
@@ -120,64 +180,7 @@ impl FuseHandler<Inode> for InMemoryFS {
         }
     }
 
-    fn readdir(&self, _req: &RequestInfo, ino: Inode, _fh: FileHandle) -> FuseResult<Vec<(OsString, (Inode, FileKind))>> {
-        let fs = self.fs.lock().unwrap();
-        if let Some(node) = fs.inodes.get(&ino) {
-            let mut entries = vec![
-                (OsString::from("."), (ino, FileKind::Directory)),
-                (OsString::from(".."), (node.parent.clone(), FileKind::Directory)),
-            ];
-            entries.extend(node.children.iter().map(|(name, child_ino)| {
-                let child_node = fs.inodes.get(&child_ino).unwrap();
-                (name.clone(), (child_ino.clone(), child_node.attr.kind))
-            }));
-            Ok(entries)
-        } else {
-            Err(ErrorKind::FileNotFound.to_error(""))
-        }
-    }
-
-    fn create(&self, _req: &RequestInfo, parent: Inode, name: &OsStr, mode: u32, _umask: u32, _flags: OpenFlags) -> Result<(FileHandle, (Inode, FileAttribute), FUSEOpenResponseFlags), PosixError> {
-        let mut fs = self.fs.lock().unwrap();
-        let new_inode = fs.next_inode.clone();
-        if let Some(parent_node) = fs.inodes.get_mut(&parent) {
-            let attr = FileAttribute {
-                size: 0,
-                blocks: 1,
-                atime: SystemTime::now(),
-                mtime: SystemTime::now(),
-                ctime: SystemTime::now(),
-                crtime: SystemTime::now(),
-                kind: FileKind::RegularFile,
-                perm: mode as u16,
-                nlink: 1,
-                uid: 501,
-                gid: 20,
-                rdev: 0,
-                flags: 0,
-                blksize: 512,
-                ttl: None,
-                generation: None,
-            };
-
-            let new_node = FSNode {
-                parent,
-                attr: attr.clone(),
-                data: Vec::new(),
-                children: HashMap::new(),
-            };
-
-            parent_node.children.insert(name.to_owned(), new_inode.clone());
-            fs.inodes.insert(new_inode.clone(), new_node);
-            fs.next_inode = new_inode.next();
-
-            Ok((FileHandle::from(0), (new_inode.clone(), attr), FUSEOpenResponseFlags::empty()))
-        } else {
-            Err(ErrorKind::FileNotFound.to_error(""))
-        }
-    }
-
-    fn mkdir(&self, _req: &RequestInfo, parent: Inode, name: &OsStr, mode: u32, _umask: u32) -> FuseResult<(Inode, FileAttribute)> {
+    fn mkdir(&self, req: &RequestInfo, parent: Inode, name: &OsStr, mode: u32, _umask: u32) -> FuseResult<(Inode, FileAttribute)> {
         let mut fs = self.fs.lock().unwrap();
         let new_inode = fs.next_inode.clone();
         if let Some(parent_node) = fs.inodes.get_mut(&parent) {
@@ -190,9 +193,9 @@ impl FuseHandler<Inode> for InMemoryFS {
                 crtime: SystemTime::now(),
                 kind: FileKind::Directory,
                 perm: mode as u16,
-                nlink: 2,
-                uid: 501,
-                gid: 20,
+                nlink: 1,
+                uid: req.uid,
+                gid: req.gid,
                 rdev: 0,
                 flags: 0,
                 blksize: 512,
@@ -212,6 +215,63 @@ impl FuseHandler<Inode> for InMemoryFS {
             fs.next_inode = new_inode.next();
 
             Ok((new_inode.clone(), attr))
+        } else {
+            Err(ErrorKind::FileNotFound.to_error(""))
+        }
+    }
+
+    fn readdir(&self, _req: &RequestInfo, ino: Inode, _fh: FileHandle) -> FuseResult<Vec<(OsString, (Inode, FileKind))>> {
+        let fs = self.fs.lock().unwrap();
+        if let Some(node) = fs.inodes.get(&ino) {
+            let mut entries = vec![
+                (OsString::from("."), (ino, FileKind::Directory)),
+                (OsString::from(".."), (node.parent.clone(), FileKind::Directory)),
+            ];
+            entries.extend(node.children.iter().map(|(name, child_ino)| {
+                let child_node = fs.inodes.get(&child_ino).unwrap();
+                (name.clone(), (child_ino.clone(), child_node.attr.kind))
+            }));
+            Ok(entries)
+        } else {
+            Err(ErrorKind::FileNotFound.to_error(""))
+        }
+    }
+
+    fn create(&self, req: &RequestInfo, parent: Inode, name: &OsStr, mode: u32, _umask: u32, _flags: OpenFlags) -> Result<(FileHandle, (Inode, FileAttribute), FUSEOpenResponseFlags), PosixError> {
+        let mut fs = self.fs.lock().unwrap();
+        let new_inode = fs.next_inode.clone();
+        if let Some(parent_node) = fs.inodes.get_mut(&parent) {
+            let attr = FileAttribute {
+                size: 0,
+                blocks: 1,
+                atime: SystemTime::now(),
+                mtime: SystemTime::now(),
+                ctime: SystemTime::now(),
+                crtime: SystemTime::now(),
+                kind: FileKind::RegularFile,
+                perm: mode as u16,
+                nlink: 1,
+                uid: req.uid,
+                gid: req.gid,
+                rdev: 0,
+                flags: 0,
+                blksize: 512,
+                ttl: None,
+                generation: None,
+            };
+
+            let new_node = FSNode {
+                parent,
+                attr: attr.clone(),
+                data: Vec::new(),
+                children: HashMap::new(),
+            };
+
+            parent_node.children.insert(name.to_owned(), new_inode.clone());
+            fs.inodes.insert(new_inode.clone(), new_node);
+            fs.next_inode = new_inode.next();
+
+            Ok((FileHandle::from(0), (new_inode.clone(), attr), FUSEOpenResponseFlags::empty()))
         } else {
             Err(ErrorKind::FileNotFound.to_error(""))
         }

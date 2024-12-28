@@ -1,0 +1,12 @@
+[package]
+name = "hello"
+version = "0.1.0"
+edition = "2021"
+
+[features]
+logging = ["dep:env_logger", "dep:log"]
+
+[dependencies]
+easy_fuser = { path = "../..", features = ["serial"] }
+log = { version = "0.4", optional = true }
+env_logger = { version = "0.11", optional = true }
