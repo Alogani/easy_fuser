@@ -9,6 +9,8 @@ use tempfile::TempDir;
 
 #[test]
 fn test_mirror_fs_operations() {
+    env_logger::init();
+
     // Create temporary directories for mount point and source
     let mount_dir = TempDir::new().unwrap();
     let source_dir = TempDir::new().unwrap();
