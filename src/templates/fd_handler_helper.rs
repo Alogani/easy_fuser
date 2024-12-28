@@ -178,7 +178,7 @@ macro_rules! fd_handler_readwrite_methods {
             file_handle: FileHandle,
             offset: i64,
             length: i64,
-            mode: i32,
+            mode: FallocateFlags,
         ) -> FuseResult<()> {
             match FileDescriptor::try_from(file_handle) {
                 Ok(fd) => unix_fs::fallocate(&fd, offset, length, mode),

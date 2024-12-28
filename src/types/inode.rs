@@ -36,6 +36,11 @@ impl Inode {
     pub const fn from(value: u64) -> Self {
         Inode(value)
     }
+
+    /// Convenience for creating a new Inode
+    pub fn next(&self) -> Self {
+        Inode::from(u64::from(self.clone()) + 1)
+    }
 }
 
 impl From<Inode> for u64 {

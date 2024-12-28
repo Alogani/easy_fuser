@@ -952,9 +952,9 @@ pub fn fallocate(
     fd: &FileDescriptor,
     offset: i64,
     length: i64,
-    mode: i32,
+    mode: FallocateFlags,
 ) -> Result<(), PosixError> {
-    let result = unsafe { unix_impl::fallocate(fd.clone().into(), mode, offset, length) };
+    let result = unsafe { unix_impl::fallocate(fd.clone().into(), mode.bits(), offset, length) };
     if result == -1 {
         return Err(PosixError::last_error(format!(
             "{:?}: fallocate failed",
