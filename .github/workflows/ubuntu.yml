@@ -1,64 +1,55 @@
-name: Nim CI ubuntu
+name: CI Ubuntu
 
 on:
   workflow_dispatch:
   push:
     branches: [ main ]
   pull_request:
-    branches: [ main ]
+    branches: [ main, devel ]
 
 jobs:
-
-  build:
+  build_and_test:
+    name: "Main tests"
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        toolchain:
+          - stable
+          - nightly
+        feature:
+          - serial
+          - parallel
     
     steps:
-    - uses: actions/checkout@v2
-    - name: Setup Rust
-      uses: actions-rs/toolchain@v1
-      with:
-        toolchain: stable
-        override: true
-    - name: Install dependencies
+    - uses: actions/checkout@v4
+    - name: Install libfuse-dev
       run: |
         sudo apt-get update
         sudo apt-get install -y libfuse-dev
+    - name: Set PKG_CONFIG_PATH
+      run: echo "PKG_CONFIG_PATH=/usr/lib/x86_64-linux-gnu/pkgconfig" >> $GITHUB_ENV
+    - name: Setup Rust
+      run: rustup update ${{ matrix.toolchain }} && rustup default ${{ matrix.toolchain }}
     - name: Build
-      run: cargo build --verbose --features serial
+      run: cargo build --verbose --features ${{ matrix.feature }}
     - name: Run tests
-      run: ./tests/run_all_tests.sh
-    - name: Run tests for examples
+      run: cargo test  --verbose --features ${{ matrix.feature }}
+
+  test_examples:
+    name: "Examples crates"
+    runs-on: ubuntu-latest
+    steps:
+    - name: Run tests of crates inside examples folder
       run: |
-          set -e
-          exit_code=0
-          echo "Current directory:"
-          pwd
-          echo "Contents of current directory:"
-          ls -la
-          echo "Contents of examples directory (if it exists):"
-          ls -la examples || echo "examples directory does not exist"
-          echo "Attempting to list example directories:"
-          for dir in examples/*/; do
-            echo "Found directory: $dir"
-          done
-          echo "Checking each potential example directory:"
-          for dir in examples/*/; do
-            if [ -d "$dir" ]; then
-              echo "Checking directory: ${dir}"
-              if [ -f "${dir}Cargo.toml" ]; then
-                echo "Found Cargo.toml in ${dir}"
-                echo "Running tests in ${dir}"
-                if ! (cd "${dir}" && cargo test --verbose); then
-                  echo "Tests failed in ${dir}"
-                  exit_code=1
-                else
-                  echo "Tests passed in ${dir}"
-                fi  
-              else
-                echo "No Cargo.toml found in ${dir}"
-              fi
-            else
-              echo "Not a directory: ${dir}"
-            fi
-          done
-          exit $exit_code
+        set -e
+        exit_code=0
+        for dir in examples/*/; do
+          if [ -f "${dir}Cargo.toml" ]; then
+            echo "Running tests in ${dir}"
+            if ! (cd "${dir}" && cargo test); then
+              echo "Tests failed in ${dir}"
+              exit_code=1
+            fi  
+          fi
+        done
+        exit $exit_code
