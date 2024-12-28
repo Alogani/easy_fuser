@@ -124,3 +124,7 @@ easy_fuser = { version = "0.1.0", features = ["parallel"] }
 By leveraging `easy_fuser`, you can focus more on your filesystem's logic and less on the
 intricacies of FUSE implementation, making it easier to create robust, efficient, and
 maintainable filesystem solutions in Rust.
+
+## Important notes
+
+libfuse and by extension fuser contains a lot of flags as arguments. I tried to identify them as much of possible, but cannot guarantee it due to the lack of clear documentation on this subject.

@@ -65,6 +65,9 @@ To avoid this issue, ensure that the mountpoint is not located within the mirror
 
 ## Note
 For more specific implementations or to extend functionality, you can modify these handlers or use them as a reference for implementing your own FuseHandler.
+
+If you intend to enforce read-only at the fuse level,
+prefer the usage of option `MountOption::RO` instead of `MirrorFsReadOnly`.
 */
 
 use std::ffi::{OsStr, OsString};
