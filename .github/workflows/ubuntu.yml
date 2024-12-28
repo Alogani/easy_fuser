@@ -32,6 +32,10 @@ jobs:
     
     steps:
     - uses: actions/checkout@v4
+    - name: Install libfuse-dev
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y libfuse-dev
     - name: Set PKG_CONFIG_PATH
       run: echo "PKG_CONFIG_PATH=/usr/lib/x86_64-linux-gnu/pkgconfig" >> $GITHUB_ENV
     - name: Setup Rust
