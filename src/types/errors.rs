@@ -195,6 +195,14 @@ pub enum ErrorKind {
     Unknown(i32),
 }
 
+impl ErrorKind {
+    /// Equivalent to `PosixError::new(kind, msg)`.
+    pub fn to_error<T>(self, msg: T) -> PosixError
+    where T: ToString {
+        PosixError::new(i32::from(self), msg)
+    }
+}
+
 impl From<i32> for ErrorKind {
     fn from(code: i32) -> Self {
         match code {
