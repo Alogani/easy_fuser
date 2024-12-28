@@ -35,8 +35,8 @@ jobs:
         done
 
     - name: Upload release assets
-    uses: softprops/action-gh-release@v1
-    with:
-      files: bin/*
-    env:
-      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      uses: softprops/action-gh-release@v1
+      with:
+        files: bin/*
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
