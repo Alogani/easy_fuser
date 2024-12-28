@@ -32,12 +32,18 @@ jobs:
         set -e
         exit_code=0
         for dir in examples/*/; do
+          echo "Checking directory: ${dir}"
           if [ -f "${dir}Cargo.toml" ]; then
+            echo "Found Cargo.toml in ${dir}"
             echo "Running tests in ${dir}"
-            if ! (cd "${dir}" && cargo test); then
+            if ! (cd "${dir}" && cargo test --verbose); then
               echo "Tests failed in ${dir}"
               exit_code=1
+            else
+              echo "Tests passed in ${dir}"
             fi  
+          else
+            echo "No Cargo.toml found in ${dir}"
           fi
         done
         exit $exit_code
