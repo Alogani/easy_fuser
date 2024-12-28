@@ -20,7 +20,11 @@ pub fn seek_from_raw(whence: Option<i32>, offset: i64) -> SeekFrom {
             libc::SEEK_END => SeekFrom::End(offset),
             _ => panic!("Invalid seek code"),
         },
-        None => SeekFrom::Current(offset),
+        None => SeekFrom::Start(
+            offset
+                .try_into()
+                .expect("Invalid negative seek offset for file start"),
+        ),
     }
 }
 

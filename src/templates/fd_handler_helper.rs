@@ -61,6 +61,12 @@ let fd_handler = FdHandlerHelper::new(inner_handler);
 let read_only_handler = FdHandlerHelperReadOnly::new(inner_handler); // or DefaultFuseHandler::new{};
 // Use read_only_handler as your primary FuseHandler for read-only operations
 ```
+
+## Note
+For more specific implementations or to extend functionality, you can modify these handlers or use them as a reference for implementing your own FuseHandler.
+
+If you intend to enforce read-only at the fuse level,
+prefer the usage of option `MountOption::RO` instead of `FdHandlerHelperReadOnly`.
 */
 
 use crate::posix_fs;
