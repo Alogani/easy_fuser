@@ -31,8 +31,9 @@ jobs:
       run: |
         set -e
         exit_code=0
+        ls
         for dir in examples/*/; do
-          pwd
+          echo $dir
           echo "Checking directory: ${dir}"
           if [ -f "${dir}Cargo.toml" ]; then
             echo "Found Cargo.toml in ${dir}"
