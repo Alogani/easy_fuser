@@ -1,4 +1,3 @@
-in_memory
 random_fs
 sql_fs
 

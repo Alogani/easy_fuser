@@ -74,22 +74,6 @@ use crate::unix_fs;
 
 macro_rules! fd_handler_readonly_methods {
     () => {
-        fn read(
-            &self,
-            _req: &RequestInfo,
-            _file_id: TId,
-            file_handle: FileHandle,
-            seek: SeekFrom,
-            size: u32,
-            _flags: FUSEOpenFlags,
-            _lock_owner: Option<u64>,
-        ) -> FuseResult<Vec<u8>> {
-            match FileDescriptor::try_from(file_handle) {
-                Ok(fd) => unix_fs::read(&fd, seek, size),
-                Err(e) => Err(e.into()),
-            }
-        }
-
         fn flush(
             &self,
             _req: &RequestInfo,
@@ -99,21 +83,6 @@ macro_rules! fd_handler_readonly_methods {
         ) -> FuseResult<()> {
             match FileDescriptor::try_from(file_handle) {
                 Ok(fd) => unix_fs::flush(&fd),
-                Err(e) => Err(e.into()),
-            }
-        }
-
-        fn release(
-            &self,
-            _req: &RequestInfo,
-            _file_id: TId,
-            file_handle: FileHandle,
-            _flags: OpenFlags,
-            _lock_owner: Option<u64>,
-            _flush: bool,
-        ) -> FuseResult<()> {
-            match FileDescriptor::try_from(file_handle) {
-                Ok(fd) => unix_fs::release(fd),
                 Err(e) => Err(e.into()),
             }
         }
@@ -143,43 +112,42 @@ macro_rules! fd_handler_readonly_methods {
                 Err(e) => Err(e.into()),
             }
         }
-    };
-}
 
-macro_rules! fd_handler_readwrite_methods {
-    () => {
-        fn write(
+        fn read(
             &self,
             _req: &RequestInfo,
             _file_id: TId,
             file_handle: FileHandle,
             seek: SeekFrom,
-            data: Vec<u8>,
-            _write_flags: FUSEWriteFlags,
-            _flags: OpenFlags,
+            size: u32,
+            _flags: FUSEOpenFlags,
             _lock_owner: Option<u64>,
-        ) -> FuseResult<u32> {
+        ) -> FuseResult<Vec<u8>> {
             match FileDescriptor::try_from(file_handle) {
-                Ok(fd) => unix_fs::write(&fd, seek, &data),
+                Ok(fd) => unix_fs::read(&fd, seek, size),
                 Err(e) => Err(e.into()),
             }
         }
 
-        fn fallocate(
+        fn release(
             &self,
             _req: &RequestInfo,
             _file_id: TId,
             file_handle: FileHandle,
-            offset: i64,
-            length: i64,
-            mode: i32,
+            _flags: OpenFlags,
+            _lock_owner: Option<u64>,
+            _flush: bool,
         ) -> FuseResult<()> {
             match FileDescriptor::try_from(file_handle) {
-                Ok(fd) => unix_fs::fallocate(&fd, offset, length, mode),
+                Ok(fd) => unix_fs::release(fd),
                 Err(e) => Err(e.into()),
             }
         }
+    };
+}
 
+macro_rules! fd_handler_readwrite_methods {
+    () => {
         fn copy_file_range(
             &self,
             _req: &RequestInfo,
@@ -200,6 +168,38 @@ macro_rules! fd_handler_readwrite_methods {
                     unix_fs::copy_file_range(&fd_in, offset_in, &fd_out, offset_out, len)
                 }
                 (Err(e), _) | (_, Err(e)) => Err(e.into()),
+            }
+        }
+
+        fn fallocate(
+            &self,
+            _req: &RequestInfo,
+            _file_id: TId,
+            file_handle: FileHandle,
+            offset: i64,
+            length: i64,
+            mode: i32,
+        ) -> FuseResult<()> {
+            match FileDescriptor::try_from(file_handle) {
+                Ok(fd) => unix_fs::fallocate(&fd, offset, length, mode),
+                Err(e) => Err(e.into()),
+            }
+        }
+
+        fn write(
+            &self,
+            _req: &RequestInfo,
+            _file_id: TId,
+            file_handle: FileHandle,
+            seek: SeekFrom,
+            data: Vec<u8>,
+            _write_flags: FUSEWriteFlags,
+            _flags: OpenFlags,
+            _lock_owner: Option<u64>,
+        ) -> FuseResult<u32> {
+            match FileDescriptor::try_from(file_handle) {
+                Ok(fd) => unix_fs::write(&fd, seek, &data),
+                Err(e) => Err(e.into()),
             }
         }
     };

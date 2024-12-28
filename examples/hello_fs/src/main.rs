@@ -1,8 +1,8 @@
 //! Largely inspired from: https://github.com/cberner/fuser/blob/v0.15.1/examples/hello.rs
-//! 
+//!
 //! Give you an example of how to create a simple FUSE filesystem in Rust without using templates
 //! Use templates if you want to jumpstart your implementation!
-//! 
+//!
 //! It uses Inode as FileIdType for teaching purpose,
 //! but many user will feel more conformtable using PathBuf (see the other examples)
 
@@ -32,7 +32,7 @@ const HELLO_DIR_ATTR: (Inode, FileAttribute) = (
         blksize: 512,
         ttl: None,
         generation: None,
-    }
+    },
 );
 
 const HELLO_TXT_CONTENT: &str = "Hello World!\n";
@@ -56,7 +56,7 @@ const HELLO_TXT_ATTR: (Inode, FileAttribute) = (
         blksize: 512,
         ttl: None,
         generation: None,
-    }
+    },
 );
 
 struct HelloFS {
@@ -81,15 +81,6 @@ impl FuseHandler<Inode> for HelloFS {
         TTL
     }
 
-    fn lookup(&self, _req: &RequestInfo, parent_id: Inode, name: &OsStr) -> FuseResult<(Inode, FileAttribute)> {
-        if parent_id == ROOT_INODE && name == "hello.txt" {
-            Ok(HELLO_TXT_ATTR)
-        } else {
-            // Or PosixError::new(ErrorKind::FileNotFound, "")
-            Err(ErrorKind::FileNotFound.to_error(""))
-        }
-    }
-
     fn getattr(
         &self,
         _req: &RequestInfo,
@@ -100,6 +91,20 @@ impl FuseHandler<Inode> for HelloFS {
             ROOT_INODE => Ok(HELLO_DIR_ATTR.1),
             inode if inode == HELLO_TXT_ATTR.0 => Ok(HELLO_TXT_ATTR.1),
             _ => Err(ErrorKind::FileNotFound.to_error("")),
+        }
+    }
+
+    fn lookup(
+        &self,
+        _req: &RequestInfo,
+        parent_id: Inode,
+        name: &OsStr,
+    ) -> FuseResult<(Inode, FileAttribute)> {
+        if parent_id == ROOT_INODE && name == "hello.txt" {
+            Ok(HELLO_TXT_ATTR)
+        } else {
+            // Or PosixError::new(ErrorKind::FileNotFound, "")
+            Err(ErrorKind::FileNotFound.to_error(""))
         }
     }
 
@@ -119,7 +124,11 @@ impl FuseHandler<Inode> for HelloFS {
                 _ => return Err(ErrorKind::InvalidArgument.to_error(format!("{:?}", seek))),
             };
             let content = HELLO_TXT_CONTENT.as_bytes();
-            Ok(content[offset..].iter().take(size as usize).cloned().collect())
+            Ok(content[offset..]
+                .iter()
+                .take(size as usize)
+                .cloned()
+                .collect())
         } else {
             Err(ErrorKind::FileNotFound.to_error(""))
         }
@@ -133,9 +142,18 @@ impl FuseHandler<Inode> for HelloFS {
     ) -> FuseResult<Vec<(OsString, (Inode, FileKind))>> {
         if file_id == ROOT_INODE {
             Ok(vec![
-                (OsString::from("."), (HELLO_DIR_ATTR.0, HELLO_DIR_ATTR.1.kind)),
-                (OsString::from(".."), (HELLO_DIR_ATTR.0, HELLO_DIR_ATTR.1.kind)),
-                (OsString::from("hello.txt"), (HELLO_DIR_ATTR.0, HELLO_DIR_ATTR.1.kind)),
+                (
+                    OsString::from("."),
+                    (HELLO_DIR_ATTR.0, HELLO_DIR_ATTR.1.kind),
+                ),
+                (
+                    OsString::from(".."),
+                    (HELLO_DIR_ATTR.0, HELLO_DIR_ATTR.1.kind),
+                ),
+                (
+                    OsString::from("hello.txt"),
+                    (HELLO_DIR_ATTR.0, HELLO_DIR_ATTR.1.kind),
+                ),
             ])
         } else {
             Err(ErrorKind::FileNotFound.to_error(""))
@@ -152,9 +170,8 @@ fn main() {
         .filter_level(log::LevelFilter::Trace)
         .try_init();
 
-
     let mountpoint = std::env::args().nth(1).expect("Usage: hello <MOUNTPOINT>");
     let options = vec![MountOption::RO, MountOption::FSName("hello".to_string())];
-    
+
     easy_fuser::mount(HelloFS::new(), mountpoint.as_ref(), &options, 1).unwrap();
 }
