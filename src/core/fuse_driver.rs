@@ -180,7 +180,7 @@ where
                 FileHandle::from(fh),
                 offset,
                 length,
-                mode,
+                FallocateFlags::from_bits_retain(mode),
             ) {
                 Ok(()) => reply.ok(),
                 Err(e) => {

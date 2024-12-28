@@ -229,13 +229,13 @@ impl<TId: FileIdType> FuseHandler<TId> for DefaultFuseHandler {
         file_handle: FileHandle,
         offset: i64,
         length: i64,
-        mode: i32,
+        mode: FallocateFlags,
     ) -> FuseResult<()> {
         match self.handling {
             HandlingMethod::Error(kind) => Err(
                 PosixError::new(kind, if cfg!(debug_assertions) {
                     format!(
-                        "fallocate(file_id: {}, file_handle: {:?}, offset: {}, length: {}, mode: {})",
+                        "fallocate(file_id: {}, file_handle: {:?}, offset: {}, length: {}, mode: {:?})",
                         file_id.display(),
                         file_handle,
                         offset,
@@ -247,7 +247,7 @@ impl<TId: FileIdType> FuseHandler<TId> for DefaultFuseHandler {
                 })
             ),
             HandlingMethod::Panic => panic!(
-                "[Not Implemented] fallocate(file_id: {}, file_handle: {:?}, offset: {}, length: {}, mode: {})",
+                "[Not Implemented] fallocate(file_id: {}, file_handle: {:?}, offset: {}, length: {}, mode: {:?})",
                 file_id.display(),
                 file_handle,
                 offset,

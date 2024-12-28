@@ -177,7 +177,7 @@ pub trait FuseHandler<TId: FileIdType>: Send + Sync + 'static {
         file_handle: FileHandle,
         offset: i64,
         length: i64,
-        mode: i32,
+        mode: FallocateFlags,
     ) -> FuseResult<()> {
         self.get_inner()
             .fallocate(req, file_id, file_handle, offset, length, mode)
