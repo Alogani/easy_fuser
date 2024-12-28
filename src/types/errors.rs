@@ -1,5 +1,5 @@
-use std::any::Any;
 use crate::unix_fs::get_errno;
+use std::any::Any;
 
 use std::fmt::{Debug, Display};
 
@@ -198,7 +198,9 @@ pub enum ErrorKind {
 impl ErrorKind {
     /// Equivalent to `PosixError::new(kind, msg)`.
     pub fn to_error<T>(self, msg: T) -> PosixError
-    where T: ToString {
+    where
+        T: ToString,
+    {
         PosixError::new(i32::from(self), msg)
     }
 }

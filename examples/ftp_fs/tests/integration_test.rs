@@ -1,10 +1,10 @@
 use std::fs::{self, File};
+use std::io::{Read, Write};
 use std::path::Path;
 use std::process::{Command, Stdio};
 use std::thread::sleep;
 use std::time::Duration;
 use tempfile::TempDir;
-use std::io::{Read, Write};
 
 mod helpers;
 use helpers::ftp_server::spawn_ftp_server;
@@ -74,13 +74,19 @@ fn test_ftp_fs_mount_and_read() {
     // Read the base directory and check the number of entries
     let entries = fs::read_dir(&mount_path).unwrap();
     let entry_count = entries.count();
-    assert_eq!(entry_count, 1, "The base directory should contain exactly one entry (test_folder)");
+    assert_eq!(
+        entry_count, 1,
+        "The base directory should contain exactly one entry (test_folder)"
+    );
 
     // Read the test_folder directory and check the number of files
     let entries = fs::read_dir(mount_path.join("test_folder")).unwrap();
     let file_count = entries.count();
-    assert_eq!(file_count, 1, "The test_folder should contain exactly one file (hello.txt)");
-    
+    assert_eq!(
+        file_count, 1,
+        "The test_folder should contain exactly one file (hello.txt)"
+    );
+
     // Unmount the filesystem
     Command::new("fusermount")
         .arg("-u")

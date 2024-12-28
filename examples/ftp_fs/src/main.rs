@@ -26,10 +26,9 @@ use std::sync::Arc;
 use clap::{Parser, ValueEnum};
 use ctrlc;
 
-mod helpers;
 mod filesystem;
+mod helpers;
 use filesystem::FtpFs;
-
 
 #[derive(ValueEnum, Debug, PartialEq, Clone)]
 pub enum DirectoryDetectionMethod {
@@ -90,7 +89,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         if args.server.is_some() || args.mount_point.is_some() {
             return Err("Cannot mix positional and named arguments".into());
         }
-        (args.args[0].clone(), args.args[1].parse::<u32>()?, PathBuf::from(&args.args[2]))
+        (
+            args.args[0].clone(),
+            args.args[1].parse::<u32>()?,
+            PathBuf::from(&args.args[2]),
+        )
     } else {
         let server = args.server.ok_or("FTP server address is required")?;
         let port = args.port.ok_or("FTP server port is required")?;
@@ -123,7 +126,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         exit(1);
     })?;
 
-    let ftp_fs = FtpFs::new(&server, &args.username, port, &args.password, args.dir_detection)?;
+    let ftp_fs = FtpFs::new(
+        &server,
+        &args.username,
+        port,
+        &args.password,
+        args.dir_detection,
+    )?;
 
     println!("Mounting FTP filesystem...");
     println!("FTP server: {}", &server);

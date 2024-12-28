@@ -1,21 +1,31 @@
-use std::{path::Path, time::{Duration, SystemTime}};
-use easy_fuser::prelude::*;
 use chrono::NaiveDateTime;
+use easy_fuser::prelude::*;
 use log::error;
+use std::{
+    path::Path,
+    time::{Duration, SystemTime},
+};
 use suppaftp::FtpStream;
 
 use crate::DirectoryDetectionMethod;
-
 
 pub fn create_file_attribute(size: u64, modify_time: NaiveDateTime, is_dir: bool) -> FileAttribute {
     FileAttribute {
         size,
         blocks: (size.saturating_add(511)) / 512,
-        atime: SystemTime::UNIX_EPOCH + Duration::from_secs(modify_time.and_utc().timestamp() as u64),
-        mtime: SystemTime::UNIX_EPOCH + Duration::from_secs(modify_time.and_utc().timestamp() as u64),
-        ctime: SystemTime::UNIX_EPOCH + Duration::from_secs(modify_time.and_utc().timestamp() as u64),
-        crtime: SystemTime::UNIX_EPOCH + Duration::from_secs(modify_time.and_utc().timestamp() as u64),
-        kind: if is_dir { FileKind::Directory } else { FileKind::RegularFile },
+        atime: SystemTime::UNIX_EPOCH
+            + Duration::from_secs(modify_time.and_utc().timestamp() as u64),
+        mtime: SystemTime::UNIX_EPOCH
+            + Duration::from_secs(modify_time.and_utc().timestamp() as u64),
+        ctime: SystemTime::UNIX_EPOCH
+            + Duration::from_secs(modify_time.and_utc().timestamp() as u64),
+        crtime: SystemTime::UNIX_EPOCH
+            + Duration::from_secs(modify_time.and_utc().timestamp() as u64),
+        kind: if is_dir {
+            FileKind::Directory
+        } else {
+            FileKind::RegularFile
+        },
         perm: 0o755,
         nlink: 1,
         uid: 1000,
@@ -49,11 +59,15 @@ pub fn get_root_attribute() -> FileAttribute {
     }
 }
 
-pub fn get_file_attribute(ftp: &mut FtpStream, path: &Path, detection_method: &DirectoryDetectionMethod) -> Option<FileAttribute> {
+pub fn get_file_attribute(
+    ftp: &mut FtpStream,
+    path: &Path,
+    detection_method: &DirectoryDetectionMethod,
+) -> Option<FileAttribute> {
     let pathname = path.to_str().unwrap_or_default();
 
     let is_dir = is_directory(ftp, pathname, detection_method);
-    
+
     let size = if is_dir {
         0 // Directories typically have a size of 0
     } else {
@@ -78,7 +92,11 @@ pub fn get_file_attribute(ftp: &mut FtpStream, path: &Path, detection_method: &D
     Some(create_file_attribute(size, modify_time, is_dir))
 }
 
-fn is_directory(ftp: &mut FtpStream, pathname: &str, detection_method: &DirectoryDetectionMethod) -> bool {
+fn is_directory(
+    ftp: &mut FtpStream,
+    pathname: &str,
+    detection_method: &DirectoryDetectionMethod,
+) -> bool {
     match detection_method {
         DirectoryDetectionMethod::CwdCdup => {
             if ftp.cwd(pathname).is_ok() {
@@ -87,19 +105,23 @@ fn is_directory(ftp: &mut FtpStream, pathname: &str, detection_method: &Director
             } else {
                 false
             }
-        },
-        DirectoryDetectionMethod::List => {
-            ftp.list(Some(pathname)).is_ok()
-        },
-        DirectoryDetectionMethod::Mlsd => {
-            ftp.mlsd(Some(pathname)).is_ok()
-        },
+        }
+        DirectoryDetectionMethod::List => ftp.list(Some(pathname)).is_ok(),
+        DirectoryDetectionMethod::Mlsd => ftp.mlsd(Some(pathname)).is_ok(),
         DirectoryDetectionMethod::FileSize => {
             if ftp.size(pathname).is_err() {
                 if let Some(parent) = Path::new(pathname).parent() {
                     if let Ok(list) = ftp.list(Some(parent.to_str().unwrap_or_default())) {
                         for item in list {
-                            if item.starts_with('d') && item.ends_with(Path::new(pathname).file_name().unwrap_or_default().to_str().unwrap_or_default()) {
+                            if item.starts_with('d')
+                                && item.ends_with(
+                                    Path::new(pathname)
+                                        .file_name()
+                                        .unwrap_or_default()
+                                        .to_str()
+                                        .unwrap_or_default(),
+                                )
+                            {
                                 return true;
                             }
                         }
@@ -109,6 +131,6 @@ fn is_directory(ftp: &mut FtpStream, pathname: &str, detection_method: &Director
             } else {
                 false
             }
-        },
+        }
     }
 }
