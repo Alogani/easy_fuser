@@ -39,6 +39,6 @@ jobs:
     - name: Upload Assets to Release
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          TAG_NAME=$(git describe --tags --abbrev=0)
-          gh release upload "$TAG_NAME" bin/* --clobber
+      run: |
+        TAG_NAME=$(git describe --tags --abbrev=0)
+        gh release upload "$TAG_NAME" bin/* --clobber
