@@ -10,7 +10,6 @@ on:
 jobs:
   build_and_test:
     name: "Main tests"
-    needs: install_dependencies
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -38,7 +37,6 @@ jobs:
 
   test_examples:
     name: "Examples crates"
-    needs: install_dependencies
     runs-on: ubuntu-latest
     steps:
     - name: Run tests of crates inside examples folder
