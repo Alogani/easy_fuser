@@ -43,6 +43,7 @@ jobs:
     name: "Test Examples folder"
     needs: install_dependencies
     runs-on: ubuntu-latest
+    steps:
     - name: Run tests of crates inside examples folder
       run: |
         set -e
