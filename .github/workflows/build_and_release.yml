@@ -4,12 +4,11 @@ on:
   release:
     types: [created]
   workflow_dispatch:
-    branches:
-      - '*'
-
 
 jobs:
   build:
+    permissions: write
+    
     runs-on: ubuntu-latest
 
     steps:
@@ -23,7 +22,7 @@ jobs:
     - name: Set PKG_CONFIG_PATH
       run: echo "PKG_CONFIG_PATH=/usr/lib/x86_64-linux-gnu/pkgconfig" >> $GITHUB_ENV
 
-    - name: Run tests of crates inside examples folder
+    - name: Build crates inside examples folder
       run: |
         mkdir bin
         for dir in examples/*/; do
@@ -38,9 +37,9 @@ jobs:
           fi
         done
 
-    - name: Upload release assets
-      uses: softprops/action-gh-release@v1
-      with:
-        files: bin/*
+    - name: Upload Assets to Release
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        TAG_NAME=$(git describe --tags --abbrev=0)
+        gh release upload "$TAG_NAME" bin/* --clobber
