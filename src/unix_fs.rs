@@ -1,4 +1,4 @@
-//! # POSIX Filesystem Operations Module
+//! # POSIX Filesystem Operations Module compatible with FUSE signatures.
 //!
 //! This module provides a set of functions that wrap POSIX filesystem operations,
 //! making them more convenient to use within a Rust-based FUSE (Filesystem in Userspace) implementation.

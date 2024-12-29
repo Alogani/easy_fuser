@@ -1,3 +1,21 @@
+//! Error handling types and utilities for FUSE operations.
+//!
+//! This module provides error types and utilities for handling errors in FUSE filesystem
+//! operations. It includes definitions for POSIX errors, error kinds, and result types.
+//!
+//! # Key Types
+//!
+//! - [`PosixError`]: Represents a POSIX error with an error code and message.
+//! - [`ErrorKind`]: Represents various kinds of POSIX errors.
+//! - [`FuseResult`]: A type alias for `Result<T, PosixError>`.
+//!
+//! # Functions
+//!
+//! - [`PosixError::new`]: Creates a new PosixError with a given code and message.
+//! - [`PosixError::last_error`]: Creates a PosixError from the last system error.
+//! - [`ErrorKind::to_error`]: Converts an ErrorKind to a PosixError with a custom message.
+//!
+
 use crate::unix_fs::get_errno;
 use std::any::Any;
 

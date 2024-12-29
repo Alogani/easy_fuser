@@ -1,3 +1,11 @@
+//! File descriptor and handle management for FUSE filesystems.
+//!
+//! This module provides types and utilities for managing file descriptors and handles
+//! in a FUSE context. It includes `FileHandle` for FUSE-specific file identifiers,
+//! `FileDescriptor` for system-level file descriptors, and `FileDescriptorGuard` for
+//! RAII-based resource management. These types facilitate safe and efficient handling
+//! of file resources within FUSE filesystem implementations.
+
 use super::errors::*;
 use crate::unix_fs::release;
 use std::ops::Deref;

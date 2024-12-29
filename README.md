@@ -28,8 +28,10 @@ many of the complexities, offering a more intuitive and Rust-idiomatic approach 
 - **Error Handling**: Provides a structured error handling system, facilitating the management
   of filesystem-specific errors.
 
-- **Templates and Examples**: Includes pre-built templates and a comprehensive examples folder
-  to help you get started quickly and understand various implementation patterns.
+- **Composable Templates and Examples**: Includes pre-built, composable templates and a comprehensive 
+  examples folder to help you get started quickly, understand various implementation patterns, 
+  and easily combine different filesystem behaviors. These templates are designed to be mixed 
+  and matched, allowing for flexible and modular filesystem creation.
 
 ## File Identification Flexibility
 
@@ -84,7 +86,7 @@ fn main() -> std::io::Result<()> {
 - **FdHandlerHelper**: Provides boilerplate for operations on open files (ReadOnly and ReadWrite variants available)
 - **MirrorFs**: A passthrough filesystem that can be leveraged for creating more complex filesystems.
 
-These templates serve as starting points or building blocks for your custom filesystem implementations.
+These templates serve as composable building blocks, allowing you to mix and match functionalities to create custom, complex filesystem implementations with ease. You can use them as starting points, extend them, or combine multiple templates to achieve the desired behavior for your filesystem.
 
 ## Examples
 

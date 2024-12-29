@@ -1,3 +1,20 @@
+//! in FUSE filesystem operations. It includes definitions for file attributes,
+//! device types, filesystem statistics, and request information.
+//!
+//! # Key Types
+//!
+//! - [`DeviceType`]: Represents POSIX device types based on the `rdev` value.
+//! - [`StatFs`]: Represents file system statistics, similar to the POSIX `statvfs` structure.
+//! - [`RequestInfo`]: Encapsulates essential information about a FUSE request.
+//! - [`FileAttribute`]: Represents file attributes for FUSE operations with optional caching parameters.
+//! - [`SetAttrRequest`]: Represents a request to set file attributes in a FUSE file system.
+//!
+//! # Functions
+//!
+//! - [`seek_from_raw`]: Converts raw seek parameters to a `SeekFrom` enum.
+//!
+//! This module also re-exports `SeekFrom` from the standard library for convenience.
+
 use std::time::{Duration, SystemTime};
 
 use fuser::FileAttr as FuseFileAttr;
