@@ -1,11 +1,11 @@
-# In-Memory Filesystem Implementation
+# In-Memory Filesystem Implementation
 
 This module provides a comprehensive implementation of an in-memory filesystem
 using the `easy_fuser` crate. While it includes a wide range of filesystem
 operations, a minimal subset of these functions would be sufficient for a
 basic working filesystem.
 
-## Key features:
+## Key features:
 - Implements core FUSE operations (create, read, write, lookup, etc.)
 - Supports file and directory operations
 - Manages file attributes and permissions
