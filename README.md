@@ -77,28 +77,6 @@ fn main() -> std::io::Result<()> {
 }
 ```
 
-## Templates
-
-`easy_fuser` provides a set of templates to help you get started quickly:
-
-- **DefaultFuseHandler**: A backbone implementation that acts as a NullFs, implementing every
-  operation. It can also be used as a PanicFs for debugging purposes.
-- **FdHandlerHelper**: Provides boilerplate for operations on open files (ReadOnly and ReadWrite variants available)
-- **MirrorFs**: A passthrough filesystem that can be leveraged for creating more complex filesystems.
-
-These templates serve as composable building blocks, allowing you to mix and match functionalities to create custom, complex filesystem implementations with ease. You can use them as starting points, extend them, or combine multiple templates to achieve the desired behavior for your filesystem.
-
-## Examples
-
-The `examples` folder in the repository is currently under construction. It is expected to include
-various implementations demonstrating different aspects of filesystem creation, including:
-
-- ZipFs: A filesystem for browsing and accessing zip archives.
-- FtpFs: A filesystem that provides access to FTP servers.
-- SqlFs: A filesystem that represents SQL database contents.
-
-These examples, once completed, will serve as valuable references when building your own filesystem.
-
 ## Feature Flags
 
 This crate provides three mutually exclusive feature flags for different concurrency models:
@@ -126,6 +104,37 @@ easy_fuser = { version = "0.1.0", features = ["parallel"] }
 By leveraging `easy_fuser`, you can focus more on your filesystem's logic and less on the
 intricacies of FUSE implementation, making it easier to create robust, efficient, and
 maintainable filesystem solutions in Rust.
+
+## Templates
+
+`easy_fuser` provides a set of templates to help you get started quickly:
+
+- **DefaultFuseHandler**: A backbone implementation that acts as a NullFs, implementing every
+  operation. It can also be used as a PanicFs for debugging purposes.
+- **FdHandlerHelper**: Provides boilerplate for operations on open files (ReadOnly and ReadWrite variants available)
+- **MirrorFs**: A passthrough filesystem that can be leveraged for creating more complex filesystems.
+
+These templates serve as composable building blocks, allowing you to mix and match functionalities to create custom, complex filesystem implementations with ease. You can use them as starting points, extend them, or combine multiple templates to achieve the desired behavior for your filesystem.
+
+## Examples
+
+Please check the README inside the examples folder for additional details and references.
+
+## Common Caveats
+
+When working with these examples, be aware of the following:
+
+1. **Handling Crashes and Interruptions**: If a program crashes or is stopped abruptly (e.g., using Ctrl+C), it may leave the mountpoint in an inconsistent state. This applies to all examples except those that explicitly include a handler for such cases.
+
+2. **Proper Unmounting**: To properly unmount the filesystem and stop the program (or to resolve a bad state after a crash), use the following command:
+
+    ```
+        fusermount -u <mountpoint>
+    ```
+
+This is the preferred method for both unmounting and resolving any issues with the mountpoint.
+
+3. **Modifying the source directory while mounted**: This is not well-supported behavior and can result in unexpected outcomes.
 
 ## Important notes
 

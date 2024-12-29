@@ -27,6 +27,8 @@ We welcome contributions to improve existing examples or add new ones. If you ha
 
 ## Exploring the Examples
 
+Each example is a separate crate that can be downloaded and used independently.
+
 To get the most out of these examples:
 1. Start by examining the `filesystem.rs` file in each example (if present).
 2. Run the examples and interact with the resulting filesystems.
@@ -35,17 +37,7 @@ To get the most out of these examples:
 
 ## Common Caveats
 
-When working with these examples, be aware of the following:
-
-1. **Handling Crashes and Interruptions**: If a program crashes or is stopped abruptly (e.g., using Ctrl+C), it may leave the mountpoint in an inconsistent state. This applies to all examples except those that explicitly include a handler for such cases.
-
-2. **Proper Unmounting**: To properly unmount the filesystem and stop the program (or to resolve a bad state after a crash), use the following command:
-
-`fusermount -u <mountpoint>`
-
-This is the preferred method for both unmounting and resolving any issues with the mountpoint.
-
-3. **Testing and Debugging**: When testing or debugging these examples, always ensure you properly unmount the filesystem before making changes or restarting the program.
+Refer to the Common Caveats section in the easy_fuser README for more information.
 
 
-Remember, these examples are meant to be learning tools. Don't hesitate to dive deep into the code, experiment, and learn from them!
+_Remember, these examples are meant to be learning tools. Don't hesitate to dive deep into the code, experiment, and learn from them!_
