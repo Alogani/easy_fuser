@@ -66,15 +66,16 @@ use prelude::*;
 /// # Panics
 ///
 /// When the `serial` feature is enabled, this function will panic at compile-time if `num_threads` is greater than 1.
-pub fn mount<T, FS>(
+pub fn mount<T, FS, P>(
     filesystem: FS,
-    mountpoint: &Path,
+    mountpoint: P,
     options: &[MountOption],
     num_threads: usize,
 ) -> io::Result<()>
 where
     T: FileIdType,
     FS: FuseHandler<T>,
+    P: AsRef<Path>,
 {
     #[cfg(feature = "serial")]
     if num_threads > 1 {
@@ -110,15 +111,16 @@ where
 /// # Panics
 ///
 /// When the `serial` feature is enabled, this function will panic at compile-time if `num_threads` is greater than 1.
-pub fn spawn_mount<T, FS>(
+pub fn spawn_mount<T, FS, P>(
     filesystem: FS,
-    mountpoint: &Path,
+    mountpoint: P,
     options: &[MountOption],
     num_threads: usize,
 ) -> io::Result<BackgroundSession>
 where
     T: FileIdType,
     FS: FuseHandler<T>,
+    P: AsRef<Path>,
 {
     #[cfg(feature = "serial")]
     if num_threads > 1 {
