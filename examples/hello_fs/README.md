@@ -41,4 +41,4 @@ To explore this example:
 2. Run the example and interact with the resulting filesystem.
 3. Compare this implementation with template-based examples to understand the differences.
 
-Remember, if you're looking to quickly prototype a filesystem, the template-based examples might be more suitable starting points.
+Remember, if you're looking to quickly prototype a filesystem, the template module of easy_fuser might be more suitable starting points.
