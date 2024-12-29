@@ -27,7 +27,7 @@ We welcome contributions to improve existing examples or add new ones. If you ha
 
 ## Exploring the Examples
 
-Each example is a separate crate that can be downloaded and used independently.
+Each example is a separate crate that can be downloaded and used independently, in that case, replace `easy_fuser = { source = "../..", etc. }` by `easy_fuser = { version = X.Y.Z, etc. }`
 
 To get the most out of these examples:
 1. Start by examining the `filesystem.rs` file in each example (if present).
