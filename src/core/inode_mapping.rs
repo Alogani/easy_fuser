@@ -102,8 +102,22 @@ impl FileIdResolver for InodeResolver {
 }
 
 pub struct ComponentsResolver {
+    // Using a RwLock instead of a more efficient data structure like Dashmap will likely
+    // not make any difference in performance. The overhead is located at fuse level
     data: RwLock<InodeData>,
     next_inode: AtomicU64,
+}
+
+struct InodeData {
+    inodes: HashMap<u64, InodeValue>,
+    // Storing here instead of a HashMap for each children simplify the borrowing rules
+    all_children: HashMap<u64, HashMap<OsStrPtr, u64>>,
+}
+
+struct InodeValue {
+    nlookup: AtomicU64,
+    parent: u64,
+    name: OsString,
 }
 
 // A little hack to avoid duplication of the same OsString
@@ -147,12 +161,6 @@ impl std::hash::Hash for OsStrPtr {
     }
 }
 
-struct InodeData {
-    inodes: HashMap<u64, InodeValue>,
-    // Storing here instead of a HashMap for each children simplify the borrowing rules
-    all_children: HashMap<u64, HashMap<OsStrPtr, u64>>,
-}
-
 impl InodeData {
     fn double_borrow(
         &mut self,
@@ -162,12 +170,6 @@ impl InodeData {
     ) {
         (&mut self.inodes, &mut self.all_children)
     }
-}
-
-struct InodeValue {
-    nlookup: AtomicU64,
-    parent: u64,
-    name: OsString,
 }
 
 impl FileIdResolver for ComponentsResolver {
