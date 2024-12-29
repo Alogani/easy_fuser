@@ -61,8 +61,8 @@ pub(crate) mod macos_fs;
 #[cfg(target_os = "macos")]
 use macos_fs as unix_impl;
 
-pub use unix_impl::{copy_file_range, statfs};
 pub(crate) use unix_impl::get_errno;
+pub use unix_impl::{copy_file_range, statfs};
 
 /// Converts a `std::fs::FileType` to the corresponding `FileKind` expected by fuse_api.
 ///
@@ -952,9 +952,9 @@ pub fn fallocate(
     fd: &FileDescriptor,
     offset: i64,
     length: i64,
-    mode: i32,
+    mode: FallocateFlags,
 ) -> Result<(), PosixError> {
-    let result = unsafe { unix_impl::fallocate(fd.clone().into(), mode, offset, length) };
+    let result = unsafe { unix_impl::fallocate(fd.clone().into(), mode.bits(), offset, length) };
     if result == -1 {
         return Err(PosixError::last_error(format!(
             "{:?}: fallocate failed",

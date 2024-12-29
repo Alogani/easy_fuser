@@ -62,17 +62,6 @@ impl FuseHandler<PathBuf> for ZipFs {
         &self.inner_fs
     }
 
-    fn lookup(
-        &self,
-        _req: &RequestInfo,
-        parent_id: PathBuf,
-        name: &OsStr,
-    ) -> FuseResult<FileAttribute> {
-        let path = parent_id.join(name);
-        self.with_file::<NonSeekable, _, _>(&path, |file| create_file_attribute(file))
-            .ok_or_else(|| PosixError::new(ErrorKind::FileNotFound, "File not found"))
-    }
-
     fn getattr(
         &self,
         _req: &RequestInfo,
@@ -83,6 +72,17 @@ impl FuseHandler<PathBuf> for ZipFs {
             return Ok(get_root_attribute());
         }
         self.with_file::<NonSeekable, _, _>(&file_id, |file| create_file_attribute(file))
+            .ok_or_else(|| PosixError::new(ErrorKind::FileNotFound, "File not found"))
+    }
+
+    fn lookup(
+        &self,
+        _req: &RequestInfo,
+        parent_id: PathBuf,
+        name: &OsStr,
+    ) -> FuseResult<FileAttribute> {
+        let path = parent_id.join(name);
+        self.with_file::<NonSeekable, _, _>(&path, |file| create_file_attribute(file))
             .ok_or_else(|| PosixError::new(ErrorKind::FileNotFound, "File not found"))
     }
 
