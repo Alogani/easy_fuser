@@ -12,6 +12,7 @@ fn create_memory_fs() -> InMemoryFS {
     let memoryfs = InMemoryFS::new();
     #[cfg(feature = "readme")]
     {
+        /// An example of interacting directly with the filesystem
         let request_info = RequestInfo {id: 0, uid: 0, gid: 0, pid: 0}; // dummy RequestInfo
         let (fd, (inode, _), _) = memoryfs.create(
             &request_info, ROOT_INODE, OsStr::new("README.md"), 0o755, 0, OpenFlags::empty(),
@@ -29,5 +30,6 @@ fn main() {
 
     let memoryfs = create_memory_fs();
     
+    println!("Mounting FTP filesystem...");
     easy_fuser::mount(memoryfs, mountpoint.as_ref(), &options, 1).unwrap();
 }
