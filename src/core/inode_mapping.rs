@@ -102,165 +102,48 @@ impl FileIdResolver for InodeResolver {
 }
 
 pub struct ComponentsResolver {
-    // Using a RwLock instead of a more efficient data structure like Dashmap will likely
-    // not make any difference in performance. The overhead is located at fuse level
-    data: RwLock<InodeData>,
-    next_inode: AtomicU64,
+    mapper: RwLock<InodeMapper<AtomicU64>>,
 }
 
-struct InodeData {
-    inodes: HashMap<u64, InodeValue>,
-    // Storing here instead of a HashMap for each children simplify the borrowing rules
-    all_children: HashMap<u64, HashMap<OsStrPtr, u64>>,
-}
-
-struct InodeValue {
-    nlookup: AtomicU64,
-    parent: u64,
-    name: OsString,
-}
-
-// A little hack to avoid duplication of the same OsString
-struct OsStrPtr(*const OsStr);
-
-unsafe impl Send for OsStrPtr {}
-unsafe impl Sync for OsStrPtr {}
-
-impl OsStrPtr {
-    // Caller must ensure that os_str will be valid for the lifetime of the OsStrPtr
-    // It should not be freed until the OsStrPtr is dropped
-    // Caveats:
-    // - cloning it before storing
-    // - to_owned() / to_os_string() / etc
-    unsafe fn from(os_str: &OsStr) -> Self {
-        OsStrPtr(os_str as *const OsStr)
-    }
-
-    // This function does exactly the same as OsStrPtr::from()
-    // But uses another name to remember the caller to not use that value after dropping os_str
-    fn unsafe_borrow(os_str: &OsStr) -> Self {
-        unsafe { OsStrPtr::from(os_str) }
-    }
-
-    fn get(&self) -> &OsStr {
-        unsafe { &*self.0 }
-    }
-}
-
-impl PartialEq for OsStrPtr {
-    fn eq(&self, other: &Self) -> bool {
-        self.get() == other.get()
-    }
-}
-
-impl Eq for OsStrPtr {}
-
-impl std::hash::Hash for OsStrPtr {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        self.get().hash(state);
-    }
-}
-
-impl InodeData {
-    fn double_borrow(
-        &mut self,
-    ) -> (
-        &mut HashMap<u64, InodeValue>,
-        &mut HashMap<u64, HashMap<OsStrPtr, u64>>,
-    ) {
-        (&mut self.inodes, &mut self.all_children)
-    }
-}
 
 impl FileIdResolver for ComponentsResolver {
     type ResolvedType = Vec<OsString>;
 
     fn new() -> Self {
-        let mut inodes = HashMap::new();
-        let mut all_children = HashMap::new();
-
-        // Insert root inode
-        inodes.insert(
-            ROOT_INO,
-            InodeValue {
-                nlookup: AtomicU64::new(0), // not used for root, never forgotten
-                parent: ROOT_INO,
-                name: OsString::from(""),
-            },
-        );
-
-        // Add empty children map for root inode
-        all_children.insert(ROOT_INO, HashMap::new());
-
         ComponentsResolver {
-            data: RwLock::new(InodeData {
-                inodes,
-                all_children,
-            }),
-            next_inode: AtomicU64::new(ROOT_INO + 1),
+            mapper: RwLock::new(InodeMapper::new(AtomicU64::new(0)))
         }
     }
 
     fn resolve_id(&self, ino: u64) -> Self::ResolvedType {
-        let inodes = &self
-            .data
+        self
+            .mapper
             .read()
-            .expect("Failed to acquire read lock")
-            .inodes;
-        let mut path_components = Vec::new();
-
-        let mut current_ino = ino;
-
-        while current_ino != 1 {
-            let inode_value = unwrap!(inodes.get(&current_ino), "Inode not found: {:x?}", ino);
-            path_components.push(inode_value.name.clone());
-            current_ino = inode_value.parent;
-        }
-
-        path_components
+            .unwrap()
+            .resolve(&Inode::from(ino))
+            .expect("Failed to resolve inode")
+            .iter()
+            .map(OsString::from)
+            .collect()
     }
 
     fn lookup(&self, parent: u64, child: &OsStr, _id: (), increment: bool) -> u64 {
+        let parent = Inode::from(parent);
         {
-            // Assume optimistic existence of child by acquiring only read lock
-            let data = self.data.read().expect("Failed to acquire read lock");
-            let children = unwrap!(
-                data.all_children.get(&parent),
-                "No such parent inode {:x?}",
-                parent
-            );
-            if let Some(child_ino) = children.get(&OsStrPtr::unsafe_borrow(child)) {
-                if increment {
-                    unwrap!(
-                        data.inodes.get(child_ino),
-                        "No such child inode {:x?}",
-                        child_ino
-                    )
-                    .nlookup
-                    .fetch_add(1, Ordering::SeqCst);
+            // Optimistically assume the child exists
+            if let Some(lookup_result) = self.mapper
+                .read()
+                .unwrap()
+                .lookup(&parent, child) {
+                    lookup_result.data.fetch_add(1, Ordering::SeqCst);
+                    return lookup_result.inode.into();
                 }
-                return *child_ino;
-            }
         }
-        let mut data = self.data.write().expect("Failed to acquire write lock");
-        let new_inode = self.next_inode.fetch_add(1, Ordering::SeqCst);
-        let children = unwrap!(
-            data.all_children.get_mut(&parent),
-            "No such parent inode {:x?}",
-            parent
-        );
-        let owned_child = child.to_os_string();
-        children.insert(unsafe { OsStrPtr::from(&owned_child) }, new_inode);
-        data.inodes.insert(
-            new_inode,
-            InodeValue {
-                nlookup: AtomicU64::new(if increment { 1 } else { 0 }),
-                parent,
-                name: owned_child,
-            },
-        );
-        data.all_children.insert(new_inode, HashMap::new());
-        new_inode
+        self.mapper
+            .write()
+            .unwrap()
+            .insert_child(parent, child, ||)
+            .unwrap()
     }
 
     fn add_children(
