@@ -145,7 +145,7 @@ impl<T: Send + Sync + 'static> InodeMapper<T> {
         value_creator: F,
     ) -> Inode
     where
-        F: Fn(ValueCreatorParams<'_, T>) -> T,
+        F: Fn(ValueCreatorParams<T>) -> T,
     {
         // Wrap `child` in `OsStringWrapper` for efficient storage and comparison
         let child = OsStringWrapper(Arc::new(child));
@@ -208,7 +208,7 @@ impl<T: Send + Sync + 'static> InodeMapper<T> {
         value_creator: F,
     ) -> Result<Inode, InsertError>
     where
-        F: Fn(ValueCreatorParams<'_, T>) -> T,
+        F: Fn(ValueCreatorParams<T>) -> T,
     {
         if self.data.inodes.get(parent).is_none() {
             return Err(InsertError::ParentNotFound);
@@ -235,7 +235,7 @@ impl<T: Send + Sync + 'static> InodeMapper<T> {
         children: Vec<(OsString, F)>,
     ) -> Result<Vec<Inode>, InsertError>
     where
-        F: Fn(ValueCreatorParams<'_, T>) -> T,
+        F: Fn(ValueCreatorParams<T>) -> T,
     {
         if self.data.inodes.get(parent).is_none() {
             return Err(InsertError::ParentNotFound);
@@ -275,6 +275,10 @@ impl<T: Send + Sync + 'static> InodeMapper<T> {
     ///
     /// # Note
     /// Expects each entry's path to include the entry name as the last element.
+    /// 
+    /// # Caveats
+    /// If the closures are not defined in same scope, ther emight be a compiler error concerning lifetimes (eg: implementation of `Fn` is not general enough)
+    /// To resolve this problem, always fully qualify the argumentsof the closure (eg: `|my_data: ValueCreatorParams<MyType>| {}` and not `|my_data| {}`)
     pub fn batch_insert<F, G>(
         &mut self,
         parent: &Inode,
@@ -282,8 +286,8 @@ impl<T: Send + Sync + 'static> InodeMapper<T> {
         default_parent_creator: G
     ) -> Result<(), InsertError>
     where
-        F: Fn(ValueCreatorParams<'_, T>) -> T,
-        G: Fn(ValueCreatorParams<'_, T>) -> T
+        F: Fn(ValueCreatorParams<T>) -> T,
+        G: Fn(ValueCreatorParams<T>) -> T
     {
         if !self.data.inodes.contains_key(parent) {
             return Err(InsertError::ParentNotFound);
@@ -611,12 +615,12 @@ mod tests {
                 path.push(OsString::from(format!("dir_{}", j)));
             }
             path.push(OsString::from(format!("file_{}", i)));
-            entries.push((path, move |_| i));
+            entries.push((path, move |_: ValueCreatorParams<u64>| i));
             expected_inodes.insert(Inode::from(i + 2)); // Start from 2 to avoid conflict with root_inode
         }
     
         // Perform batch insert
-        let result = mapper.batch_insert(&ROOT_INODE, entries, move |params: ValueCreatorParams<'_, u64>| 0);
+        let result = mapper.batch_insert(&ROOT_INODE, entries, |_: ValueCreatorParams<u64>| 0);
     
         // Verify results
         assert!(result.is_ok(), "Batch insert should succeed");
