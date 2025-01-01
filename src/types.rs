@@ -17,14 +17,17 @@
 //! This module re-exports key types from its submodules for easier access, as well as
 //! some types from the `fuser` crate that are commonly used in FUSE operations.
 
-
 pub mod arguments;
 pub mod errors;
 pub mod file_descriptor;
 mod file_id_type;
 pub mod flags;
 mod inode;
+mod inode_mapper;
 
-pub use self::{arguments::*, errors::*, file_descriptor::*, file_id_type::*, flags::*, inode::*};
+pub use self::{
+    arguments::*, errors::*, file_descriptor::*, file_id_type::*, flags::*, inode::*,
+    inode_mapper::*,
+};
 
 pub use fuser::{FileType as FileKind, KernelConfig, TimeOrNow};

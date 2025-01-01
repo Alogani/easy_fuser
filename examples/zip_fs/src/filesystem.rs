@@ -1,10 +1,9 @@
 use zip::ZipArchive;
 
-use threadsafe_lru::LruCache;
-
 use easy_fuser::prelude::*;
 use easy_fuser::templates::DefaultFuseHandler;
 
+use std::collections::HashMap;
 use std::ffi::{OsStr, OsString};
 use std::fs::File;
 use std::io::{Read, Seek};
@@ -13,21 +12,40 @@ use std::sync::Mutex;
 
 use crate::helpers::*;
 
+/// Limitations of Zip:
+/// - do not support lookup using a parent
+/// - dir contains a trailing slash
 pub struct ZipFs {
     archive: Mutex<ZipArchive<File>>,
-    folder_cache: LruCache<PathBuf, ()>,
+    // HashMap<index, is_dir>
+    index_cache: Mutex<HashMap<PathBuf, bool>>,
     inner_fs: DefaultFuseHandler,
 }
 
 impl ZipFs {
-    pub fn new(zip_path: &Path, cache_cap: usize) -> std::io::Result<Self> {
+    pub fn new(zip_path: &Path) -> std::io::Result<Self> {
         let file = File::open(zip_path)?;
-        let archive = ZipArchive::new(file)?;
+        let mut archive = ZipArchive::new(file)?;
+        // To circumvet the limits of Zip, we will index all files in the archive
+        let mut index_cache = HashMap::new();
+        for i in 0..archive.len() {
+            let f = archive.by_index(i).unwrap();
+            index_cache.insert(i, f.is_dir());
+        }
+
         Ok(Self {
             archive: Mutex::new(archive),
+            index_cache: Mutex::new(index_cache),
             inner_fs: DefaultFuseHandler::new(),
-            folder_cache: LruCache::new(cache_cap, (cache_cap as f64).sqrt().ceil() as usize),
         })
+    }
+
+    fn to_index(inode: Inode) -> usize {
+        u64::from(inode) - 2
+    }
+
+    fn to_inode(index: u64) -> usize {
+        Inode::from(index + 2)
     }
 
     fn with_file<T, F, R>(&self, path: &Path, func: F) -> Option<R>
@@ -71,8 +89,10 @@ impl FuseHandler<PathBuf> for ZipFs {
         if file_id.is_filesystem_root() {
             return Ok(get_root_attribute());
         }
-        self.with_file::<NonSeekable, _, _>(&file_id, |file| create_file_attribute(file))
+        let mut archive = self.archive.lock()?;
+        /*self.with_file::<NonSeekable, _, _>(&file_id, |file| create_file_attribute(file))
             .ok_or_else(|| PosixError::new(ErrorKind::FileNotFound, "File not found"))
+            */
     }
 
     fn lookup(

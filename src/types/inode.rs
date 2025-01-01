@@ -41,7 +41,7 @@ impl Inode {
     }
 
     /// Convenience for creating a new Inode
-    pub fn next(&self) -> Self {
+    pub fn add_one(&self) -> Self {
         Inode::from(u64::from(self.clone()) + 1)
     }
 }
