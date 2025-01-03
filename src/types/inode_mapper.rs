@@ -41,10 +41,6 @@ pub struct ValueCreatorParams<'a, T> {
     pub existing_data: Option<&'a T>,
 }
 
-trait ValueCreator<'a, T> {
-    fn create(&self, params: ValueCreatorParams<'a, T>) -> T;
-}
-
 pub struct LookupResult<'a, T> {
     pub inode: &'a Inode,
     pub name: &'a Arc<OsString>,
@@ -129,14 +125,14 @@ impl<T: Send + Sync + 'static> InodeMapper<T> {
     /// A private method that inserts a child inode into the InodeMapper, even if the parent doesn't exist.
     ///
     /// This function creates a new inode or updates an existing one, associating it with the given parent and child name. It uses a value_creator function to generate or update the data associated with the inode.
-    /// 
+    ///
     /// Note: This method doesn't check if the parent exists, which can lead to inconsistencies if used incorrectly. It's primarily intended for internal use or in scenarios where the parent's existence is guaranteed.
-    /// 
+    ///
     /// # Behavior:
     /// - If the child doesn't exist, a new inode is created with a unique ID.
     /// - If the child already exists, its data is updated using the value_creator function.
     /// - The value_creator function is called with the inode, parent, child name, and existing data (if any) as arguments.
-    /// 
+    ///
     /// Caveat: This method may create orphaned inodes if used with non-existent parents. Use with caution.
     fn insert_child_unchecked<F>(
         &mut self,
@@ -160,27 +156,26 @@ impl<T: Send + Sync + 'static> InodeMapper<T> {
             .or_insert_with(|| {
                 is_new = true;
                 self.next_inode.clone()
-            }).clone();
+            })
+            .clone();
         if is_new {
             self.next_inode = inode.add_one();
-            self.data
-                .inodes
-                .insert(
-                    inode.clone(),
-                    InodeValue {
-                        parent: parent.clone(),
-                        name: child.clone(),
-                        data: value_creator(ValueCreatorParams{
-                            parent_inode: &parent,
-                            new_inode: &inode,
-                            child_name: &child.as_ref(),
-                            existing_data: None
-                        }),
-                    },
-                );
+            self.data.inodes.insert(
+                inode.clone(),
+                InodeValue {
+                    parent: parent.clone(),
+                    name: child.clone(),
+                    data: value_creator(ValueCreatorParams {
+                        parent_inode: &parent,
+                        new_inode: &inode,
+                        child_name: &child.as_ref(),
+                        existing_data: None,
+                    }),
+                },
+            );
         } else {
             let inode_value = &mut self.data.inodes.get_mut(&inode).unwrap();
-            inode_value.data = value_creator(ValueCreatorParams{
+            inode_value.data = value_creator(ValueCreatorParams {
                 parent_inode: &parent,
                 new_inode: &inode,
                 child_name: &child.as_ref(),
@@ -275,7 +270,7 @@ impl<T: Send + Sync + 'static> InodeMapper<T> {
     ///
     /// # Note
     /// Expects each entry's path to include the entry name as the last element.
-    /// 
+    ///
     /// # Caveats
     /// If the closures are not defined in same scope, ther emight be a compiler error concerning lifetimes (eg: implementation of `Fn` is not general enough)
     /// To resolve this problem, always fully qualify the argumentsof the closure (eg: `|my_data: ValueCreatorParams<MyType>| {}` and not `|my_data| {}`)
@@ -283,29 +278,30 @@ impl<T: Send + Sync + 'static> InodeMapper<T> {
         &mut self,
         parent: &Inode,
         entries: Vec<(Vec<OsString>, F)>,
-        default_parent_creator: G
+        default_parent_creator: G,
     ) -> Result<(), InsertError>
     where
         F: Fn(ValueCreatorParams<T>) -> T,
-        G: Fn(ValueCreatorParams<T>) -> T
+        G: Fn(ValueCreatorParams<T>) -> T,
     {
         if !self.data.inodes.contains_key(parent) {
             return Err(InsertError::ParentNotFound);
         }
-    
+
         // Sort entries by path length to ensure parents are created first
         let mut sorted_entries = entries;
         sorted_entries.sort_by_key(|f| f.0.len());
-    
+
         let mut path_cache: HashMap<Vec<OsString>, Inode> = HashMap::new();
         path_cache.insert(vec![], parent.clone());
-    
+
         for (mut path, value_creator) in sorted_entries {
             let name = path.pop().expect("Name should be provided");
-            let parent_inode = self.ensure_path_exists(&mut path_cache, &path, &default_parent_creator);
+            let parent_inode =
+                self.ensure_path_exists(&mut path_cache, &path, &default_parent_creator);
             self.insert_child_unchecked(&parent_inode, name, value_creator);
         }
-    
+
         Ok(())
     }
 
@@ -313,7 +309,7 @@ impl<T: Send + Sync + 'static> InodeMapper<T> {
         &mut self,
         path_cache: &mut HashMap<Vec<OsString>, Inode>,
         path: &[OsString],
-        default_parent_creator: &impl Fn(ValueCreatorParams<T>) -> T
+        default_parent_creator: &impl Fn(ValueCreatorParams<T>) -> T,
     ) -> Inode {
         let mut current_inode = path_cache[&vec![]].clone();
         for (i, component) in path.iter().enumerate() {
@@ -325,15 +321,23 @@ impl<T: Send + Sync + 'static> InodeMapper<T> {
                     if let Some(child_inode) = children.get(component.as_os_str()) {
                         child_inode.clone()
                     } else {
-                        self.insert_child_unchecked(&current_inode, component.clone(), |mut value_creator_params| {
-                            value_creator_params.existing_data = None;
-                            default_parent_creator(value_creator_params)}
+                        self.insert_child_unchecked(
+                            &current_inode,
+                            component.clone(),
+                            |mut value_creator_params| {
+                                value_creator_params.existing_data = None;
+                                default_parent_creator(value_creator_params)
+                            },
                         )
                     }
                 } else {
-                    self.insert_child_unchecked(&current_inode, component.clone(), |mut value_creator_params| {
-                        value_creator_params.existing_data = None;
-                        default_parent_creator(value_creator_params)}
+                    self.insert_child_unchecked(
+                        &current_inode,
+                        component.clone(),
+                        |mut value_creator_params| {
+                            value_creator_params.existing_data = None;
+                            default_parent_creator(value_creator_params)
+                        },
                     )
                 };
                 path_cache.insert(current_path.to_vec(), new_inode.clone());
@@ -377,23 +381,22 @@ impl<T: Send + Sync + 'static> InodeMapper<T> {
     }
 
     pub fn get(&self, inode: &Inode) -> Option<InodeInfo<T>> {
-        self.data.inodes.get(inode).map(|inode_value| {
-            InodeInfo {
-                parent_inode: &inode_value.parent,
-                name: inode_value.name.as_ref(),
-                data: &inode_value.data,
-            }
+        self.data.inodes.get(inode).map(|inode_value| InodeInfo {
+            parent_inode: &inode_value.parent,
+            name: inode_value.name.as_ref(),
+            data: &inode_value.data,
         })
     }
 
     pub fn get_mut(&mut self, inode: &Inode) -> Option<InodeInfoMut<T>> {
-        self.data.inodes.get_mut(inode).map(|inode_value| {
-            InodeInfoMut {
+        self.data
+            .inodes
+            .get_mut(inode)
+            .map(|inode_value| InodeInfoMut {
                 parent_inode: &inode_value.parent,
                 name: inode_value.name.as_mut(),
                 data: &mut inode_value.data,
-            }
-        })
+            })
     }
 
     // Retrieves all children of a given parent inode.
@@ -402,10 +405,12 @@ impl<T: Send + Sync + 'static> InodeMapper<T> {
     /// - Does not check if the parent inode exists.
     /// - Returns an empty vector if the parent has no children or doesn't exist.
     pub fn get_children(&self, parent: &Inode) -> Vec<(&Arc<OsString>, &Inode)> {
-        self.data.children
+        self.data
+            .children
             .get(parent)
             .map(|children| {
-                children.iter()
+                children
+                    .iter()
                     .map(|(name, inode)| (name.as_ref(), inode))
                     .collect()
             })
@@ -550,7 +555,7 @@ mod tests {
         let mut mapper = InodeMapper::new(0);
         let root = mapper.get_root_inode();
         let child_name = OsString::from("child");
-    
+
         // Insert the first child
         let first_child_inode = Inode::from(2);
         assert_eq!(
@@ -560,7 +565,7 @@ mod tests {
             }),
             Ok(first_child_inode.clone())
         );
-    
+
         // Insert a child with the same name
         assert_eq!(
             mapper.insert_child(&root, child_name.clone(), |value_creator_params| {
@@ -569,7 +574,7 @@ mod tests {
             }),
             Ok(first_child_inode.clone())
         );
-    
+
         // Verify that the child was indeed replaced
         let lookup_result = mapper.lookup(&root, child_name.as_os_str());
         assert!(lookup_result.is_some());
@@ -584,13 +589,13 @@ mod tests {
             (OsString::from("child2"), Box::new(|_| 20)),
             (OsString::from("child3"), Box::new(|_| 30)),
         ];
-    
+
         let result = mapper.insert_children(&ROOT_INODE, children);
-    
+
         assert!(result.is_ok());
         let inserted_inodes = result.unwrap();
         assert_eq!(inserted_inodes.len(), 3);
-    
+
         for (i, inode) in inserted_inodes.iter().enumerate() {
             let child_name = OsString::from(format!("child{}", i + 1));
             let child_value = mapper.lookup(&ROOT_INODE, &child_name).unwrap();
@@ -605,7 +610,7 @@ mod tests {
         let mut mapper = InodeMapper::new(0);
         let mut entries = Vec::new();
         let mut expected_inodes = HashSet::new();
-    
+
         const FILE_COUNT: usize = 50;
         // Create a large number of entries with varying depths
         for i in 0..FILE_COUNT as u64 {
@@ -618,19 +623,19 @@ mod tests {
             entries.push((path, move |_: ValueCreatorParams<u64>| i));
             expected_inodes.insert(Inode::from(i + 2)); // Start from 2 to avoid conflict with root_inode
         }
-    
+
         // Perform batch insert
         let result = mapper.batch_insert(&ROOT_INODE, entries, |_: ValueCreatorParams<u64>| 0);
-    
+
         // Verify results
         assert!(result.is_ok(), "Batch insert should succeed");
-    
+
         // Check if all inserted inodes exist
         for i in 2..=(FILE_COUNT as u64 + 1) {
             let inode = Inode::from(i);
             assert!(mapper.get(&inode).is_some(), "{:?} should exist", inode);
         }
-    
+
         // Verify the structure for a few sample paths
         let sample_paths = vec![
             vec!["file_0"],
@@ -639,7 +644,7 @@ mod tests {
             vec!["dir_0", "dir_1", "dir_2", "file_3"],
             vec!["dir_0", "dir_1", "dir_2", "dir_3", "file_4"],
         ];
-    
+
         for (i, path) in sample_paths.iter().enumerate() {
             let mut current_inode = ROOT_INODE.clone();
             for (j, component) in path.iter().enumerate() {
@@ -653,8 +658,7 @@ mod tests {
                 let lookup_result_unwraped = lookup_result.unwrap();
                 if j == path.len() - 1 {
                     assert_eq!(
-                        *lookup_result_unwraped.data,
-                        i as u64,
+                        *lookup_result_unwraped.data, i as u64,
                         "Incorrect data for file {}",
                         i
                     );
@@ -667,29 +671,33 @@ mod tests {
     #[test]
     fn test_resolve_inode_to_full_path() {
         let mut mapper = InodeMapper::new(());
-    
-        let dir_inode = mapper.insert_child(&mapper.get_root_inode(), OsString::from("dir"), |_| ()).unwrap();
-        let file_inode =mapper.insert_child(&dir_inode, OsString::from("file.txt"), |_| ()).unwrap();
-    
+
+        let dir_inode = mapper
+            .insert_child(&mapper.get_root_inode(), OsString::from("dir"), |_| ())
+            .unwrap();
+        let file_inode = mapper
+            .insert_child(&dir_inode, OsString::from("file.txt"), |_| ())
+            .unwrap();
+
         // Resolve the file inode
         let path = mapper.resolve(&file_inode).unwrap();
-    
+
         // Check the resolved path (it should be in reverse order)
         assert_eq!(path.len(), 2);
         assert_eq!(path[0], "file.txt");
         assert_eq!(path[1], "dir");
-    
+
         // Resolve the root inode (should be empty)
         let root_path = mapper.resolve(&ROOT_INODE).unwrap();
         assert!(root_path.is_empty());
-    
+
         // Try to resolve a non-existent inode
         assert!(mapper.resolve(&Inode::from(999)).is_none());
     }
 
     #[test]
     fn test_resolve_invalid_inode() {
-        let mapper = InodeMapper::new( 0);
+        let mapper = InodeMapper::new(0);
         let invalid_inode = Inode::from(999);
 
         // Attempt to resolve an invalid inode
@@ -706,12 +714,20 @@ mod tests {
     fn test_rename_child_inode() {
         let mut mapper = InodeMapper::new(());
         let root = mapper.get_root_inode();
-    
+
         // Insert initial structure
-        let parent1 = mapper.insert_child(&root, OsString::from("parent1"), |_| ()).unwrap();
-        let parent2 = mapper.insert_child(&root, OsString::from("parent2"), |_| ()).unwrap();
-        let child = mapper.insert_child(&parent1, OsString::from("old_name"), |_| ()).unwrap();
-        mapper.insert_child(&parent2, OsString::from("dummy"), |_| ()).unwrap();
+        let parent1 = mapper
+            .insert_child(&root, OsString::from("parent1"), |_| ())
+            .unwrap();
+        let parent2 = mapper
+            .insert_child(&root, OsString::from("parent2"), |_| ())
+            .unwrap();
+        let child = mapper
+            .insert_child(&parent1, OsString::from("old_name"), |_| ())
+            .unwrap();
+        mapper
+            .insert_child(&parent2, OsString::from("dummy"), |_| ())
+            .unwrap();
 
         // Perform rename
         let result = mapper.rename(
@@ -720,19 +736,19 @@ mod tests {
             &parent2,
             OsString::from("new_name"),
         );
-    
+
         // Assert successful rename
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), None);
-    
+
         // Verify new location
         let renamed_child = mapper.lookup(&parent2, OsStr::new("new_name"));
         assert!(renamed_child.is_some());
         assert_eq!(renamed_child.unwrap().inode, &child);
-    
+
         // Verify old location is empty
         assert!(mapper.lookup(&parent1, OsStr::new("old_name")).is_none());
-    
+
         // Verify inode data is updated
         let inode_value = mapper.get(&child).unwrap();
         assert_eq!(inode_value.parent_inode, &parent2);
@@ -742,12 +758,16 @@ mod tests {
     #[test]
     fn test_rename_non_existent_child() {
         let mut mapper = InodeMapper::new(0);
-    
+
         // Insert parent inodes
         let root = mapper.get_root_inode();
-        let parent = mapper.insert_child(&root, OsString::from("parent"), |_| 1).unwrap();
-        let newparent = mapper.insert_child(&root, OsString::from("newparent"), |_| 2).unwrap();
-    
+        let parent = mapper
+            .insert_child(&root, OsString::from("parent"), |_| 1)
+            .unwrap();
+        let newparent = mapper
+            .insert_child(&root, OsString::from("newparent"), |_| 2)
+            .unwrap();
+
         // Attempt to rename a non-existent child
         let result = mapper.rename(
             &parent,
@@ -755,7 +775,7 @@ mod tests {
             &newparent,
             OsString::from("new_name"),
         );
-    
+
         assert!(matches!(result, Err(RenameError::NotFound)));
     }
 
@@ -767,40 +787,50 @@ mod tests {
         let grandchild1 = Inode::from(4);
         let grandchild2 = Inode::from(5);
         let great_grandchild = Inode::from(6);
-    
+
         // Create a deeper nested structure
-        mapper.insert_child(&ROOT_INODE, OsString::from("child1"), |_| ()).unwrap();
-        mapper.insert_child(&ROOT_INODE, OsString::from("child2"), |_| ()).unwrap();
-        mapper.insert_child(&child1, OsString::from("grandchild1"), |_| ()).unwrap();
-        mapper.insert_child(&child1, OsString::from("grandchild2"), |_| ()).unwrap();
-        mapper.insert_child(&grandchild1, OsString::from("great_grandchild"), |_| ()).unwrap();
-    
+        mapper
+            .insert_child(&ROOT_INODE, OsString::from("child1"), |_| ())
+            .unwrap();
+        mapper
+            .insert_child(&ROOT_INODE, OsString::from("child2"), |_| ())
+            .unwrap();
+        mapper
+            .insert_child(&child1, OsString::from("grandchild1"), |_| ())
+            .unwrap();
+        mapper
+            .insert_child(&child1, OsString::from("grandchild2"), |_| ())
+            .unwrap();
+        mapper
+            .insert_child(&grandchild1, OsString::from("great_grandchild"), |_| ())
+            .unwrap();
+
         // Remove child1, which should cascade to all its descendants
         mapper.remove(&child1);
-    
+
         // Check that child1 and all its descendants are removed
         assert!(mapper.get(&child1).is_none());
         assert!(mapper.get(&grandchild1).is_none());
         assert!(mapper.get(&grandchild2).is_none());
         assert!(mapper.get(&great_grandchild).is_none());
-    
+
         // Check that child2 still exists
         assert!(mapper.get(&child2).is_some());
-    
+
         // Check that root still has only child2
         assert_eq!(mapper.get_children(&ROOT_INODE).len(), 1);
         assert!(mapper.lookup(&ROOT_INODE, OsStr::new("child2")).is_some());
-    
+
         // Remove child2
         mapper.remove(&child2);
-    
+
         // Check that child2 is removed
         assert!(mapper.get(&child2).is_none());
-    
+
         // Check that root still exists but has no children
         assert!(mapper.get(&ROOT_INODE).is_some());
         assert!(mapper.get_children(&ROOT_INODE).is_empty());
-    
+
         // Verify that only ROOT_INODE remains in the inodes map
         assert_eq!(mapper.get_children(&ROOT_INODE).len(), 0);
         assert!(mapper.get(&ROOT_INODE).is_some());

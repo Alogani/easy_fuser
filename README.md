@@ -128,7 +128,7 @@ When working with these examples, be aware of the following:
 
 2. **Proper Unmounting**: To properly unmount the filesystem and stop the program (or to resolve a bad state after a crash), use the following command:
 
-    ```
+    ```bash
         fusermount -u <mountpoint>
     ```
 
