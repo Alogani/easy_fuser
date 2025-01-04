@@ -207,11 +207,11 @@ macro_rules! fd_handler_readwrite_methods {
 
 /// Specific documentation is located in parent module documentation.
 pub struct FdHandlerHelper<TId: FileIdType> {
-    inner: Box<dyn FuseHandler<TId>>,
+    inner: Box<dyn FuseHandler<TId> + Send>,
 }
 
 impl<TId: FileIdType> FdHandlerHelper<TId> {
-    pub fn new<THandler: FuseHandler<TId>>(inner: THandler) -> Self {
+    pub fn new<THandler: FuseHandler<TId> + Send>(inner: THandler) -> Self {
         Self {
             inner: Box::new(inner),
         }
@@ -229,11 +229,11 @@ impl<TId: FileIdType> FuseHandler<TId> for FdHandlerHelper<TId> {
 
 /// Specific documentation is located in parent module documentation.
 pub struct FdHandlerHelperReadOnly<TId: FileIdType> {
-    inner: Box<dyn FuseHandler<TId>>,
+    inner: Box<dyn FuseHandler<TId> + Send>,
 }
 
 impl<TId: FileIdType> FdHandlerHelperReadOnly<TId> {
-    pub fn new<THandler: FuseHandler<TId>>(inner: THandler) -> Self {
+    pub fn new<THandler: FuseHandler<TId> + Send>(inner: THandler) -> Self {
         Self {
             inner: Box::new(inner),
         }

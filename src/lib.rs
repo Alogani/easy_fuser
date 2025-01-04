@@ -119,7 +119,7 @@ pub fn spawn_mount<T, FS, P>(
 ) -> io::Result<BackgroundSession>
 where
     T: FileIdType,
-    FS: FuseHandler<T>,
+    FS: FuseHandler<T> + Send,
     P: AsRef<Path>,
 {
     #[cfg(feature = "serial")]

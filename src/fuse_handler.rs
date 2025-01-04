@@ -68,13 +68,13 @@
 /// Many methods in this trait have default implementations that delegate to the inner handler returned by `get_inner()`.
 /// This allows for easy extension and customization of existing filesystem implementations by chaining/overriding their behaviors.
 ///
-/// # Thread Safety
+/// # Thread Safety & Lifetime
 ///
-/// This trait requires implementors to be `Send` and `Sync`, which is required for use with the FUSE library.
+/// This trait does not require Send + Sync when serial feature is set. However, it does need at least Send to use spawn_mount.
 ///
-/// # Lifetime
+/// When using Parallel or Async flag, the Send + Sync traits are required.
 ///
-/// The trait is bound by the `'static` lifetime, which is required for use with the FUSE library.
+/// In any case, the trait is bound by the `'static` lifetime.
 ///
 //// # Additional Resources:
 /// For more detailed information, refer to the fuser project documentation, which serves as the foundation for this crate: https://docs.rs/fuser
@@ -86,7 +86,19 @@ use std::time::Duration;
 
 use crate::types::*;
 
-pub trait FuseHandler<TId: FileIdType>: Send + Sync + 'static {
+mod private {
+    #[cfg(not(feature = "serial"))]
+    pub trait OptionalSendSync: Sync + Send {}
+    #[cfg(not(feature = "serial"))]
+    impl<T: Sync + Send> OptionalSendSync for T {}
+    #[cfg(feature = "serial")]
+    pub trait OptionalSendSync {}
+    #[cfg(feature = "serial")]
+    impl<T> OptionalSendSync for T {}
+}
+use private::OptionalSendSync;
+
+pub trait FuseHandler<TId: FileIdType>: OptionalSendSync + 'static {
     /// Delegate unprovided methods to another FuseHandler, enabling composition
     fn get_inner(&self) -> &dyn FuseHandler<TId>;
 
