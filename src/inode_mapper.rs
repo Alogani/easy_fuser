@@ -520,7 +520,7 @@ impl<T: Send + Sync + 'static> InodeMapper<T> {
     /// - If the parent's children map becomes empty after removal, the parent entry
     ///   is also removed from the `children` map to conserve memory.
     pub fn remove(&mut self, inode: &Inode) -> Option<T> {
-        #![cfg(debug_assertions)]
+        #[cfg(debug_assertions)]
         if *inode == ROOT_INODE {
             panic!("Cannot remove ROOT");
         }
