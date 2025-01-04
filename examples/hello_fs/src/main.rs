@@ -1,10 +1,4 @@
-//! Largely inspired from: https://github.com/cberner/fuser/blob/v0.15.1/examples/hello.rs
-//! 
-//! Give you an example of how to create a simple FUSE filesystem in Rust without using templates
-//! Use templates if you want to jumpstart your implementation!
-//! 
-//! It uses Inode as FileIdType for teaching purpose,
-//! but many user will feel more conformtable using PathBuf (see the other examples)
+#![doc = include_str!("../README.md")]
 
 use easy_fuser::prelude::*;
 use easy_fuser::templates::DefaultFuseHandler;
@@ -172,6 +166,7 @@ fn main() {
 
     let mountpoint = std::env::args().nth(1).expect("Usage: hello <MOUNTPOINT>");
     let options = vec![MountOption::RO, MountOption::FSName("hello".to_string())];
-
+    
+    println!("Mounting FTP filesystem...");
     easy_fuser::mount(HelloFS::new(), mountpoint.as_ref(), &options, 1).unwrap();
 }

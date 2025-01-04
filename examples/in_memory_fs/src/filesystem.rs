@@ -5,14 +5,16 @@ use std::ffi::{OsStr, OsString};
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+/// Structure principale du système de fichiers en mémoire
 pub struct InMemoryFS {
     inner: DefaultFuseHandler,
-    fs: Arc<Mutex<DataBank>>,
+    fs: Arc<Mutex<DataBank>>, // Données partagées et protégées par un mutex
 }
 
+/// Représentation interne du système de fichiers
 struct DataBank {
-    inodes: HashMap<Inode, FSNode>,
-    next_inode: Inode,
+    inodes: HashMap<Inode, FSNode>, // Stockage des nœuds du système de fichiers
+    next_inode: Inode,              // Prochain inode disponible
 }
 
 struct FSNode {

@@ -1,0 +1,8 @@
+[package]
+name = "random_fs"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+easy_fuser = { path = "../..", features = ["parallel"] }
+rand = "0.8.5"

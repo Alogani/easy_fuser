@@ -1,4 +1,10 @@
+//! Inode number in a FUSE (Filesystem in Userspace) filesystem.
+
 use crate::core::ROOT_INO;
+
+/// Represents the mountpoint folder in a FuseFilesystem
+/// Its value is 1 and should not be modified.
+pub const ROOT_INODE: Inode = Inode::from(ROOT_INO);
 
 /// Represents an inode number in a FUSE (Filesystem in Userspace) filesystem.
 ///
@@ -25,9 +31,6 @@ use crate::core::ROOT_INO;
 /// For users who prefer not to manage inodes directly, this library also supports
 /// using `PathBuf` as `FileIdType`. This alternative approach allows for file
 /// identification based on paths rather than inode numbers.
-
-pub const ROOT_INODE: Inode = Inode::from(ROOT_INO);
-
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Inode(u64);
 
@@ -38,7 +41,7 @@ impl Inode {
     }
 
     /// Convenience for creating a new Inode
-    pub fn next(&self) -> Self {
+    pub fn add_one(&self) -> Self {
         Inode::from(u64::from(self.clone()) + 1)
     }
 }
