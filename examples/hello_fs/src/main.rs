@@ -3,6 +3,7 @@
 use easy_fuser::prelude::*;
 use easy_fuser::templates::DefaultFuseHandler;
 use std::ffi::{OsStr, OsString};
+use std::path::Path;
 use std::time::{Duration, UNIX_EPOCH};
 
 const TTL: Duration = Duration::from_secs(1); // 1 second
@@ -166,7 +167,7 @@ fn main() {
 
     let mountpoint = std::env::args().nth(1).expect("Usage: hello <MOUNTPOINT>");
     let options = vec![MountOption::RO, MountOption::FSName("hello".to_string())];
-    
+
     println!("Mounting FTP filesystem...");
-    easy_fuser::mount(HelloFS::new(), mountpoint.as_ref(), &options, 1).unwrap();
+    easy_fuser::mount(HelloFS::new(), Path::new(&mountpoint), &options, 1).unwrap();
 }

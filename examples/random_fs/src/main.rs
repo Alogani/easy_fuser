@@ -1,9 +1,12 @@
+#![doc = include_str!("../README.md")]
+
 use easy_fuser::prelude::*;
 use easy_fuser::templates::DefaultFuseHandler;
 use rand::rngs::ThreadRng;
-use std::ffi::{OsStr, OsString};
-use std::time::{SystemTime, UNIX_EPOCH};
 use rand::Rng;
+use std::ffi::{OsStr, OsString};
+use std::path::Path;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 pub struct RandomFS {
     inner: DefaultFuseHandler,
@@ -28,7 +31,7 @@ const ROOT_ATTR: (Inode, FileAttribute) = (
         blksize: 512,
         ttl: None,
         generation: None,
-    }
+    },
 );
 
 impl RandomFS {
@@ -66,14 +69,31 @@ impl FuseHandler<Inode> for RandomFS {
         Ok(())
     }
 
-    fn create(&self, _req: &RequestInfo, _parent: Inode, _name: &OsStr, _mode: u32, _umask: u32, _flags: OpenFlags) -> Result<(FileHandle, (Inode, FileAttribute), FUSEOpenResponseFlags), PosixError> {
+    fn create(
+        &self,
+        _req: &RequestInfo,
+        _parent: Inode,
+        _name: &OsStr,
+        _mode: u32,
+        _umask: u32,
+        _flags: OpenFlags,
+    ) -> Result<(FileHandle, (Inode, FileAttribute), FUSEOpenResponseFlags), PosixError> {
         let mut rng = rand::thread_rng();
         let ino = Self::random_inode(&mut rng);
         let attr = self.getattr(_req, ino.clone(), None)?;
-        Ok((FileHandle::from(0), (ino, attr), FUSEOpenResponseFlags::empty()))
+        Ok((
+            FileHandle::from(0),
+            (ino, attr),
+            FUSEOpenResponseFlags::empty(),
+        ))
     }
 
-    fn getattr(&self, _req: &RequestInfo, ino: Inode, _fh: Option<FileHandle>) -> FuseResult<FileAttribute> {
+    fn getattr(
+        &self,
+        _req: &RequestInfo,
+        ino: Inode,
+        _fh: Option<FileHandle>,
+    ) -> FuseResult<FileAttribute> {
         if ino == ROOT_INODE {
             return Ok(ROOT_ATTR.1);
         }
@@ -87,7 +107,15 @@ impl FuseHandler<Inode> for RandomFS {
             mtime: now,
             ctime: now,
             crtime: now,
-            kind: if ino == ROOT_INODE { FileKind::Directory } else { if rng.gen_bool(0.7) { FileKind::RegularFile } else { FileKind::Directory } },
+            kind: if ino == ROOT_INODE {
+                FileKind::Directory
+            } else {
+                if rng.gen_bool(0.7) {
+                    FileKind::RegularFile
+                } else {
+                    FileKind::Directory
+                }
+            },
             perm: 0o755,
             nlink: rng.gen_range(1..5),
             uid: 1000,
@@ -102,21 +130,42 @@ impl FuseHandler<Inode> for RandomFS {
         Ok(attr)
     }
 
-    fn lookup(&self, _req: &RequestInfo, _parent: Inode, _name: &OsStr) -> FuseResult<(Inode, FileAttribute)> {
+    fn lookup(
+        &self,
+        _req: &RequestInfo,
+        _parent: Inode,
+        _name: &OsStr,
+    ) -> FuseResult<(Inode, FileAttribute)> {
         let mut rng = rand::thread_rng();
         let ino = Self::random_inode(&mut rng);
         let attr = self.getattr(_req, ino.clone(), None)?;
         Ok((ino, attr))
     }
 
-    fn mkdir(&self, _req: &RequestInfo, _parent: Inode, _name: &OsStr, _mode: u32, _umask: u32) -> FuseResult<(Inode, FileAttribute)> {
+    fn mkdir(
+        &self,
+        _req: &RequestInfo,
+        _parent: Inode,
+        _name: &OsStr,
+        _mode: u32,
+        _umask: u32,
+    ) -> FuseResult<(Inode, FileAttribute)> {
         let mut rng = rand::thread_rng();
         let ino = Self::random_inode(&mut rng);
         let attr = self.getattr(_req, ino.clone(), None)?;
         Ok((ino, attr))
     }
 
-    fn read(&self, _req: &RequestInfo, _ino: Inode, _fh: FileHandle, offset: SeekFrom, size: u32, _flags: FUSEOpenFlags, _lock_owner: Option<u64>) -> FuseResult<Vec<u8>> {
+    fn read(
+        &self,
+        _req: &RequestInfo,
+        _ino: Inode,
+        _fh: FileHandle,
+        offset: SeekFrom,
+        size: u32,
+        _flags: FUSEOpenFlags,
+        _lock_owner: Option<u64>,
+    ) -> FuseResult<Vec<u8>> {
         let mut rng = rand::thread_rng();
         let lines = rng.gen_range(0..81);
         let data = Self::random_data(&mut rng, lines);
@@ -129,18 +178,30 @@ impl FuseHandler<Inode> for RandomFS {
         Ok(data[offset..].iter().take(size as usize).cloned().collect())
     }
 
-    fn readdir(&self, _req: &RequestInfo, _ino: Inode, _fh: FileHandle) -> FuseResult<Vec<(OsString, (Inode, FileKind))>> {
+    fn readdir(
+        &self,
+        _req: &RequestInfo,
+        ino: Inode,
+        _fh: FileHandle,
+    ) -> FuseResult<Vec<(OsString, (Inode, FileKind))>> {
         let mut rng = rand::thread_rng();
         let count = rng.gen_range(0..13);
         let mut entries = vec![
-            (OsString::from("."), (_ino, FileKind::Directory)),
-            (OsString::from(".."), (Self::random_inode(&mut rng), FileKind::Directory)),
+            (OsString::from("."), (ino, FileKind::Directory)),
+            (
+                OsString::from(".."),
+                (Self::random_inode(&mut rng), FileKind::Directory),
+            ),
         ];
 
         for _ in 0..count {
             let lines = rng.gen_range(0..10);
             let name = OsString::from(Self::random_string(&mut rng, lines));
-            let kind = if rng.gen_bool(0.7) { FileKind::RegularFile } else { FileKind::Directory };
+            let kind = if rng.gen_bool(0.7) {
+                FileKind::RegularFile
+            } else {
+                FileKind::Directory
+            };
             entries.push((name, (Self::random_inode(&mut rng), kind)));
         }
 
@@ -152,26 +213,44 @@ impl FuseHandler<Inode> for RandomFS {
     }
 
     fn setattr(
-            &self,
-            req: &RequestInfo,
-            file_id: Inode,
-            _attrs: SetAttrRequest,
-        ) -> FuseResult<FileAttribute> {
+        &self,
+        req: &RequestInfo,
+        file_id: Inode,
+        _attrs: SetAttrRequest,
+    ) -> FuseResult<FileAttribute> {
         self.getattr(req, file_id, None)
     }
 
-    fn write(&self, _req: &RequestInfo, _ino: Inode, _fh: FileHandle, _offset: SeekFrom, data: Vec<u8>, _write_flags: FUSEWriteFlags, _flags: OpenFlags, _lock_owner: Option<u64>) -> FuseResult<u32> {
+    fn write(
+        &self,
+        _req: &RequestInfo,
+        _ino: Inode,
+        _fh: FileHandle,
+        _offset: SeekFrom,
+        data: Vec<u8>,
+        _write_flags: FUSEWriteFlags,
+        _flags: OpenFlags,
+        _lock_owner: Option<u64>,
+    ) -> FuseResult<u32> {
         Ok(data.len() as u32)
     }
 
     fn unlink(&self, _req: &RequestInfo, _parent_id: Inode, _name: &OsStr) -> FuseResult<()> {
         Ok(())
     }
-
 }
 
 fn main() {
-    let options = vec![MountOption::RO, MountOption::FSName("random".to_string())];
+    let mountpoint = std::env::args()
+        .nth(1)
+        .expect("Usage: random_fs <MOUNTPOINT>");
+    let options = vec![
+        MountOption::RW,
+        MountOption::FSName("random_fs".to_string()),
+    ];
+
     let fs = RandomFS::new();
-    easy_fuser::mount(fs, "/tmp/random", &options, 2).unwrap();
+
+    println!("Mounting filesystem...");
+    easy_fuser::mount(fs, Path::new(&mountpoint), &options, 1).unwrap();
 }
