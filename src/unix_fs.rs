@@ -1,4 +1,4 @@
-//! # POSIX Filesystem Operations Module
+//! # POSIX Filesystem Operations Module compatible with FUSE signatures.
 //!
 //! This module provides a set of functions that wrap POSIX filesystem operations,
 //! making them more convenient to use within a Rust-based FUSE (Filesystem in Userspace) implementation.
@@ -38,6 +38,7 @@ use std::os::unix::fs::*;
 use crate::types::*;
 use libc::{c_char, c_void, timespec};
 
+// Modify to #[cfg_attr(windows, path = "windows/mod.rs")]
 #[cfg(target_os = "linux")]
 pub(crate) mod linux_fs;
 #[cfg(target_os = "linux")]
