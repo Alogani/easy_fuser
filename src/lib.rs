@@ -22,12 +22,14 @@ compile_error!("Feature 'async' cannot be used with feature serial or parallel")
 mod core;
 mod fuse_handler;
 
-use fuser::{BackgroundSession, MountOption};
-
+pub mod inode_mapper;
 pub mod templates;
 pub mod types;
 pub mod unix_fs;
+
 pub use fuse_handler::FuseHandler;
+use fuser::{BackgroundSession, MountOption};
+
 pub mod prelude {
     //! Re-exports the necessary types and functions from the `easy_fuser` crate.
     pub use super::fuse_handler::FuseHandler;

@@ -6,15 +6,18 @@ use std::sync::Arc;
 
 use super::{Inode, ROOT_INODE};
 
-/// Core structure for managing inodes and their relationships.
+/// Helper structure for managing inodes and their relationships.
 ///
 /// InodeMapper<T> efficiently stores and manages inodes, their associated data,
 /// and parent-child relationships. It uses InodeData<T> for internal storage,
 /// with InodeValue<T> representing individual inode entries.
 ///
+/// Use this structure if you want to handle inodes in a finer grained way.
+/// Most users will prefer to use FuseHandler<PathBuf> or FuseHandler<Vec<OsString>>
+/// to avoid managing inodes manually.
+///
 /// # Note
 /// - T is the type of data associated with each inode.
-/// - Uses OsStringWrapper for efficient string storage and comparison.
 /// - Maintains a next_inode counter for generating unique inode values.
 pub struct InodeMapper<T> {
     data: InodeData<T>,
@@ -356,28 +359,34 @@ impl<T: Send + Sync + 'static> InodeMapper<T> {
     /// - Returns `None` if any inode in the path is not found, indicating an incomplete or invalid path.
     /// - The root inode is identified when its parent is equal to itself.
     /// - The returned `Vec` contains `OsStringWrapper`s, which are efficient wrappers around `OsString`s.
-    pub fn resolve(&self, inode: &Inode) -> Option<Vec<&OsStr>> {
-        let mut result: Vec<&OsStr> = Vec::new();
-        let mut current_inode = inode;
+    pub fn resolve(&self, inode: &Inode) -> Option<(Vec<&OsStr>, &T)> {
+        let mut path_builder: Vec<&OsStr> = Vec::new();
+        let mut current = self.data.inodes.get(inode)?;
+        let data = &current.data;
+
+        if current.parent == *inode {
+            return Some((path_builder, data));
+        }
 
         loop {
-            if let Some(inode_value) = self.data.inodes.get(current_inode) {
+            path_builder.push(current.name.as_ref());
+
+            let parent = &current.parent;
+            if let Some(inode_value) = self.data.inodes.get(parent) {
                 // If we've reached the root (parent is itself), break the loop without including it
-                if inode_value.parent == *current_inode {
+                if inode_value.parent == *parent {
                     break;
                 }
 
-                result.push(inode_value.name.as_ref());
-
                 // Move to the parent
-                current_inode = &inode_value.parent;
+                current = inode_value;
             } else {
                 // If we can't find the inode, the path is incomplete, so return None
                 return None;
             }
         }
 
-        Some(result)
+        Some((path_builder, data))
     }
 
     pub fn get(&self, inode: &Inode) -> Option<InodeInfo<T>> {
@@ -546,7 +555,6 @@ mod tests {
     use std::collections::HashSet;
     use std::ffi::OsString;
 
-    use crate::types::inode_mapper::InodeMapper;
     use crate::types::Inode;
     use crate::ROOT_INODE;
 
@@ -680,7 +688,7 @@ mod tests {
             .unwrap();
 
         // Resolve the file inode
-        let path = mapper.resolve(&file_inode).unwrap();
+        let path = mapper.resolve(&file_inode).unwrap().0;
 
         // Check the resolved path (it should be in reverse order)
         assert_eq!(path.len(), 2);
@@ -688,7 +696,7 @@ mod tests {
         assert_eq!(path[1], "dir");
 
         // Resolve the root inode (should be empty)
-        let root_path = mapper.resolve(&ROOT_INODE).unwrap();
+        let root_path = mapper.resolve(&ROOT_INODE).unwrap().0;
         assert!(root_path.is_empty());
 
         // Try to resolve a non-existent inode

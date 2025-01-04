@@ -23,11 +23,7 @@ pub mod file_descriptor;
 mod file_id_type;
 pub mod flags;
 mod inode;
-mod inode_mapper;
 
-pub use self::{
-    arguments::*, errors::*, file_descriptor::*, file_id_type::*, flags::*, inode::*,
-    inode_mapper::*,
-};
+pub use self::{arguments::*, errors::*, file_descriptor::*, file_id_type::*, flags::*, inode::*};
 
 pub use fuser::{FileType as FileKind, KernelConfig, TimeOrNow};

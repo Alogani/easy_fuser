@@ -6,6 +6,7 @@ use std::{
 
 use std::sync::{atomic::AtomicU64, RwLock};
 
+use crate::inode_mapper::*;
 use crate::types::*;
 
 pub(crate) const ROOT_INO: u64 = 1;
@@ -119,6 +120,7 @@ impl FileIdResolver for ComponentsResolver {
             .unwrap()
             .resolve(&Inode::from(ino))
             .expect("Failed to resolve inode")
+            .0
             .iter()
             .map(OsString::from)
             .collect()
