@@ -38,6 +38,7 @@ use std::os::unix::fs::*;
 use crate::types::*;
 use libc::{c_char, c_void, timespec};
 
+// Modify to #[cfg_attr(windows, path = "windows/mod.rs")]
 #[cfg(target_os = "linux")]
 pub(crate) mod linux_fs;
 #[cfg(target_os = "linux")]

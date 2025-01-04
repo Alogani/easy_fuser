@@ -1,10 +1,7 @@
-use std::{fs::File, time::UNIX_EPOCH};
+use std::time::UNIX_EPOCH;
 
 use easy_fuser::prelude::*;
-use zip::{
-    read::{ZipFile, ZipFileSeek},
-    ZipArchive,
-};
+use zip::read::ZipFile;
 
 pub fn get_root_attribute() -> FileAttribute {
     FileAttribute {
@@ -27,7 +24,7 @@ pub fn get_root_attribute() -> FileAttribute {
     }
 }
 
-pub fn create_file_attribute(file: &ZipFile) -> FileAttribute {
+pub fn create_file_attribute(file: &ZipFile, is_dir: bool) -> FileAttribute {
     FileAttribute {
         size: file.size(),
         blocks: (file.size() + 511) / 512,
@@ -35,7 +32,7 @@ pub fn create_file_attribute(file: &ZipFile) -> FileAttribute {
         mtime: UNIX_EPOCH,
         ctime: UNIX_EPOCH,
         crtime: UNIX_EPOCH,
-        kind: if file.is_dir() {
+        kind: if is_dir {
             FileKind::Directory
         } else {
             FileKind::RegularFile
@@ -49,33 +46,5 @@ pub fn create_file_attribute(file: &ZipFile) -> FileAttribute {
         blksize: 512,
         ttl: None,
         generation: None,
-    }
-}
-
-pub struct NonSeekable;
-pub struct Seekable;
-
-pub trait ZipExtractor {
-    type Output<'a>;
-
-    fn get_by_name<'a>(archive: &'a mut ZipArchive<File>, name: &str) -> Option<Self::Output<'a>>;
-}
-
-impl ZipExtractor for NonSeekable {
-    type Output<'a> = ZipFile<'a>;
-
-    fn get_by_name<'a>(archive: &'a mut ZipArchive<File>, name: &str) -> Option<ZipFile<'a>> {
-        archive.by_name(name).ok()
-    }
-}
-
-impl ZipExtractor for Seekable {
-    type Output<'a> = ZipFileSeek<'a, File>;
-
-    fn get_by_name<'a>(
-        archive: &'a mut ZipArchive<File>,
-        name: &str,
-    ) -> Option<ZipFileSeek<'a, File>> {
-        archive.by_name_seek(name).ok()
     }
 }

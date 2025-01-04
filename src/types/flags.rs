@@ -68,7 +68,6 @@ bitflags! {
     }
 }
 
-
 bitflags! {
     #[derive(Debug, Copy, Clone)]
     /// Flags used in the response to a FUSE open operation.
@@ -92,7 +91,6 @@ bitflags! {
         const _ = !0;
     }
 }
-
 
 bitflags! {
     #[derive(Debug, Copy, Clone)]
