@@ -27,7 +27,7 @@ pub type FuseResult<T> = Result<T, PosixError>;
 #[derive(Clone, PartialEq, Eq)]
 pub struct PosixError {
     code: i32,
-    msg: String,
+    pub msg: String,
 }
 
 impl PosixError {

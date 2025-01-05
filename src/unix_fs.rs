@@ -498,7 +498,7 @@ pub fn open(path: &Path, flags: OpenFlags) -> Result<OwnedFd, PosixError> {
 /// For `SeekFrom::Current` or `SeekFrom::End`, it first updates the file's current position,
 /// then reads from there. In all cases, the file's position after the read operation
 /// remains where it was before the read, regardless of how much data was read.
-pub fn read(fd: BorrowedFd, seek: SeekFrom, size: u32) -> Result<Vec<u8>, PosixError> {
+pub fn read(fd: BorrowedFd, seek: SeekFrom, size: usize) -> Result<Vec<u8>, PosixError> {
     let mut buffer = vec![0; size as usize];
     let offset: libc::off_t = match seek {
         SeekFrom::Start(offset) => offset.try_into().map_err(|_| {
@@ -530,7 +530,7 @@ pub fn read(fd: BorrowedFd, seek: SeekFrom, size: u32) -> Result<Vec<u8>, PosixE
         libc::pread(
             fd.as_raw_fd(),
             buffer.as_mut_ptr() as *mut libc::c_void,
-            size as usize,
+            size,
             offset,
         )
     };
@@ -550,7 +550,7 @@ pub fn read(fd: BorrowedFd, seek: SeekFrom, size: u32) -> Result<Vec<u8>, PosixE
 /// For `SeekFrom::Current` or `SeekFrom::End`, it first updates the file's current position,
 /// then reads from there. In all cases, the file's position after the read operation
 /// remains where it was before the read, regardless of how much data was read.
-pub fn write(fd: BorrowedFd, seek: SeekFrom, data: &[u8]) -> Result<u32, PosixError> {
+pub fn write(fd: BorrowedFd, seek: SeekFrom, data: &[u8]) -> Result<usize, PosixError> {
     let bytes_to_write = data.len() as usize;
     let offset: libc::off_t = match seek {
         SeekFrom::Start(offset) => offset.try_into().map_err(|_| {
@@ -590,7 +590,7 @@ pub fn write(fd: BorrowedFd, seek: SeekFrom, data: &[u8]) -> Result<u32, PosixEr
         return Err(PosixError::last_error(format!("{:?}: write failed", fd)));
     }
 
-    Ok(bytes_written as u32)
+    Ok(bytes_written as usize)
 }
 
 /// Flushes any buffered data to the file system for the given file descriptor.

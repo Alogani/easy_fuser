@@ -114,7 +114,7 @@ macro_rules! fd_handler_readonly_methods {
             _flags: FUSEOpenFlags,
             _lock_owner: Option<u64>,
         ) -> FuseResult<Vec<u8>> {
-            unix_fs::read(file_handle.as_borrowed_fd(), seek, size)
+            unix_fs::read(file_handle.as_borrowed_fd(), seek, size as usize)
         }
 
         fn release(
@@ -177,7 +177,7 @@ macro_rules! fd_handler_readwrite_methods {
             _flags: OpenFlags,
             _lock_owner: Option<u64>,
         ) -> FuseResult<u32> {
-            unix_fs::write(file_handle.as_borrowed_fd(), seek, &data)
+            unix_fs::write(file_handle.as_borrowed_fd(), seek, &data).map(|res| res as u32)
         }
     };
 }
