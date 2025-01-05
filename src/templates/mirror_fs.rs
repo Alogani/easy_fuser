@@ -90,11 +90,11 @@ macro_rules! mirror_fs_readonly_methods {
             &self,
             _req: &RequestInfo,
             file_id: PathBuf,
-            _file_handle: Option<FileHandle>,
+            _file_handle: Option<BorrowedFileHandle>,
         ) -> FuseResult<FileAttribute> {
             let file_path = self.source_path.join(file_id);
             let fd = unix_fs::open(file_path.as_ref(), OpenFlags::empty())?;
-            let result = unix_fs::getattr(&fd);
+            let result = unix_fs::getattr(fd.as_fd());
             result
         }
 
@@ -134,17 +134,19 @@ macro_rules! mirror_fs_readonly_methods {
             _req: &RequestInfo,
             file_id: PathBuf,
             flags: OpenFlags,
-        ) -> FuseResult<(FileHandle, FUSEOpenResponseFlags)> {
+        ) -> FuseResult<(OwnedFileHandle, FUSEOpenResponseFlags)> {
             let file_path = self.source_path.join(file_id);
-            let mut fd = unix_fs::open(file_path.as_ref(), flags)?;
-            Ok((fd.take_to_file_handle()?, FUSEOpenResponseFlags::empty()))
+            let fd = unix_fs::open(file_path.as_ref(), flags)?;
+            // Open by definition returns positive Fd or error
+            let file_handle = OwnedFileHandle::from_owned_fd(fd).unwrap();
+            Ok((file_handle, FUSEOpenResponseFlags::empty()))
         }
 
         fn readdir(
             &self,
             _req: &RequestInfo,
             file_id: PathBuf,
-            _file_handle: FileHandle,
+            _file_handle: BorrowedFileHandle,
         ) -> FuseResult<Vec<(OsString, FileKind)>> {
             let folder_path = self.source_path.join(file_id);
             let children = unix_fs::readdir(folder_path.as_ref())?;
@@ -179,14 +181,12 @@ macro_rules! mirror_fs_readwrite_methods {
             mode: u32,
             umask: u32,
             flags: OpenFlags,
-        ) -> FuseResult<(FileHandle, FileAttribute, FUSEOpenResponseFlags)> {
+        ) -> FuseResult<(OwnedFileHandle, FileAttribute, FUSEOpenResponseFlags)> {
             let file_path = self.source_path.join(parent_id).join(name);
-            let (mut fd, file_attr) = unix_fs::create(&file_path, mode, umask, flags)?;
-            Ok((
-                fd.take_to_file_handle()?,
-                file_attr,
-                FUSEOpenResponseFlags::empty(),
-            ))
+            let (fd, file_attr) = unix_fs::create(&file_path, mode, umask, flags)?;
+            // Open by definition returns positive Fd or error
+            let file_handle = OwnedFileHandle::from_owned_fd(fd).unwrap();
+            Ok((file_handle, file_attr, FUSEOpenResponseFlags::empty()))
         }
 
         fn mkdir(
@@ -285,7 +285,7 @@ macro_rules! mirror_fs_readwrite_methods {
 }
 
 pub trait MirrorFsTrait: FuseHandler<PathBuf> {
-    fn new<U: FuseHandler<PathBuf>>(source_path: PathBuf, inner: U) -> Self;
+    fn new<U: FuseHandler<PathBuf> + Send>(source_path: PathBuf, inner: U) -> Self;
 
     fn source_dir(&self) -> &Path;
 }
@@ -297,7 +297,7 @@ pub struct MirrorFs {
 }
 
 impl MirrorFsTrait for MirrorFs {
-    fn new<U: FuseHandler<PathBuf>>(source_path: PathBuf, inner: U) -> Self {
+    fn new<U: FuseHandler<PathBuf> + Send>(source_path: PathBuf, inner: U) -> Self {
         Self {
             source_path,
             inner: Box::new(FdHandlerHelper::new(inner)),
@@ -325,7 +325,7 @@ pub struct MirrorFsReadOnly {
 }
 
 impl MirrorFsTrait for MirrorFsReadOnly {
-    fn new<THandler: FuseHandler<PathBuf>>(source_path: PathBuf, inner: THandler) -> Self {
+    fn new<THandler: FuseHandler<PathBuf> + Send>(source_path: PathBuf, inner: THandler) -> Self {
         Self {
             source_path,
             inner: Box::new(FdHandlerHelperReadOnly::new(inner)),

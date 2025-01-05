@@ -1,3 +1,12 @@
+//! File identification types and traits for FUSE filesystems.
+//!
+//! This module defines the `FileIdType` trait and its implementations, which provide
+//! flexible ways to identify files in a FUSE filesystem. It supports three main
+//! identification methods: inode-based, path-based, and component-based. Each method
+//! offers different trade-offs in terms of performance, ease of use, and memory usage.
+//! The module also includes associated types for full and minimal metadata, which
+//! are different possible return values in FUSE operations.
+
 use std::{
     ffi::OsString,
     fmt::{Debug, Display},

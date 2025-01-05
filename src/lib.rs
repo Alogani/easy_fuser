@@ -22,19 +22,21 @@ compile_error!("Feature 'async' cannot be used with feature serial or parallel")
 mod core;
 mod fuse_handler;
 
+pub mod inode_mapper;
 pub mod templates;
-
 pub mod types;
 pub mod unix_fs;
 
-pub use fuser::{BackgroundSession, MountOption, Session, SessionUnmounter};
+pub use fuse_handler::FuseHandler;
+use fuser::{BackgroundSession, MountOption};
 
 pub mod prelude {
+    //! Re-exports the necessary types and functions from the `easy_fuser` crate.
     pub use super::fuse_handler::FuseHandler;
     pub use super::types::*;
     pub use super::{mount, spawn_mount};
 
-    pub use super::{BackgroundSession, MountOption, Session, SessionUnmounter};
+    pub use fuser::{BackgroundSession, MountOption, Session, SessionUnmounter};
 }
 
 // Implentation of the high-level functions
@@ -66,15 +68,16 @@ use prelude::*;
 /// # Panics
 ///
 /// When the `serial` feature is enabled, this function will panic at compile-time if `num_threads` is greater than 1.
-pub fn mount<T, FS>(
+pub fn mount<T, FS, P>(
     filesystem: FS,
-    mountpoint: &Path,
+    mountpoint: P,
     options: &[MountOption],
     num_threads: usize,
 ) -> io::Result<()>
 where
     T: FileIdType,
     FS: FuseHandler<T>,
+    P: AsRef<Path>,
 {
     #[cfg(feature = "serial")]
     if num_threads > 1 {
@@ -110,15 +113,16 @@ where
 /// # Panics
 ///
 /// When the `serial` feature is enabled, this function will panic at compile-time if `num_threads` is greater than 1.
-pub fn spawn_mount<T, FS>(
+pub fn spawn_mount<T, FS, P>(
     filesystem: FS,
-    mountpoint: &Path,
+    mountpoint: P,
     options: &[MountOption],
     num_threads: usize,
 ) -> io::Result<BackgroundSession>
 where
     T: FileIdType,
-    FS: FuseHandler<T>,
+    FS: FuseHandler<T> + Send,
+    P: AsRef<Path>,
 {
     #[cfg(feature = "serial")]
     if num_threads > 1 {

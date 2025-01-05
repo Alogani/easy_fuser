@@ -22,7 +22,7 @@ The `DefaultFuseHandler` implements the `FuseHandler` trait, providing default i
 The following functions are implemented with default responses, so they don't need to be explicitly implemented in derived handlers:
 
 - `init`: Returns `Ok(())`.
-- `opendir`: Returns a `FileHandle` with value 0 and empty `FUSEOpenResponseFlags`.
+- `opendir`: Returns a `OwnedFileHandle` with value 0 and empty `FUSEOpenResponseFlags`. Only safe because releasedir don't use the file handle
 - `releasedir`: Returns `Ok(())`.
 - `fsyncdir`: Returns `Ok(())`.
 - `statfs`: Returns `StatFs::default()`.
@@ -146,10 +146,10 @@ impl<TId: FileIdType> FuseHandler<TId> for DefaultFuseHandler {
         &self,
         _req: &RequestInfo,
         file_in: TId,
-        file_handle_in: FileHandle,
+        file_handle_in: BorrowedFileHandle,
         offset_in: i64,
         file_out: TId,
-        file_handle_out: FileHandle,
+        file_handle_out: BorrowedFileHandle,
         offset_out: i64,
         len: u64,
         flags: u32, // Not implemented yet in standard
@@ -194,7 +194,7 @@ impl<TId: FileIdType> FuseHandler<TId> for DefaultFuseHandler {
         mode: u32,
         umask: u32,
         flags: OpenFlags,
-    ) -> FuseResult<(FileHandle, TId::Metadata, FUSEOpenResponseFlags)> {
+    ) -> FuseResult<(OwnedFileHandle, TId::Metadata, FUSEOpenResponseFlags)> {
         match self.handling {
             HandlingMethod::Error(kind) => Err(PosixError::new(
                 kind,
@@ -226,7 +226,7 @@ impl<TId: FileIdType> FuseHandler<TId> for DefaultFuseHandler {
         &self,
         _req: &RequestInfo,
         file_id: TId,
-        file_handle: FileHandle,
+        file_handle: BorrowedFileHandle,
         offset: i64,
         length: i64,
         mode: FallocateFlags,
@@ -261,7 +261,7 @@ impl<TId: FileIdType> FuseHandler<TId> for DefaultFuseHandler {
         &self,
         _req: &RequestInfo,
         file_id: TId,
-        file_handle: FileHandle,
+        file_handle: BorrowedFileHandle,
         lock_owner: u64,
     ) -> FuseResult<()> {
         match self.handling {
@@ -293,7 +293,7 @@ impl<TId: FileIdType> FuseHandler<TId> for DefaultFuseHandler {
         &self,
         _req: &RequestInfo,
         file_id: TId,
-        file_handle: FileHandle,
+        file_handle: BorrowedFileHandle,
         datasync: bool,
     ) -> FuseResult<()> {
         match self.handling {
@@ -323,7 +323,7 @@ impl<TId: FileIdType> FuseHandler<TId> for DefaultFuseHandler {
         &self,
         _req: &RequestInfo,
         _file_id: TId,
-        _file_handle: FileHandle,
+        _file_handle: BorrowedFileHandle,
         _datasync: bool,
     ) -> FuseResult<()> {
         Ok(())
@@ -333,7 +333,7 @@ impl<TId: FileIdType> FuseHandler<TId> for DefaultFuseHandler {
         &self,
         _req: &RequestInfo,
         file_id: TId,
-        file_handle: Option<FileHandle>,
+        file_handle: Option<BorrowedFileHandle>,
     ) -> FuseResult<FileAttribute> {
         match self.handling {
             HandlingMethod::Error(kind) => Err(PosixError::new(
@@ -360,7 +360,7 @@ impl<TId: FileIdType> FuseHandler<TId> for DefaultFuseHandler {
         &self,
         _req: &RequestInfo,
         file_id: TId,
-        file_handle: FileHandle,
+        file_handle: BorrowedFileHandle,
         lock_owner: u64,
         lock_info: LockInfo,
     ) -> FuseResult<LockInfo> {
@@ -422,7 +422,7 @@ impl<TId: FileIdType> FuseHandler<TId> for DefaultFuseHandler {
         &self,
         _req: &RequestInfo,
         file_id: TId,
-        file_handle: FileHandle,
+        file_handle: BorrowedFileHandle,
         flags: IOCtlFlags,
         cmd: u32,
         in_data: Vec<u8>,
@@ -532,7 +532,7 @@ impl<TId: FileIdType> FuseHandler<TId> for DefaultFuseHandler {
         &self,
         _req: &RequestInfo,
         file_id: TId,
-        file_handle: FileHandle,
+        file_handle: BorrowedFileHandle,
         seek: SeekFrom,
     ) -> FuseResult<i64> {
         match self.handling {
@@ -631,7 +631,7 @@ impl<TId: FileIdType> FuseHandler<TId> for DefaultFuseHandler {
         _req: &RequestInfo,
         file_id: TId,
         flags: OpenFlags,
-    ) -> FuseResult<(FileHandle, FUSEOpenResponseFlags)> {
+    ) -> FuseResult<(OwnedFileHandle, FUSEOpenResponseFlags)> {
         match self.handling {
             HandlingMethod::Error(kind) => Err(PosixError::new(
                 kind,
@@ -654,15 +654,19 @@ impl<TId: FileIdType> FuseHandler<TId> for DefaultFuseHandler {
         _req: &RequestInfo,
         _file_id: TId,
         _flags: OpenFlags,
-    ) -> FuseResult<(FileHandle, FUSEOpenResponseFlags)> {
-        Ok((FileHandle::from(0), FUSEOpenResponseFlags::empty()))
+    ) -> FuseResult<(OwnedFileHandle, FUSEOpenResponseFlags)> {
+        // Safe because in releasedir we don't use it
+        Ok((
+            unsafe { OwnedFileHandle::from_raw(0) },
+            FUSEOpenResponseFlags::empty(),
+        ))
     }
 
     fn read(
         &self,
         _req: &RequestInfo,
         file_id: TId,
-        file_handle: FileHandle,
+        file_handle: BorrowedFileHandle,
         seek: SeekFrom,
         size: u32,
         flags: FUSEOpenFlags,
@@ -700,7 +704,7 @@ impl<TId: FileIdType> FuseHandler<TId> for DefaultFuseHandler {
         &self,
         _req: &RequestInfo,
         file_id: TId,
-        file_handle: FileHandle,
+        file_handle: BorrowedFileHandle,
     ) -> FuseResult<Vec<(OsString, TId::MinimalMetadata)>> {
         match self.handling {
             HandlingMethod::Error(kind) => Err(PosixError::new(
@@ -727,7 +731,7 @@ impl<TId: FileIdType> FuseHandler<TId> for DefaultFuseHandler {
         &self,
         _req: &RequestInfo,
         file_id: TId,
-        file_handle: FileHandle,
+        file_handle: BorrowedFileHandle,
     ) -> FuseResult<Vec<(OsString, TId::Metadata)>> {
         match self.handling {
             HandlingMethod::Error(kind) => Err(PosixError::new(
@@ -770,7 +774,7 @@ impl<TId: FileIdType> FuseHandler<TId> for DefaultFuseHandler {
         &self,
         _req: &RequestInfo,
         file_id: TId,
-        file_handle: FileHandle,
+        file_handle: OwnedFileHandle,
         flags: OpenFlags,
         lock_owner: Option<u64>,
         flush: bool,
@@ -805,7 +809,7 @@ impl<TId: FileIdType> FuseHandler<TId> for DefaultFuseHandler {
         &self,
         _req: &RequestInfo,
         _file_id: TId,
-        _file_handle: FileHandle,
+        _file_handle: OwnedFileHandle,
         _flags: OpenFlags,
     ) -> FuseResult<()> {
         Ok(())
@@ -921,7 +925,7 @@ impl<TId: FileIdType> FuseHandler<TId> for DefaultFuseHandler {
         &self,
         _req: &RequestInfo,
         file_id: TId,
-        file_handle: FileHandle,
+        file_handle: BorrowedFileHandle,
         lock_owner: u64,
         lock_info: LockInfo,
         sleep: bool,
@@ -1046,7 +1050,7 @@ impl<TId: FileIdType> FuseHandler<TId> for DefaultFuseHandler {
         &self,
         _req: &RequestInfo,
         file_id: TId,
-        file_handle: FileHandle,
+        file_handle: BorrowedFileHandle,
         seek: SeekFrom,
         data: Vec<u8>,
         write_flags: FUSEWriteFlags,

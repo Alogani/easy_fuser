@@ -48,14 +48,14 @@ jobs:
       run: echo "PKG_CONFIG_PATH=/usr/lib/x86_64-linux-gnu/pkgconfig" >> $GITHUB_ENV
     - name: Run tests of crates inside examples folder
       run: |
-        crate_dir="$(pwd)"
         for dir in examples/*/; do
           if [ -f "${dir}Cargo.toml" ]; then
-            echo "Running tests in ${dir}"
-            if ! (cd "${dir}" && cargo test); then
-              echo "Tests failed in ${dir}"
-              exit 1
-            fi
-            cd "$crate_dir"
+            (
+              echo "Running tests in ${dir}"
+              if ! (cd "${dir}" && cargo test); then
+                echo "Tests failed in ${dir}"
+                exit 1
+              fi
+            )
           fi
         done
