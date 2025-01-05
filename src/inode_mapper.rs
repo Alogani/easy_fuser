@@ -8,12 +8,12 @@ use super::{Inode, ROOT_INODE};
 
 /// Helper structure for managing inodes and their relationships.
 ///
-/// InodeMapper<T> efficiently stores and manages inodes, their associated data,
-/// and parent-child relationships. It uses InodeData<T> for internal storage,
-/// with InodeValue<T> representing individual inode entries.
+/// `InodeMapper<T>` efficiently stores and manages inodes, their associated data,
+/// and parent-child relationships. It uses `InodeData<T>` for internal storage,
+/// with `InodeValue<T>` representing individual inode entries.
 ///
 /// Use this structure if you want to handle inodes in a finer grained way.
-/// Most users will prefer to use FuseHandler<PathBuf> or FuseHandler<Vec<OsString>>
+/// Most users will prefer to use `FuseHandler<PathBuf>` or `FuseHandler<Vec<OsString>>`
 /// to avoid managing inodes manually.
 ///
 /// # Note
@@ -221,8 +221,8 @@ impl<T: Send + Sync + 'static> InodeMapper<T> {
     /// for the parent's children HashMap. It checks if the parent exists before insertion.
     ///
     /// # Behavior
-    /// - Returns Err(InsertError::ParentNotFound) if the parent doesn't exist.
-    /// - If successful, returns Ok(Vec<Inode>) containing the newly created or existing child inodes.
+    /// - Returns `Err(InsertError::ParentNotFound)` if the parent doesn't exist.
+    /// - If successful, returns `Ok(Vec<Inode>)` containing the newly created or existing child inodes.
     ///
     /// # Performance
     /// Optimizes memory allocation by reserving space in the parent's children HashMap based on
