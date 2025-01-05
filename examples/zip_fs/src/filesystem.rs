@@ -94,7 +94,7 @@ impl FuseHandler<Inode> for ZipFs {
             return Ok(get_root_attribute());
         }
         let InodeInfo {
-            parent_inode: _,
+            parent: _,
             name: _,
             data: &(idx, is_dir),
         } = self
@@ -139,7 +139,7 @@ impl FuseHandler<Inode> for ZipFs {
         _lock_owner: Option<u64>,
     ) -> FuseResult<Vec<u8>> {
         let InodeInfo {
-            parent_inode: _,
+            parent: _,
             name: _,
             data: &(idx, _),
         } = self
@@ -169,7 +169,7 @@ impl FuseHandler<Inode> for ZipFs {
             .into_iter()
             .map(|(_, inode)| {
                 let InodeInfo {
-                    parent_inode: _,
+                    parent: _,
                     name,
                     data: &(_, is_dir),
                 } = mapper.get(inode).unwrap();
