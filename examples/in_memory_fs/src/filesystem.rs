@@ -155,7 +155,14 @@ impl FuseHandler<Inode> for InMemoryFS {
         mode: u32,
         _umask: u32,
         _flags: OpenFlags,
-    ) -> Result<(FileHandle, (Inode, FileAttribute), FUSEOpenResponseFlags), PosixError> {
+    ) -> Result<
+        (
+            OwnedFileHandle,
+            (Inode, FileAttribute),
+            FUSEOpenResponseFlags,
+        ),
+        PosixError,
+    > {
         self.access(req, parent.clone(), AccessMask::CAN_WRITE)?;
         let mut fs = self.fs.lock().unwrap();
         let new_inode = fs.next_inode.clone();
@@ -193,7 +200,8 @@ impl FuseHandler<Inode> for InMemoryFS {
             fs.next_inode = new_inode.add_one();
 
             Ok((
-                FileHandle::from(0),
+                // Safe because we won't release it
+                unsafe { OwnedFileHandle::from_raw(0) },
                 (new_inode.clone(), attr),
                 FUSEOpenResponseFlags::empty(),
             ))
@@ -206,7 +214,7 @@ impl FuseHandler<Inode> for InMemoryFS {
         &self,
         req: &RequestInfo,
         file_id: Inode,
-        _file_handle: FileHandle,
+        _file_handle: BorrowedFileHandle,
         offset: i64,
         length: i64,
         mode: FallocateFlags,
@@ -251,7 +259,7 @@ impl FuseHandler<Inode> for InMemoryFS {
         &self,
         _req: &RequestInfo,
         _file_id: Inode,
-        _file_handle: FileHandle,
+        _file_handle: BorrowedFileHandle,
         _lock_owner: u64,
     ) -> FuseResult<()> {
         Ok(())
@@ -261,7 +269,7 @@ impl FuseHandler<Inode> for InMemoryFS {
         &self,
         _req: &RequestInfo,
         _file_id: Inode,
-        _file_handle: FileHandle,
+        _file_handle: BorrowedFileHandle,
         _datasync: bool,
     ) -> FuseResult<()> {
         Ok(())
@@ -271,7 +279,7 @@ impl FuseHandler<Inode> for InMemoryFS {
         &self,
         _req: &RequestInfo,
         ino: Inode,
-        _fh: Option<FileHandle>,
+        _fh: Option<BorrowedFileHandle>,
     ) -> FuseResult<FileAttribute> {
         let fs = self.fs.lock().unwrap();
         fs.inodes
@@ -352,7 +360,7 @@ impl FuseHandler<Inode> for InMemoryFS {
         &self,
         req: &RequestInfo,
         ino: Inode,
-        _fh: FileHandle,
+        _fh: BorrowedFileHandle,
         offset: SeekFrom,
         size: u32,
         _flags: FUSEOpenFlags,
@@ -379,7 +387,7 @@ impl FuseHandler<Inode> for InMemoryFS {
         &self,
         req: &RequestInfo,
         ino: Inode,
-        _fh: FileHandle,
+        _fh: BorrowedFileHandle,
     ) -> FuseResult<Vec<(OsString, (Inode, FileKind))>> {
         self.access(req, ino.clone(), AccessMask::CAN_READ)?;
         let fs = self.fs.lock().unwrap();
@@ -566,7 +574,7 @@ impl FuseHandler<Inode> for InMemoryFS {
         &self,
         req: &RequestInfo,
         ino: Inode,
-        _fh: FileHandle,
+        _fh: BorrowedFileHandle,
         offset: SeekFrom,
         data: Vec<u8>,
         _write_flags: FUSEWriteFlags,

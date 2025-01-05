@@ -94,7 +94,7 @@ impl FuseHandler<Inode> for HelloFS {
         &self,
         _req: &RequestInfo,
         file_id: Inode,
-        _file_handle: Option<FileHandle>,
+        _file_handle: Option<BorrowedFileHandle>,
     ) -> FuseResult<FileAttribute> {
         match file_id {
             ROOT_INODE => Ok(HELLO_DIR_ATTR.1),
@@ -107,7 +107,7 @@ impl FuseHandler<Inode> for HelloFS {
         &self,
         _req: &RequestInfo,
         file_id: Inode,
-        _file_handle: FileHandle,
+        _file_handle: BorrowedFileHandle,
         seek: SeekFrom,
         size: u32,
         _flags: FUSEOpenFlags,
@@ -133,7 +133,7 @@ impl FuseHandler<Inode> for HelloFS {
         &self,
         _req: &RequestInfo,
         file_id: Inode,
-        _file_handle: FileHandle,
+        _file_handle: BorrowedFileHandle,
     ) -> FuseResult<Vec<(OsString, (Inode, FileKind))>> {
         if file_id == ROOT_INODE {
             Ok(vec![

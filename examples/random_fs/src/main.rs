@@ -77,12 +77,20 @@ impl FuseHandler<Inode> for RandomFS {
         _mode: u32,
         _umask: u32,
         _flags: OpenFlags,
-    ) -> Result<(FileHandle, (Inode, FileAttribute), FUSEOpenResponseFlags), PosixError> {
+    ) -> Result<
+        (
+            OwnedFileHandle,
+            (Inode, FileAttribute),
+            FUSEOpenResponseFlags,
+        ),
+        PosixError,
+    > {
         let mut rng = rand::thread_rng();
         let ino = Self::random_inode(&mut rng);
         let attr = self.getattr(_req, ino.clone(), None)?;
         Ok((
-            FileHandle::from(0),
+            // Safe because we won't release it
+            unsafe { OwnedFileHandle::from_raw(0) },
             (ino, attr),
             FUSEOpenResponseFlags::empty(),
         ))
@@ -92,7 +100,7 @@ impl FuseHandler<Inode> for RandomFS {
         &self,
         _req: &RequestInfo,
         ino: Inode,
-        _fh: Option<FileHandle>,
+        _fh: Option<BorrowedFileHandle>,
     ) -> FuseResult<FileAttribute> {
         if ino == ROOT_INODE {
             return Ok(ROOT_ATTR.1);
@@ -160,7 +168,7 @@ impl FuseHandler<Inode> for RandomFS {
         &self,
         _req: &RequestInfo,
         _ino: Inode,
-        _fh: FileHandle,
+        _fh: BorrowedFileHandle,
         offset: SeekFrom,
         size: u32,
         _flags: FUSEOpenFlags,
@@ -182,7 +190,7 @@ impl FuseHandler<Inode> for RandomFS {
         &self,
         _req: &RequestInfo,
         ino: Inode,
-        _fh: FileHandle,
+        _fh: BorrowedFileHandle,
     ) -> FuseResult<Vec<(OsString, (Inode, FileKind))>> {
         let mut rng = rand::thread_rng();
         let count = rng.gen_range(0..13);
@@ -225,7 +233,7 @@ impl FuseHandler<Inode> for RandomFS {
         &self,
         _req: &RequestInfo,
         _ino: Inode,
-        _fh: FileHandle,
+        _fh: BorrowedFileHandle,
         _offset: SeekFrom,
         data: Vec<u8>,
         _write_flags: FUSEWriteFlags,

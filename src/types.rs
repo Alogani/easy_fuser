@@ -5,12 +5,12 @@
 //!
 //! # Modules
 //!
-//! - [`arguments`]: Defines argument types and structures for FUSE operations.
-//! - [`errors`]: Contains error types and handling for FUSE operations.
-//! - [`file_descriptor`]: Provides types related to file descriptors.
-//! - [`file_id_type`]: Defines traits for file identification.
-//! - [`flags`]: Contains flag definitions for various FUSE operations.
-//! - [`inode`]: Defines the `Inode` type for representing filesystem objects.
+//! - \[arguments\]: Defines argument types and structures for FUSE operations.
+//! - \[errors\]: Contains error types and handling for FUSE operations.
+//! - \[file_descriptor\]: Provides types related to file descriptors.
+//! - \[file_id_type\]: Defines traits for file identification.
+//! - \[flags\]: Contains flag definitions for various FUSE operations.
+//! - \[inode\]: Defines the `Inode` type for representing filesystem objects.
 //!
 //! # Re-exports
 //!
@@ -19,11 +19,11 @@
 
 pub mod arguments;
 pub mod errors;
-pub mod file_descriptor;
+pub mod file_handle;
 mod file_id_type;
 pub mod flags;
 mod inode;
 
-pub use self::{arguments::*, errors::*, file_descriptor::*, file_id_type::*, flags::*, inode::*};
+pub use self::{arguments::*, errors::*, file_handle::*, file_id_type::*, flags::*, inode::*};
 
 pub use fuser::{FileType as FileKind, KernelConfig, TimeOrNow};

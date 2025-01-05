@@ -1,7 +1,5 @@
 use libc::{self, c_char, c_int, c_uint};
 
-use super::FileDescriptor;
-
 use crate::{ErrorKind, PosixError};
 
 pub(crate) fn get_errno() -> i32 {
@@ -37,9 +35,9 @@ pub(super) unsafe fn fdatasync(fd: c_int) -> c_int {
 ///
 /// Note: This function is not available on all platforms, like BSD, in that case, it will return not implemented.
 pub fn copy_file_range(
-    _fd_in: &FileDescriptor,
+    _fd_in: BorrowedFd,
     _offset_in: i64,
-    _fd_out: &FileDescriptor,
+    _fd_out: BorrowedFd,
     _offset_out: i64,
     _len: u64,
 ) -> Result<u32, PosixError> {

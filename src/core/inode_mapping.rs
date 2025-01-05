@@ -120,9 +120,8 @@ impl FileIdResolver for ComponentsResolver {
             .unwrap()
             .resolve(&Inode::from(ino))
             .expect("Failed to resolve inode")
-            .0
             .iter()
-            .map(OsString::from)
+            .map(|inode_info| (**inode_info.name).clone())
             .collect()
     }
 

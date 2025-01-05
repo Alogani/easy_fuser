@@ -34,7 +34,7 @@ fn create_memory_fs() -> InMemoryFS {
             .write(
                 &request_info,
                 inode,
-                fd,
+                fd.borrow(),
                 SeekFrom::Start(0),
                 README_CONTENT.to_vec(),
                 FUSEWriteFlags::empty(),

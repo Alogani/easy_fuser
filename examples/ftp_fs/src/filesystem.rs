@@ -52,7 +52,7 @@ impl FuseHandler<PathBuf> for FtpFs {
         &self,
         _req: &RequestInfo,
         file_id: PathBuf,
-        _file_handle: Option<FileHandle>,
+        _file_handle: Option<BorrowedFileHandle>,
     ) -> FuseResult<FileAttribute> {
         if file_id.is_filesystem_root() {
             return Ok(get_root_attribute());
@@ -80,7 +80,7 @@ impl FuseHandler<PathBuf> for FtpFs {
         &self,
         _req: &RequestInfo,
         file_id: PathBuf,
-        _file_handle: FileHandle,
+        _file_handle: BorrowedFileHandle,
         offset: SeekFrom,
         size: u32,
         _flags: FUSEOpenFlags,
@@ -104,7 +104,7 @@ impl FuseHandler<PathBuf> for FtpFs {
         &self,
         _req: &RequestInfo,
         file_id: PathBuf,
-        _file_handle: FileHandle,
+        _file_handle: BorrowedFileHandle,
     ) -> FuseResult<Vec<(OsString, FileKind)>> {
         let mut entries = Vec::new();
         entries.push((OsString::from("."), FileKind::Directory));
