@@ -1,10 +1,12 @@
 pub use super::bsd_like_fs::*;
 
-use std::ffi::c_void;
-
-use libc::{self, c_char, c_int, size_t, ssize_t};
-
 use super::{cstring_from_path, StatFs};
+use crate::PosixError;
+
+use std::ffi::c_void;
+use libc::{self, c_char, c_int, off_t, size_t, ssize_t};
+
+use std::path::Path;
 
 pub(super) unsafe fn fallocate(fd: c_int, _mode: c_int, offset: off_t, len: off_t) -> c_int {
     libc::posix_fallocate(fd, offset, len)
@@ -14,10 +16,11 @@ pub(super) unsafe fn setxattr(
     path: *const c_char,
     name: *const c_char,
     value: *const c_void,
-    _size: size_t,
+    size: size_t,
+    _position: u32,
     _flags: c_int,
 ) -> c_int {
-    libc::extattr_set_file(path, libc::EXTATTR_NAMESPACE_USER, name, value, value.len())
+    libc::extattr_set_file(path, libc::EXTATTR_NAMESPACE_USER, name, value, size).try_into().unwrap()
 }
 
 pub(super) unsafe fn getxattr(
