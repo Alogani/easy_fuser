@@ -99,10 +99,10 @@ where
             match handler.copy_file_range(
                 &req,
                 resolver.resolve_id(ino_in),
-                FileHandle::from(fh_in),
+                unsafe { BorrowedFileHandle::from_raw(fh_in) },
                 offset_in,
                 resolver.resolve_id(ino_out),
-                FileHandle::from(fh_out),
+                unsafe { BorrowedFileHandle::from_raw(fh_out) },
                 offset_out,
                 len,
                 flags,
@@ -148,7 +148,7 @@ where
                         &ttl.unwrap_or(default_ttl),
                         &fuse_attr,
                         generation.unwrap_or(get_random_generation()),
-                        file_handle.into(),
+                        file_handle.as_raw(),
                         response_flags.bits(),
                     );
                 }
@@ -177,7 +177,7 @@ where
             match handler.fallocate(
                 &req,
                 resolver.resolve_id(ino),
-                FileHandle::from(fh),
+                unsafe { BorrowedFileHandle::from_raw(fh) },
                 offset,
                 length,
                 FallocateFlags::from_bits_retain(mode),
@@ -199,7 +199,7 @@ where
             match handler.flush(
                 &req,
                 resolver.resolve_id(ino),
-                FileHandle::from(fh),
+                unsafe { BorrowedFileHandle::from_raw(fh) },
                 lock_owner,
             ) {
                 Ok(()) => reply.ok(),
@@ -227,7 +227,7 @@ where
             match handler.fsync(
                 &req,
                 resolver.resolve_id(ino),
-                FileHandle::from(fh),
+                unsafe { BorrowedFileHandle::from_raw(fh) },
                 datasync,
             ) {
                 Ok(()) => reply.ok(),
@@ -247,7 +247,7 @@ where
             match handler.fsyncdir(
                 &req,
                 resolver.resolve_id(ino),
-                FileHandle::from(fh),
+                unsafe { BorrowedFileHandle::from_raw(fh) },
                 datasync,
             ) {
                 Ok(()) => reply.ok(),
@@ -271,7 +271,11 @@ where
                 ino,
                 reply,
                 getattr,
-                (&req, resolver.resolve_id(ino), fh.map(FileHandle::from))
+                (
+                    &req,
+                    resolver.resolve_id(ino),
+                    fh.map(|fh| unsafe { BorrowedFileHandle::from_raw(fh) })
+                )
             );
         });
     }
@@ -301,7 +305,7 @@ where
             match handler.getlk(
                 &req,
                 resolver.resolve_id(ino),
-                FileHandle::from(fh),
+                unsafe { BorrowedFileHandle::from_raw(fh) },
                 lock_owner,
                 lock_info,
             ) {
@@ -362,7 +366,7 @@ where
             match handler.ioctl(
                 &req,
                 resolver.resolve_id(ino),
-                FileHandle::from(fh),
+                unsafe { BorrowedFileHandle::from_raw(fh) },
                 IOCtlFlags::from_bits_retain(flags),
                 cmd,
                 in_data,
@@ -466,7 +470,7 @@ where
             match handler.lseek(
                 &req,
                 resolver.resolve_id(ino),
-                FileHandle::from(fh),
+                unsafe { BorrowedFileHandle::from_raw(fh) },
                 seek_from_raw(Some(whence), offset),
             ) {
                 Ok(new_offset) => reply.offset(new_offset),
@@ -551,7 +555,7 @@ where
                 OpenFlags::from_bits_retain(_flags),
             ) {
                 Ok((file_handle, response_flags)) => {
-                    reply.opened(file_handle.into(), response_flags.bits())
+                    reply.opened(file_handle.as_raw(), response_flags.bits())
                 }
                 Err(e) => {
                     warn!("open: ino {:x?}, [{}], {:?}", ino, e, req);
@@ -572,7 +576,7 @@ where
                 OpenFlags::from_bits_retain(_flags),
             ) {
                 Ok((file_handle, response_flags)) => {
-                    reply.opened(file_handle.into(), response_flags.bits())
+                    reply.opened(file_handle.as_raw(), response_flags.bits())
                 }
                 Err(e) => {
                     warn!("opendir: ino {:x?}, [{}], {:?}", ino, e, req);
@@ -600,7 +604,7 @@ where
             match handler.read(
                 &req,
                 resolver.resolve_id(ino),
-                fh.into(),
+                unsafe { BorrowedFileHandle::from_raw(fh) },
                 seek_from_raw(None, offset),
                 size,
                 FUSEOpenFlags::from_bits_retain(flags),
@@ -676,7 +680,7 @@ where
         &mut self,
         req: &Request,
         ino: u64,
-        _fh: u64,
+        fh: u64,
         _flags: i32,
         _lock_owner: Option<u64>,
         _flush: bool,
@@ -689,7 +693,7 @@ where
             match handler.release(
                 &req,
                 resolver.resolve_id(ino),
-                _fh.into(),
+                unsafe { OwnedFileHandle::from_raw(fh) },
                 OpenFlags::from_bits_retain(_flags),
                 _lock_owner,
                 _flush,
@@ -711,7 +715,7 @@ where
             match handler.releasedir(
                 &req,
                 resolver.resolve_id(ino),
-                FileHandle::from(fh),
+                unsafe { OwnedFileHandle::from_raw(fh) },
                 OpenFlags::from_bits_retain(flags),
             ) {
                 Ok(()) => reply.ok(),
@@ -824,7 +828,7 @@ where
             chgtime: chgtime,
             bkuptime: bkuptime,
             flags: None,
-            file_handle: fh.map(FileHandle::from),
+            file_handle: fh.map(|fh| unsafe { BorrowedFileHandle::from_raw(fh) }),
         };
         execute_task!(self, {
             handle_fuse_reply_attr!(
@@ -865,7 +869,7 @@ where
             match handler.setlk(
                 &req,
                 resolver.resolve_id(ino),
-                FileHandle::from(fh),
+                unsafe { BorrowedFileHandle::from_raw(fh) },
                 lock_owner,
                 lock_info,
                 sleep,
@@ -983,7 +987,7 @@ where
             match handler.write(
                 &req,
                 resolver.resolve_id(ino),
-                FileHandle::from(fh),
+                unsafe { BorrowedFileHandle::from_raw(fh) },
                 seek_from_raw(None, offset),
                 data,
                 FUSEWriteFlags::from_bits_retain(write_flags),

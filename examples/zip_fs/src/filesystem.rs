@@ -88,7 +88,7 @@ impl FuseHandler<Inode> for ZipFs {
         &self,
         _req: &RequestInfo,
         file_id: Inode,
-        _file_handle: Option<FileHandle>,
+        _file_handle: Option<BorrowedFileHandle>,
     ) -> FuseResult<FileAttribute> {
         if file_id.is_filesystem_root() {
             return Ok(get_root_attribute());
@@ -132,7 +132,7 @@ impl FuseHandler<Inode> for ZipFs {
         &self,
         _req: &RequestInfo,
         file_id: Inode,
-        _file_handle: FileHandle,
+        _file_handle: BorrowedFileHandle,
         seek: SeekFrom,
         size: u32,
         _flags: FUSEOpenFlags,
@@ -161,7 +161,7 @@ impl FuseHandler<Inode> for ZipFs {
         &self,
         _req: &RequestInfo,
         file_id: Inode,
-        _file_handle: FileHandle,
+        _file_handle: BorrowedFileHandle,
     ) -> FuseResult<Vec<(OsString, (Inode, FileKind))>> {
         let mapper = self.mapper.read().unwrap();
         let entries = mapper

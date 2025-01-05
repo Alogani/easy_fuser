@@ -78,70 +78,55 @@ macro_rules! fd_handler_readonly_methods {
             &self,
             _req: &RequestInfo,
             _file_id: TId,
-            file_handle: FileHandle,
+            file_handle: BorrowedFileHandle,
             _lock_owner: u64,
         ) -> FuseResult<()> {
-            match FileDescriptor::try_from(file_handle) {
-                Ok(fd) => unix_fs::flush(&fd),
-                Err(e) => Err(e.into()),
-            }
+            unix_fs::flush(file_handle.as_borrowed_fd())
         }
 
         fn fsync(
             &self,
             _req: &RequestInfo,
             _file_id: TId,
-            file_handle: FileHandle,
+            file_handle: BorrowedFileHandle,
             datasync: bool,
         ) -> FuseResult<()> {
-            match FileDescriptor::try_from(file_handle) {
-                Ok(fd) => unix_fs::fsync(&fd, datasync),
-                Err(e) => Err(e.into()),
-            }
+            unix_fs::fsync(file_handle.as_borrowed_fd(), datasync)
         }
 
         fn lseek(
             &self,
             _req: &RequestInfo,
             _file_id: TId,
-            file_handle: FileHandle,
+            file_handle: BorrowedFileHandle,
             seek: SeekFrom,
         ) -> FuseResult<i64> {
-            match FileDescriptor::try_from(file_handle) {
-                Ok(fd) => unix_fs::lseek(&fd, seek),
-                Err(e) => Err(e.into()),
-            }
+            unix_fs::lseek(file_handle.as_borrowed_fd(), seek)
         }
 
         fn read(
             &self,
             _req: &RequestInfo,
             _file_id: TId,
-            file_handle: FileHandle,
+            file_handle: BorrowedFileHandle,
             seek: SeekFrom,
             size: u32,
             _flags: FUSEOpenFlags,
             _lock_owner: Option<u64>,
         ) -> FuseResult<Vec<u8>> {
-            match FileDescriptor::try_from(file_handle) {
-                Ok(fd) => unix_fs::read(&fd, seek, size),
-                Err(e) => Err(e.into()),
-            }
+            unix_fs::read(file_handle.as_borrowed_fd(), seek, size)
         }
 
         fn release(
             &self,
             _req: &RequestInfo,
             _file_id: TId,
-            file_handle: FileHandle,
+            file_handle: OwnedFileHandle,
             _flags: OpenFlags,
             _lock_owner: Option<u64>,
             _flush: bool,
         ) -> FuseResult<()> {
-            match FileDescriptor::try_from(file_handle) {
-                Ok(fd) => unix_fs::release(fd),
-                Err(e) => Err(e.into()),
-            }
+            unix_fs::release(file_handle.into_owned_fd())
         }
     };
 }
@@ -152,55 +137,47 @@ macro_rules! fd_handler_readwrite_methods {
             &self,
             _req: &RequestInfo,
             _file_in: TId,
-            file_handle_in: FileHandle,
+            file_handle_in: BorrowedFileHandle,
             offset_in: i64,
             _file_out: TId,
-            file_handle_out: FileHandle,
+            file_handle_out: BorrowedFileHandle,
             offset_out: i64,
             len: u64,
             _flags: u32,
         ) -> FuseResult<u32> {
-            match (
-                FileDescriptor::try_from(file_handle_in),
-                FileDescriptor::try_from(file_handle_out),
-            ) {
-                (Ok(fd_in), Ok(fd_out)) => {
-                    unix_fs::copy_file_range(&fd_in, offset_in, &fd_out, offset_out, len)
-                }
-                (Err(e), _) | (_, Err(e)) => Err(e.into()),
-            }
+            unix_fs::copy_file_range(
+                file_handle_in.as_borrowed_fd(),
+                offset_in,
+                file_handle_out.as_borrowed_fd(),
+                offset_out,
+                len,
+            )
         }
 
         fn fallocate(
             &self,
             _req: &RequestInfo,
             _file_id: TId,
-            file_handle: FileHandle,
+            file_handle: BorrowedFileHandle,
             offset: i64,
             length: i64,
             mode: FallocateFlags,
         ) -> FuseResult<()> {
-            match FileDescriptor::try_from(file_handle) {
-                Ok(fd) => unix_fs::fallocate(&fd, offset, length, mode),
-                Err(e) => Err(e.into()),
-            }
+            unix_fs::fallocate(file_handle.as_borrowed_fd(), offset, length, mode)
         }
 
         fn write(
             &self,
             _req: &RequestInfo,
             _file_id: TId,
-            file_handle: FileHandle,
+            file_handle: BorrowedFileHandle,
             seek: SeekFrom,
             data: Vec<u8>,
             _write_flags: FUSEWriteFlags,
             _flags: OpenFlags,
             _lock_owner: Option<u64>,
         ) -> FuseResult<u32> {
-            match FileDescriptor::try_from(file_handle) {
-                Ok(fd) => unix_fs::write(&fd, seek, &data),
-                Err(e) => Err(e.into()),
-            }
+            unix_fs::write(file_handle.as_borrowed_fd(), seek, &data)
         }
     };
 }
