@@ -194,8 +194,10 @@ pub enum ErrorKind {
     BadMessage,
     IdentifierRemoved,
     MultihopAttempted,
+    NoDataAvailable,
     LinkHasBeenSevered,
     NoMessage,
+    OutOfStreams,
     Unknown(i32),
 }
 
@@ -289,8 +291,10 @@ impl From<i32> for ErrorKind {
             libc::EBADMSG => Self::BadMessage,
             libc::EIDRM => Self::IdentifierRemoved,
             libc::EMULTIHOP => Self::MultihopAttempted,
+            libc::ENODATA => Self::NoDataAvailable,
             libc::ENOLINK => Self::LinkHasBeenSevered,
             libc::ENOMSG => Self::NoMessage,
+            libc::ENOSR => Self::OutOfStreams,
             _ => Self::Unknown(code),
         }
     }
@@ -376,8 +380,10 @@ impl From<ErrorKind> for i32 {
             ErrorKind::BadMessage => libc::EBADMSG,
             ErrorKind::IdentifierRemoved => libc::EIDRM,
             ErrorKind::MultihopAttempted => libc::EMULTIHOP,
+            ErrorKind::NoDataAvailable => libc::ENODATA,
             ErrorKind::LinkHasBeenSevered => libc::ENOLINK,
             ErrorKind::NoMessage => libc::ENOMSG,
+            ErrorKind::OutOfStreams => libc::ENOSR,
             ErrorKind::Unknown(code) => code, // Unknown variant retains its i32 value
         }
     }
@@ -468,8 +474,10 @@ mod tests {
             ErrorKind::BadMessage,
             ErrorKind::IdentifierRemoved,
             ErrorKind::MultihopAttempted,
+            ErrorKind::NoDataAvailable,
             ErrorKind::LinkHasBeenSevered,
             ErrorKind::NoMessage,
+            ErrorKind::OutOfStreams,
         ];
 
         for kind in error_kinds {
