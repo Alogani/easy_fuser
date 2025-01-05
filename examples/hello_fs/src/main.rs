@@ -1,14 +1,9 @@
-//! Largely inspired from: https://github.com/cberner/fuser/blob/v0.15.1/examples/hello.rs
-//! 
-//! Give you an example of how to create a simple FUSE filesystem in Rust without using templates
-//! Use templates if you want to jumpstart your implementation!
-//! 
-//! It uses Inode as FileIdType for teaching purpose,
-//! but many user will feel more conformtable using PathBuf (see the other examples)
+#![doc = include_str!("../README.md")]
 
 use easy_fuser::prelude::*;
 use easy_fuser::templates::DefaultFuseHandler;
 use std::ffi::{OsStr, OsString};
+use std::path::Path;
 use std::time::{Duration, UNIX_EPOCH};
 
 const TTL: Duration = Duration::from_secs(1); // 1 second
@@ -99,7 +94,7 @@ impl FuseHandler<Inode> for HelloFS {
         &self,
         _req: &RequestInfo,
         file_id: Inode,
-        _file_handle: Option<FileHandle>,
+        _file_handle: Option<BorrowedFileHandle>,
     ) -> FuseResult<FileAttribute> {
         match file_id {
             ROOT_INODE => Ok(HELLO_DIR_ATTR.1),
@@ -112,7 +107,7 @@ impl FuseHandler<Inode> for HelloFS {
         &self,
         _req: &RequestInfo,
         file_id: Inode,
-        _file_handle: FileHandle,
+        _file_handle: BorrowedFileHandle,
         seek: SeekFrom,
         size: u32,
         _flags: FUSEOpenFlags,
@@ -138,7 +133,7 @@ impl FuseHandler<Inode> for HelloFS {
         &self,
         _req: &RequestInfo,
         file_id: Inode,
-        _file_handle: FileHandle,
+        _file_handle: BorrowedFileHandle,
     ) -> FuseResult<Vec<(OsString, (Inode, FileKind))>> {
         if file_id == ROOT_INODE {
             Ok(vec![
@@ -173,5 +168,6 @@ fn main() {
     let mountpoint = std::env::args().nth(1).expect("Usage: hello <MOUNTPOINT>");
     let options = vec![MountOption::RO, MountOption::FSName("hello".to_string())];
 
-    easy_fuser::mount(HelloFS::new(), mountpoint.as_ref(), &options, 1).unwrap();
+    println!("Mounting FTP filesystem...");
+    easy_fuser::mount(HelloFS::new(), Path::new(&mountpoint), &options, 1).unwrap();
 }

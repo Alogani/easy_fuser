@@ -1,9 +1,13 @@
-use std::{ffi::c_void, path::Path};
+use std::{
+    ffi::c_void,
+    os::fd::{AsRawFd, BorrowedFd},
+    path::Path,
+};
 
 use crate::PosixError;
 use libc::{self, c_char, c_int, c_uint, off_t, size_t, ssize_t};
 
-use super::{cstring_from_path, FileDescriptor, StatFs};
+use super::{cstring_from_path, StatFs};
 
 pub(crate) fn get_errno() -> i32 {
     unsafe { *libc::__errno_location() }
@@ -97,17 +101,17 @@ pub fn statfs(path: &Path) -> Result<StatFs, PosixError> {
 ///
 /// Note: This function is not available on all platforms, like BSD, in that case, it will return not implemented.
 pub fn copy_file_range(
-    fd_in: &FileDescriptor,
+    fd_in: BorrowedFd,
     offset_in: i64,
-    fd_out: &FileDescriptor,
+    fd_out: BorrowedFd,
     offset_out: i64,
     len: u64,
 ) -> Result<u32, PosixError> {
     let result = unsafe {
         libc::copy_file_range(
-            fd_in.clone().into(),
+            fd_in.as_raw_fd(),
             offset_in as *mut libc::off_t,
-            fd_out.clone().into(),
+            fd_out.as_raw_fd(),
             offset_out as *mut libc::off_t,
             len as usize,
             0, // placeholder

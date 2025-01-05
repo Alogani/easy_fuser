@@ -1,4 +1,4 @@
-//! # POSIX Filesystem Operations Module
+//! # POSIX Filesystem Operations Module compatible with FUSE signatures.
 //!
 //! This module provides a set of functions that wrap POSIX filesystem operations,
 //! making them more convenient to use within a Rust-based FUSE (Filesystem in Userspace) implementation.
@@ -38,6 +38,7 @@ use std::os::unix::fs::*;
 use crate::types::*;
 use libc::{c_char, c_void, timespec};
 
+// Modify to #[cfg_attr(windows, path = "windows/mod.rs")]
 #[cfg(target_os = "linux")]
 pub(crate) mod linux_fs;
 #[cfg(target_os = "linux")]
@@ -210,9 +211,9 @@ pub fn lookup(path: &Path) -> Result<FileAttribute, PosixError> {
 /// # Note
 /// This function uses the system's file descriptor. If tracking custom inodes,
 /// additional handling may be required.
-pub fn getattr(fd: &FileDescriptor) -> Result<FileAttribute, PosixError> {
+pub fn getattr(fd: BorrowedFd) -> Result<FileAttribute, PosixError> {
     let mut statbuf: libc::stat = unsafe { std::mem::zeroed() };
-    let result = unsafe { libc::fstat(fd.clone().into(), &mut statbuf) };
+    let result = unsafe { libc::fstat(fd.as_raw_fd(), &mut statbuf) };
     if result == -1 {
         return Err(PosixError::last_error(format!(
             "{:?}: fstat failed in getattr",
@@ -474,7 +475,9 @@ pub fn rename(oldpath: &Path, newpath: &Path, flags: RenameFlags) -> Result<(), 
 ///
 /// This function is equivalent to the FUSE `open` operation. It returns a file descriptor
 /// which may not necessarily be equivalent to the FUSE file handle.
-pub fn open(path: &Path, flags: OpenFlags) -> Result<FileDescriptorGuard, PosixError> {
+///
+/// Although this function returns a Fd, it is guaranted to be positive and valid.
+pub fn open(path: &Path, flags: OpenFlags) -> Result<OwnedFd, PosixError> {
     let c_path = cstring_from_path(path)?;
     let fd = unsafe { libc::open(c_path.as_ptr(), flags.bits()) };
     if fd == -1 {
@@ -483,7 +486,7 @@ pub fn open(path: &Path, flags: OpenFlags) -> Result<FileDescriptorGuard, PosixE
             path.display()
         )));
     }
-    Ok(FileDescriptorGuard::new(fd.into()))
+    Ok(unsafe { OwnedFd::from_raw_fd(fd.into()) })
 }
 
 /// Reads data from a file descriptor at a specified offset.
@@ -495,7 +498,7 @@ pub fn open(path: &Path, flags: OpenFlags) -> Result<FileDescriptorGuard, PosixE
 /// For `SeekFrom::Current` or `SeekFrom::End`, it first updates the file's current position,
 /// then reads from there. In all cases, the file's position after the read operation
 /// remains where it was before the read, regardless of how much data was read.
-pub fn read(fd: &FileDescriptor, seek: SeekFrom, size: u32) -> Result<Vec<u8>, PosixError> {
+pub fn read(fd: BorrowedFd, seek: SeekFrom, size: usize) -> Result<Vec<u8>, PosixError> {
     let mut buffer = vec![0; size as usize];
     let offset: libc::off_t = match seek {
         SeekFrom::Start(offset) => offset.try_into().map_err(|_| {
@@ -525,9 +528,9 @@ pub fn read(fd: &FileDescriptor, seek: SeekFrom, size: u32) -> Result<Vec<u8>, P
     };
     let bytes_read = unsafe {
         libc::pread(
-            fd.clone().into(),
+            fd.as_raw_fd(),
             buffer.as_mut_ptr() as *mut libc::c_void,
-            size as usize,
+            size,
             offset,
         )
     };
@@ -547,7 +550,7 @@ pub fn read(fd: &FileDescriptor, seek: SeekFrom, size: u32) -> Result<Vec<u8>, P
 /// For `SeekFrom::Current` or `SeekFrom::End`, it first updates the file's current position,
 /// then reads from there. In all cases, the file's position after the read operation
 /// remains where it was before the read, regardless of how much data was read.
-pub fn write(fd: &FileDescriptor, seek: SeekFrom, data: &[u8]) -> Result<u32, PosixError> {
+pub fn write(fd: BorrowedFd, seek: SeekFrom, data: &[u8]) -> Result<usize, PosixError> {
     let bytes_to_write = data.len() as usize;
     let offset: libc::off_t = match seek {
         SeekFrom::Start(offset) => offset.try_into().map_err(|_| {
@@ -577,7 +580,7 @@ pub fn write(fd: &FileDescriptor, seek: SeekFrom, data: &[u8]) -> Result<u32, Po
     };
     let bytes_written = unsafe {
         libc::pwrite(
-            fd.clone().into(),
+            fd.as_raw_fd(),
             data.as_ptr() as *const libc::c_void,
             bytes_to_write,
             offset,
@@ -587,14 +590,14 @@ pub fn write(fd: &FileDescriptor, seek: SeekFrom, data: &[u8]) -> Result<u32, Po
         return Err(PosixError::last_error(format!("{:?}: write failed", fd)));
     }
 
-    Ok(bytes_written as u32)
+    Ok(bytes_written as usize)
 }
 
 /// Flushes any buffered data to the file system for the given file descriptor.
 ///
 /// This function is equivalent to the FUSE `flush` operation and uses the system's fdatasync call.
-pub fn flush(fd: &FileDescriptor) -> Result<(), PosixError> {
-    let result = unsafe { unix_impl::fdatasync(fd.clone().into()) };
+pub fn flush(fd: BorrowedFd) -> Result<(), PosixError> {
+    let result = unsafe { unix_impl::fdatasync(fd.as_raw_fd()) };
     if result == -1 {
         return Err(PosixError::last_error(format!("{:?}: flush failed", fd)));
     }
@@ -609,8 +612,8 @@ pub fn flush(fd: &FileDescriptor) -> Result<(), PosixError> {
 ///
 /// - If `datasync` is true, it calls `fdatasync`, which synchronizes only the file's data.
 /// - If `datasync` is false, it calls `fsync`, which synchronizes both the file's data and metadata.
-pub fn fsync(fd: &FileDescriptor, datasync: bool) -> Result<(), PosixError> {
-    let fd = fd.clone().into();
+pub fn fsync(fd: BorrowedFd, datasync: bool) -> Result<(), PosixError> {
+    let fd = fd.as_raw_fd();
     let result = unsafe {
         if datasync {
             unix_impl::fdatasync(fd)
@@ -694,13 +697,17 @@ pub fn readdir(path: &Path) -> Result<Vec<(OsString, FileKind)>, PosixError> {
 ///   transmitted to it doesn't need to be released manually.
 /// - It's unnecessary to call this function for `FileDescriptorGuard` instances, as they
 ///   automatically handle release on drop.
-pub fn release(fd: FileDescriptor) -> Result<(), PosixError> {
+pub fn release(fd: OwnedFd) -> Result<(), PosixError> {
     // Attempt to close the file descriptor.
-    let result = unsafe { libc::close(fd.clone().into()) };
+    let raw_fd = fd.into_raw_fd();
+    let result = unsafe { libc::close(raw_fd) };
 
     if result == -1 {
         // Handle errors from the close system call.
-        return Err(PosixError::last_error(format!("{:?}: release failed", fd)));
+        return Err(PosixError::last_error(format!(
+            "{:?}: release failed",
+            raw_fd
+        )));
     }
     Ok(())
 }
@@ -912,12 +919,14 @@ pub fn access(path: &Path, mask: AccessMask) -> Result<(), PosixError> {
 /// It creates a new file if it doesn't exist, opens it with write access. It returns a file descriptor
 /// which may not necessarily be equivalent to the FUSE file handle, along with its attributes.
 /// An error is returned if the file already exists.
+///
+/// Although this function returns a Fd, it is guaranted to be positive and valid.
 pub fn create(
     path: &Path,
     mode: u32,
     umask: u32,
     flags: OpenFlags,
-) -> Result<(FileDescriptorGuard, FileAttribute), PosixError> {
+) -> Result<(OwnedFd, FileAttribute), PosixError> {
     let c_path = cstring_from_path(path)?;
     let open_flags = flags.bits();
     let final_mode = mode & !umask;
@@ -938,7 +947,7 @@ pub fn create(
         )));
     }
 
-    Ok((FileDescriptorGuard::new(fd.into()), lookup(path)?))
+    Ok((unsafe { OwnedFd::from_raw_fd(fd.into()) }, lookup(path)?))
 }
 
 /// Manipulates the allocated disk space for a file.
@@ -949,12 +958,12 @@ pub fn create(
 /// referenced by the given file descriptor, starting at the specified offset
 /// and extending for the given length.
 pub fn fallocate(
-    fd: &FileDescriptor,
+    fd: BorrowedFd,
     offset: i64,
     length: i64,
     mode: FallocateFlags,
 ) -> Result<(), PosixError> {
-    let result = unsafe { unix_impl::fallocate(fd.clone().into(), mode.bits(), offset, length) };
+    let result = unsafe { unix_impl::fallocate(fd.as_raw_fd(), mode.bits(), offset, length) };
     if result == -1 {
         return Err(PosixError::last_error(format!(
             "{:?}: fallocate failed",
@@ -970,13 +979,13 @@ pub fn fallocate(
 ///
 /// It changes the file offset for the given file descriptor, based on the provided
 /// offset and whence values. The new position is returned as a 64-bit integer.
-pub fn lseek(fd: &FileDescriptor, seek: SeekFrom) -> Result<i64, PosixError> {
+pub fn lseek(fd: BorrowedFd, seek: SeekFrom) -> Result<i64, PosixError> {
     let (whence, offset) = match seek {
         SeekFrom::Start(offset) => (libc::SEEK_SET, offset as libc::off_t),
         SeekFrom::Current(offset) => (libc::SEEK_CUR, offset as libc::off_t),
         SeekFrom::End(offset) => (libc::SEEK_END, offset as libc::off_t),
     };
-    let result = unsafe { libc::lseek(fd.clone().into(), offset, whence) };
+    let result = unsafe { libc::lseek(fd.as_raw_fd(), offset, whence) };
     if result == -1 {
         return Err(PosixError::last_error(format!(
             "{:?}: lseek failed. Offset: {:?}, whence: {:?}",
@@ -1058,7 +1067,7 @@ mod tests {
         fs::write(&tmpfile.path(), "blah").unwrap();
         let attr1 = lookup(&tmpfile.path()).unwrap();
         let fd = open(&tmpfile.path(), OpenFlags::READ_ONLY).unwrap();
-        let attr2 = getattr(&fd).unwrap();
+        let attr2 = getattr(fd.as_fd()).unwrap();
         assert!(attr1.size > 0);
         assert_eq!(attr1, attr2);
         drop(tmpfile);
@@ -1142,7 +1151,7 @@ mod tests {
         let tmpfile = NamedTempFile::new().unwrap();
 
         let fd = open(&tmpfile.path(), OpenFlags::empty()).unwrap();
-        assert!(i32::from(fd.clone()) > 0);
+        assert!(fd.as_raw_fd() > 0);
         drop(tmpfile);
     }
 
@@ -1152,14 +1161,14 @@ mod tests {
         fs::write(&tmpfile.path(), b"Hello, world!").unwrap();
 
         let fd = open(&tmpfile.path(), OpenFlags::READ_ONLY).unwrap();
-        let result = read(&fd, SeekFrom::Current(0), 5).unwrap();
+        let result = read(fd.as_fd(), SeekFrom::Current(0), 5).unwrap();
         assert_eq!(result, b"Hello");
 
-        let result = read(&fd, SeekFrom::Current(0), 5).unwrap();
+        let result = read(fd.as_fd(), SeekFrom::Current(0), 5).unwrap();
         assert_eq!(result, b"Hello");
 
         // Attempt to read past the end of the file
-        let result = read(&fd, SeekFrom::Current(50), 10);
+        let result = read(fd.as_fd(), SeekFrom::Current(50), 10);
         assert!(!result.is_err());
         assert_eq!(result.unwrap().len(), 0);
         drop(tmpfile);
@@ -1171,18 +1180,18 @@ mod tests {
         let fd = open(&tmpfile.path(), OpenFlags::READ_WRITE).unwrap();
 
         // Write data to the file
-        let bytes_written = write(&fd, SeekFrom::Current(0), b"Hello, world!").unwrap();
+        let bytes_written = write(fd.as_fd(), SeekFrom::Current(0), b"Hello, world!").unwrap();
         assert_eq!(bytes_written, 13);
 
         // Verify written content
-        let content = read(&fd, SeekFrom::Start(0), 100).unwrap();
+        let content = read(fd.as_fd(), SeekFrom::Start(0), 100).unwrap();
         assert_eq!(&String::from_utf8(content).unwrap(), "Hello, world!");
 
         // Overwrite part of the file
-        let bytes_written = write(&fd, SeekFrom::Current(7), b"Rustaceans!").unwrap();
+        let bytes_written = write(fd.as_fd(), SeekFrom::Current(7), b"Rustaceans!").unwrap();
         assert_eq!(bytes_written, 11);
 
-        let content = read(&fd, SeekFrom::Start(0), 100).unwrap();
+        let content = read(fd.as_fd(), SeekFrom::Start(0), 100).unwrap();
         assert_eq!(&String::from_utf8(content).unwrap(), "Hello, Rustaceans!");
         drop(tmpfile);
     }
@@ -1223,41 +1232,42 @@ mod tests {
         }
 
         let fd = open(&path, OpenFlags::READ_WRITE).unwrap();
+        let borrowed_fd = fd.as_fd();
 
         // Test SeekFrom::Start
-        let new_pos = lseek(&fd, SeekFrom::Start(7)).unwrap();
+        let new_pos = lseek(borrowed_fd, SeekFrom::Start(7)).unwrap();
         assert_eq!(new_pos, 7);
 
         // Read to verify position
-        let buffer = read(&fd, SeekFrom::Current(0), 6).unwrap();
+        let buffer = read(borrowed_fd, SeekFrom::Current(0), 6).unwrap();
         assert_eq!(buffer, b"World!");
 
         // Read again, because read does not update position
-        let buffer = read(&fd, SeekFrom::Current(0), 6).unwrap();
+        let buffer = read(borrowed_fd, SeekFrom::Current(0), 6).unwrap();
         assert_eq!(buffer, b"World!");
 
         // Test SeekFrom::Current
-        let new_pos = lseek(&fd, SeekFrom::Current(-6)).unwrap();
+        let new_pos = lseek(borrowed_fd, SeekFrom::Current(-6)).unwrap();
         assert_eq!(new_pos, 1);
 
         // Read to verify position
-        let buffer = read(&fd, SeekFrom::Current(-1), 5).unwrap();
+        let buffer = read(borrowed_fd, SeekFrom::Current(-1), 5).unwrap();
         assert_eq!(buffer, b"Hello");
 
         // Test SeekFrom::End
-        let new_pos = lseek(&fd, SeekFrom::End(-5)).unwrap();
+        let new_pos = lseek(borrowed_fd, SeekFrom::End(-5)).unwrap();
         assert_eq!(new_pos, 8);
 
         // Read to verify position
-        let buffer = read(&fd, SeekFrom::Current(0), 5).unwrap();
+        let buffer = read(borrowed_fd, SeekFrom::Current(0), 5).unwrap();
         assert_eq!(buffer, b"orld!");
 
         // Test seeking beyond file size
-        let new_pos = lseek(&fd, SeekFrom::Start(20)).unwrap();
+        let new_pos = lseek(borrowed_fd, SeekFrom::Start(20)).unwrap();
         assert_eq!(new_pos, 20);
 
         // Attempt to read from beyond file size
-        let result = read(&fd, SeekFrom::Current(0), 5).unwrap();
+        let result = read(borrowed_fd, SeekFrom::Current(0), 5).unwrap();
         assert_eq!(result.len(), 0);
 
         drop(tmpfile);

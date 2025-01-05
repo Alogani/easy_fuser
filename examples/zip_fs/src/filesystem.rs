@@ -1,148 +1,191 @@
 use zip::ZipArchive;
 
-use threadsafe_lru::LruCache;
-
+use easy_fuser::inode_mapper::*;
 use easy_fuser::prelude::*;
 use easy_fuser::templates::DefaultFuseHandler;
 
 use std::ffi::{OsStr, OsString};
 use std::fs::File;
 use std::io::{Read, Seek};
-use std::path::{Path, PathBuf};
-use std::sync::Mutex;
+use std::path::Path;
+use std::sync::{Mutex, RwLock};
 
 use crate::helpers::*;
 
+/// Limitations of Zip:
+/// - do not support lookup using a parent
+/// - dir contains a trailing slash
 pub struct ZipFs {
     archive: Mutex<ZipArchive<File>>,
-    folder_cache: LruCache<PathBuf, ()>,
+    // index and is_dir are stored in a tuple
+    mapper: RwLock<InodeMapper<(usize, bool)>>,
     inner_fs: DefaultFuseHandler,
 }
 
 impl ZipFs {
-    pub fn new(zip_path: &Path, cache_cap: usize) -> std::io::Result<Self> {
+    pub fn new(zip_path: &Path) -> std::io::Result<Self> {
         let file = File::open(zip_path)?;
-        let archive = ZipArchive::new(file)?;
-        Ok(Self {
-            archive: Mutex::new(archive),
-            inner_fs: DefaultFuseHandler::new(),
-            folder_cache: LruCache::new(cache_cap, (cache_cap as f64).sqrt().ceil() as usize),
-        })
-    }
-
-    fn with_file<T, F, R>(&self, path: &Path, func: F) -> Option<R>
-    where
-        T: ZipExtractor,
-        F: for<'a> FnOnce(&mut T::Output<'a>) -> R,
-    {
-        let path_str = path.to_str()?;
-
-        let mut archive = self.archive.lock().ok()?;
-        // Try to find the file without the trailing slash
-        if let Some(ref mut file) = T::get_by_name(&mut archive, path_str) {
-            return Some(func(file));
+        let mut archive = ZipArchive::new(file)?;
+        // To circumvet the limits of Zip, we will index all files in the archive
+        let archive_len = archive.len();
+        let mut entries = Vec::with_capacity(archive_len);
+        for idx in 0..archive_len {
+            let file_path = archive.by_index(idx).unwrap().name_raw().to_vec();
+            let (components, data) = {
+                let mut path_iter = file_path.into_iter();
+                let mut components = Vec::new();
+                let mut acc = Vec::new();
+                let mut is_dir = true;
+                loop {
+                    let c = path_iter.next();
+                    match c {
+                        None => {
+                            if !acc.is_empty() {
+                                components
+                                    .push(unsafe { OsString::from_encoded_bytes_unchecked(acc) });
+                                is_dir = false;
+                            }
+                            break;
+                        }
+                        Some(b'/') => {
+                            if !acc.is_empty() {
+                                components
+                                    .push(unsafe { OsString::from_encoded_bytes_unchecked(acc) });
+                                acc = Vec::new();
+                            }
+                        }
+                        Some(c) => {
+                            acc.push(c);
+                        }
+                    }
+                }
+                (components, (idx, is_dir))
+            };
+            entries.push((components, move |_: ValueCreatorParams<(usize, bool)>| data));
         }
 
-        // If not found, try with a trailing slash (for directories)
-        let path_str_with_slash = format!("{}/", path_str);
-        let result = if let Some(ref mut file) = T::get_by_name(&mut archive, &path_str_with_slash)
-        {
-            // If found with trailing slash, update the folder cache
-            self.folder_cache.insert(path.to_path_buf(), ());
-            Some(func(file))
-        } else {
-            None
-        };
-        return result;
+        let mut mapper = InodeMapper::new((0, true));
+        mapper
+            .batch_insert(&mapper.get_root_inode(), entries, |_| {
+                panic!("archive contains orphan childs")
+            })
+            .expect("Failed to batch insert entries");
+
+        Ok(Self {
+            archive: Mutex::new(archive),
+            mapper: RwLock::new(mapper),
+            inner_fs: DefaultFuseHandler::new(),
+        })
     }
 }
 
-impl FuseHandler<PathBuf> for ZipFs {
-    fn get_inner(&self) -> &dyn FuseHandler<PathBuf> {
+impl FuseHandler<Inode> for ZipFs {
+    fn get_inner(&self) -> &dyn FuseHandler<Inode> {
         &self.inner_fs
     }
 
     fn getattr(
         &self,
         _req: &RequestInfo,
-        file_id: PathBuf,
-        _file_handle: Option<FileHandle>,
+        file_id: Inode,
+        _file_handle: Option<BorrowedFileHandle>,
     ) -> FuseResult<FileAttribute> {
         if file_id.is_filesystem_root() {
             return Ok(get_root_attribute());
         }
-        self.with_file::<NonSeekable, _, _>(&file_id, |file| create_file_attribute(file))
-            .ok_or_else(|| PosixError::new(ErrorKind::FileNotFound, "File not found"))
+        let InodeInfo {
+            parent: _,
+            name: _,
+            data: &(idx, is_dir),
+        } = self
+            .mapper
+            .read()
+            .unwrap()
+            .get(&file_id)
+            .expect("inode not found");
+        let mut archive = self.archive.lock().unwrap();
+        let file_attr = create_file_attribute(&archive.by_index(idx)?, is_dir);
+        Ok(file_attr)
     }
 
     fn lookup(
         &self,
         _req: &RequestInfo,
-        parent_id: PathBuf,
+        parent_id: Inode,
         name: &OsStr,
-    ) -> FuseResult<FileAttribute> {
-        let path = parent_id.join(name);
-        self.with_file::<NonSeekable, _, _>(&path, |file| create_file_attribute(file))
-            .ok_or_else(|| PosixError::new(ErrorKind::FileNotFound, "File not found"))
+    ) -> FuseResult<(Inode, FileAttribute)> {
+        let binding = self.mapper.read().unwrap();
+        let LookupResult {
+            inode,
+            name: _,
+            data: &(idx, is_dir),
+        } = binding
+            .lookup(&parent_id, name)
+            .ok_or_else(|| ErrorKind::FileNotFound.to_error("File not found"))?;
+
+        let mut archive = self.archive.lock().unwrap();
+        let file_attr = create_file_attribute(&archive.by_index(idx)?, is_dir);
+        Ok((inode.clone(), file_attr))
     }
 
     fn read(
         &self,
         _req: &RequestInfo,
-        file_id: PathBuf,
-        _file_handle: FileHandle,
+        file_id: Inode,
+        _file_handle: BorrowedFileHandle,
         seek: SeekFrom,
         size: u32,
         _flags: FUSEOpenFlags,
         _lock_owner: Option<u64>,
     ) -> FuseResult<Vec<u8>> {
-        self.with_file::<Seekable, _, _>(&file_id, |file| {
-            let mut buffer = vec![0; size as usize];
-            file.seek(seek)?;
-            let bytes_read = file.read(&mut buffer)?;
-            buffer.truncate(bytes_read);
-            Ok(buffer)
-        })
-        .ok_or_else(|| PosixError::new(ErrorKind::FileNotFound, "File not found"))?
+        let InodeInfo {
+            parent: _,
+            name: _,
+            data: &(idx, _),
+        } = self
+            .mapper
+            .read()
+            .unwrap()
+            .get(&file_id)
+            .expect("inode not found");
+        let mut archive = self.archive.lock().unwrap();
+        let mut zip_file = archive.by_index_seek(idx)?;
+        let mut buffer = vec![0; size as usize];
+        zip_file.seek(seek)?;
+        let bytes_read = zip_file.read(&mut buffer)?;
+        buffer.truncate(bytes_read);
+        Ok(buffer)
     }
 
     fn readdir(
         &self,
         _req: &RequestInfo,
-        file_id: PathBuf,
-        _file_handle: FileHandle,
-    ) -> FuseResult<Vec<(OsString, FileKind)>> {
-        let mut entries = Vec::new();
-        entries.push((OsString::from("."), FileKind::Directory));
-        entries.push((OsString::from(".."), FileKind::Directory));
-
-        if let Ok(mut archive) = self.archive.lock() {
-            for i in 0..archive.len() {
-                if let Ok(file) = archive.by_index(i) {
-                    let file_path = file.enclosed_name().unwrap();
-                    if file_path.parent() == Some(&file_id) {
-                        let mut name_bytes = file_path.into_os_string().into_encoded_bytes();
-                        let name = unsafe {
-                            if name_bytes[name_bytes.len() - 1] == b'/' {
-                                name_bytes.pop();
-                                let name = OsString::from_encoded_bytes_unchecked(name_bytes);
-                                self.folder_cache.insert(file_id.join(name.clone()), ());
-                                name
-                            } else {
-                                OsString::from_encoded_bytes_unchecked(name_bytes)
-                            }
-                        };
-                        let kind = if file.is_dir() {
+        file_id: Inode,
+        _file_handle: BorrowedFileHandle,
+    ) -> FuseResult<Vec<(OsString, (Inode, FileKind))>> {
+        let mapper = self.mapper.read().unwrap();
+        let entries = mapper
+            .get_children(&file_id)
+            .into_iter()
+            .map(|(_, inode)| {
+                let InodeInfo {
+                    parent: _,
+                    name,
+                    data: &(_, is_dir),
+                } = mapper.get(inode).unwrap();
+                (
+                    (**name).clone(),
+                    (
+                        inode.clone(),
+                        if is_dir {
                             FileKind::Directory
                         } else {
                             FileKind::RegularFile
-                        };
-                        entries.push((name, kind));
-                    }
-                }
-            }
-        }
-
+                        },
+                    ),
+                )
+            })
+            .collect();
         Ok(entries)
     }
 }

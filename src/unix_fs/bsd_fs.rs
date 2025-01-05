@@ -6,6 +6,7 @@ use crate::PosixError;
 use std::ffi::c_void;
 use libc::{self, c_char, c_int, off_t, size_t, ssize_t};
 
+use super::{cstring_from_path, StatFs};
 use std::path::Path;
 
 pub(super) unsafe fn fallocate(fd: c_int, _mode: c_int, offset: off_t, len: off_t) -> c_int {
