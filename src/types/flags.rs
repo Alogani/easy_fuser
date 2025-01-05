@@ -28,16 +28,22 @@ bitflags! {
     /// Flags used in fallocate calls.
     pub struct FallocateFlags: i32 {
         /// Retain file size; don't extend even if offset + len is greater
+        #[cfg(target_os = "linux")]
         const KEEP_SIZE = libc::FALLOC_FL_KEEP_SIZE;
         /// Deallocate space (must be ORed with KEEP_SIZE)
+        #[cfg(target_os = "linux")]
         const PUNCH_HOLE = libc::FALLOC_FL_PUNCH_HOLE;
         /// Remove a range from the file without leaving a hole
+        #[cfg(target_os = "linux")]
         const COLLAPSE_RANGE = libc::FALLOC_FL_COLLAPSE_RANGE;
         /// Zero and ensure allocation of a range
+        #[cfg(target_os = "linux")]
         const ZERO_RANGE = libc::FALLOC_FL_ZERO_RANGE;
         /// Insert a hole at the specified range, shifting existing data
+        #[cfg(target_os = "linux")]
         const INSERT_RANGE = libc::FALLOC_FL_INSERT_RANGE;
         /// Make shared file data extents private to the file
+        #[cfg(target_os = "linux")]
         const UNSHARE_RANGE = libc::FALLOC_FL_UNSHARE_RANGE;
         const _ = !0;
     }
