@@ -68,13 +68,13 @@
 /// Many methods in this trait have default implementations that delegate to the inner handler returned by `get_inner()`.
 /// This allows for easy extension and customization of existing filesystem implementations by chaining/overriding their behaviors.
 ///
-/// # Thread Safety
+/// # Thread Safety & Lifetime
 ///
-/// This trait requires implementors to be `Send` and `Sync`, which is required for use with the FUSE library.
+/// This trait does not require Send + Sync when serial feature is set. However, it does need at least Send to use spawn_mount.
 ///
-/// # Lifetime
+/// When using Parallel or Async flag, the Send + Sync traits are required.
 ///
-/// The trait is bound by the `'static` lifetime, which is required for use with the FUSE library.
+/// In any case, the trait is bound by the `'static` lifetime.
 ///
 //// # Additional Resources:
 /// For more detailed information, refer to the fuser project documentation, which serves as the foundation for this crate: https://docs.rs/fuser
@@ -86,7 +86,19 @@ use std::time::Duration;
 
 use crate::types::*;
 
-pub trait FuseHandler<TId: FileIdType>: Send + Sync + 'static {
+mod private {
+    #[cfg(not(feature = "serial"))]
+    pub trait OptionalSendSync: Sync + Send {}
+    #[cfg(not(feature = "serial"))]
+    impl<T: Sync + Send> OptionalSendSync for T {}
+    #[cfg(feature = "serial")]
+    pub trait OptionalSendSync {}
+    #[cfg(feature = "serial")]
+    impl<T> OptionalSendSync for T {}
+}
+use private::OptionalSendSync;
+
+pub trait FuseHandler<TId: FileIdType>: OptionalSendSync + 'static {
     /// Delegate unprovided methods to another FuseHandler, enabling composition
     fn get_inner(&self) -> &dyn FuseHandler<TId>;
 
@@ -129,10 +141,10 @@ pub trait FuseHandler<TId: FileIdType>: Send + Sync + 'static {
         &self,
         req: &RequestInfo,
         file_in: TId,
-        file_handle_in: FileHandle,
+        file_handle_in: BorrowedFileHandle,
         offset_in: i64,
         file_out: TId,
-        file_handle_out: FileHandle,
+        file_handle_out: BorrowedFileHandle,
         offset_out: i64,
         len: u64,
         flags: u32, // Not implemented yet in standard
@@ -164,7 +176,7 @@ pub trait FuseHandler<TId: FileIdType>: Send + Sync + 'static {
         mode: u32,
         umask: u32,
         flags: OpenFlags,
-    ) -> FuseResult<(FileHandle, TId::Metadata, FUSEOpenResponseFlags)> {
+    ) -> FuseResult<(OwnedFileHandle, TId::Metadata, FUSEOpenResponseFlags)> {
         self.get_inner()
             .create(req, parent_id, name, mode, umask, flags)
     }
@@ -174,7 +186,7 @@ pub trait FuseHandler<TId: FileIdType>: Send + Sync + 'static {
         &self,
         req: &RequestInfo,
         file_id: TId,
-        file_handle: FileHandle,
+        file_handle: BorrowedFileHandle,
         offset: i64,
         length: i64,
         mode: FallocateFlags,
@@ -191,7 +203,7 @@ pub trait FuseHandler<TId: FileIdType>: Send + Sync + 'static {
         &self,
         req: &RequestInfo,
         file_id: TId,
-        file_handle: FileHandle,
+        file_handle: BorrowedFileHandle,
         lock_owner: u64,
     ) -> FuseResult<()> {
         self.get_inner()
@@ -210,7 +222,7 @@ pub trait FuseHandler<TId: FileIdType>: Send + Sync + 'static {
         &self,
         req: &RequestInfo,
         file_id: TId,
-        file_handle: FileHandle,
+        file_handle: BorrowedFileHandle,
         datasync: bool,
     ) -> FuseResult<()> {
         self.get_inner().fsync(req, file_id, file_handle, datasync)
@@ -226,7 +238,7 @@ pub trait FuseHandler<TId: FileIdType>: Send + Sync + 'static {
         &self,
         req: &RequestInfo,
         file_id: TId,
-        file_handle: FileHandle,
+        file_handle: BorrowedFileHandle,
         datasync: bool,
     ) -> FuseResult<()> {
         self.get_inner()
@@ -238,7 +250,7 @@ pub trait FuseHandler<TId: FileIdType>: Send + Sync + 'static {
         &self,
         req: &RequestInfo,
         file_id: TId,
-        file_handle: Option<FileHandle>,
+        file_handle: Option<BorrowedFileHandle>,
     ) -> FuseResult<FileAttribute> {
         self.get_inner().getattr(req, file_id, file_handle)
     }
@@ -248,7 +260,7 @@ pub trait FuseHandler<TId: FileIdType>: Send + Sync + 'static {
         &self,
         req: &RequestInfo,
         file_id: TId,
-        file_handle: FileHandle,
+        file_handle: BorrowedFileHandle,
         lock_owner: u64,
         lock_info: LockInfo,
     ) -> FuseResult<LockInfo> {
@@ -272,7 +284,7 @@ pub trait FuseHandler<TId: FileIdType>: Send + Sync + 'static {
         &self,
         req: &RequestInfo,
         file_id: TId,
-        file_handle: FileHandle,
+        file_handle: BorrowedFileHandle,
         flags: IOCtlFlags,
         cmd: u32,
         in_data: Vec<u8>,
@@ -308,7 +320,7 @@ pub trait FuseHandler<TId: FileIdType>: Send + Sync + 'static {
         &self,
         req: &RequestInfo,
         file_id: TId,
-        file_handle: FileHandle,
+        file_handle: BorrowedFileHandle,
         seek: SeekFrom,
     ) -> FuseResult<i64> {
         self.get_inner().lseek(req, file_id, file_handle, seek)
@@ -348,7 +360,7 @@ pub trait FuseHandler<TId: FileIdType>: Send + Sync + 'static {
         req: &RequestInfo,
         file_id: TId,
         flags: OpenFlags,
-    ) -> FuseResult<(FileHandle, FUSEOpenResponseFlags)> {
+    ) -> FuseResult<(OwnedFileHandle, FUSEOpenResponseFlags)> {
         self.get_inner().open(req, file_id, flags)
     }
 
@@ -360,7 +372,7 @@ pub trait FuseHandler<TId: FileIdType>: Send + Sync + 'static {
         req: &RequestInfo,
         file_id: TId,
         flags: OpenFlags,
-    ) -> FuseResult<(FileHandle, FUSEOpenResponseFlags)> {
+    ) -> FuseResult<(OwnedFileHandle, FUSEOpenResponseFlags)> {
         self.get_inner().opendir(req, file_id, flags)
     }
 
@@ -373,7 +385,7 @@ pub trait FuseHandler<TId: FileIdType>: Send + Sync + 'static {
         &self,
         req: &RequestInfo,
         file_id: TId,
-        file_handle: FileHandle,
+        file_handle: BorrowedFileHandle,
         seek: SeekFrom,
         size: u32,
         flags: FUSEOpenFlags,
@@ -393,7 +405,7 @@ pub trait FuseHandler<TId: FileIdType>: Send + Sync + 'static {
         &self,
         req: &RequestInfo,
         file_id: TId,
-        file_handle: FileHandle,
+        file_handle: BorrowedFileHandle,
     ) -> FuseResult<Vec<(OsString, TId::MinimalMetadata)>> {
         self.get_inner().readdir(req, file_id, file_handle)
     }
@@ -408,7 +420,7 @@ pub trait FuseHandler<TId: FileIdType>: Send + Sync + 'static {
         &self,
         req: &RequestInfo,
         file_id: TId,
-        file_handle: FileHandle,
+        file_handle: BorrowedFileHandle,
     ) -> FuseResult<Vec<(OsString, TId::Metadata)>> {
         let readdir_result = self.readdir(req, file_id.clone(), file_handle)?;
         let mut result = Vec::with_capacity(readdir_result.len());
@@ -432,7 +444,7 @@ pub trait FuseHandler<TId: FileIdType>: Send + Sync + 'static {
         &self,
         req: &RequestInfo,
         file_id: TId,
-        file_handle: FileHandle,
+        file_handle: OwnedFileHandle,
         flags: OpenFlags,
         lock_owner: Option<u64>,
         flush: bool,
@@ -450,7 +462,7 @@ pub trait FuseHandler<TId: FileIdType>: Send + Sync + 'static {
         &self,
         req: &RequestInfo,
         file_id: TId,
-        file_handle: FileHandle,
+        file_handle: OwnedFileHandle,
         flags: OpenFlags,
     ) -> FuseResult<()> {
         self.get_inner()
@@ -501,7 +513,7 @@ pub trait FuseHandler<TId: FileIdType>: Send + Sync + 'static {
         &self,
         req: &RequestInfo,
         file_id: TId,
-        file_handle: FileHandle,
+        file_handle: BorrowedFileHandle,
         lock_owner: u64,
         lock_info: LockInfo,
         sleep: bool,
@@ -549,7 +561,7 @@ pub trait FuseHandler<TId: FileIdType>: Send + Sync + 'static {
         &self,
         req: &RequestInfo,
         file_id: TId,
-        file_handle: FileHandle,
+        file_handle: BorrowedFileHandle,
         seek: SeekFrom,
         data: Vec<u8>,
         write_flags: FUSEWriteFlags,

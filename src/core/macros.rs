@@ -109,11 +109,9 @@ macro_rules! handle_dir_read {
             // ### Initialize directory iterator
             let mut dir_iter = match $offset {
                 // First read: fetch children from handler
-                0 => match handler.$handler_method(
-                    &req_info,
-                    resolver.resolve_id($ino),
-                    FileHandle::from($fh),
-                ) {
+                0 => match handler.$handler_method(&req_info, resolver.resolve_id($ino), unsafe {
+                    BorrowedFileHandle::from_raw($fh)
+                }) {
                     Ok(children) => {
                         // Unpack and process children
                         let (child_list, attr_list): (Vec<_>, Vec<_>) = children

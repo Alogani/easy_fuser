@@ -8,12 +8,12 @@ use super::{Inode, ROOT_INODE};
 
 /// Helper structure for managing inodes and their relationships.
 ///
-/// InodeMapper<T> efficiently stores and manages inodes, their associated data,
-/// and parent-child relationships. It uses InodeData<T> for internal storage,
-/// with InodeValue<T> representing individual inode entries.
+/// `InodeMapper<T>` efficiently stores and manages inodes, their associated data,
+/// and parent-child relationships. It uses `InodeData<T>` for internal storage,
+/// with `InodeValue<T>` representing individual inode entries.
 ///
 /// Use this structure if you want to handle inodes in a finer grained way.
-/// Most users will prefer to use FuseHandler<PathBuf> or FuseHandler<Vec<OsString>>
+/// Most users will prefer to use `FuseHandler<PathBuf>` or `FuseHandler<Vec<OsString>>`
 /// to avoid managing inodes manually.
 ///
 /// # Note
@@ -39,7 +39,7 @@ struct InodeValue<T> {
 
 pub struct ValueCreatorParams<'a, T> {
     pub new_inode: &'a Inode,
-    pub parent_inode: &'a Inode,
+    pub parent: &'a Inode,
     pub child_name: &'a OsStr,
     pub existing_data: Option<&'a T>,
 }
@@ -51,13 +51,13 @@ pub struct LookupResult<'a, T> {
 }
 
 pub struct InodeInfo<'a, T> {
-    pub parent_inode: &'a Inode,
+    pub parent: &'a Inode,
     pub name: &'a Arc<OsString>,
     pub data: &'a T,
 }
 
 pub struct InodeInfoMut<'a, T> {
-    pub parent_inode: &'a Inode,
+    pub parent: &'a Inode,
     pub name: &'a mut Arc<OsString>,
     pub data: &'a mut T,
 }
@@ -169,7 +169,7 @@ impl<T: Send + Sync + 'static> InodeMapper<T> {
                     parent: parent.clone(),
                     name: child.clone(),
                     data: value_creator(ValueCreatorParams {
-                        parent_inode: &parent,
+                        parent: &parent,
                         new_inode: &inode,
                         child_name: &child.as_ref(),
                         existing_data: None,
@@ -179,7 +179,7 @@ impl<T: Send + Sync + 'static> InodeMapper<T> {
         } else {
             let inode_value = &mut self.data.inodes.get_mut(&inode).unwrap();
             inode_value.data = value_creator(ValueCreatorParams {
-                parent_inode: &parent,
+                parent: &parent,
                 new_inode: &inode,
                 child_name: &child.as_ref(),
                 existing_data: Some(&inode_value.data),
@@ -221,8 +221,8 @@ impl<T: Send + Sync + 'static> InodeMapper<T> {
     /// for the parent's children HashMap. It checks if the parent exists before insertion.
     ///
     /// # Behavior
-    /// - Returns Err(InsertError::ParentNotFound) if the parent doesn't exist.
-    /// - If successful, returns Ok(Vec<Inode>) containing the newly created or existing child inodes.
+    /// - Returns `Err(InsertError::ParentNotFound)` if the parent doesn't exist.
+    /// - If successful, returns `Ok(Vec<Inode>)` containing the newly created or existing child inodes.
     ///
     /// # Performance
     /// Optimizes memory allocation by reserving space in the parent's children HashMap based on
@@ -357,41 +357,24 @@ impl<T: Send + Sync + 'static> InodeMapper<T> {
     ///
     /// # Notes
     /// - Returns `None` if any inode in the path is not found, indicating an incomplete or invalid path.
-    /// - The root inode is identified when its parent is equal to itself.
-    /// - The returned `Vec` contains `OsStringWrapper`s, which are efficient wrappers around `OsString`s.
-    pub fn resolve(&self, inode: &Inode) -> Option<(Vec<&OsStr>, &T)> {
-        let mut path_builder: Vec<&OsStr> = Vec::new();
-        let mut current = self.data.inodes.get(inode)?;
-        let data = &current.data;
+    /// - The root inode is identified when its parent is equal to itself and is never returned
+    pub fn resolve(&self, inode: &Inode) -> Option<Vec<InodeInfo<T>>> {
+        let mut result: Vec<InodeInfo<T>> = Vec::new();
+        let mut current_info = self.get(inode)?;
+        let mut current_inode = inode.clone();
 
-        if current.parent == *inode {
-            return Some((path_builder, data));
+        while *current_info.parent != current_inode {
+            current_inode = current_info.parent.clone();
+            result.push(current_info);
+            current_info = self.get(&current_inode)?;
         }
 
-        loop {
-            path_builder.push(current.name.as_ref());
-
-            let parent = &current.parent;
-            if let Some(inode_value) = self.data.inodes.get(parent) {
-                // If we've reached the root (parent is itself), break the loop without including it
-                if inode_value.parent == *parent {
-                    break;
-                }
-
-                // Move to the parent
-                current = inode_value;
-            } else {
-                // If we can't find the inode, the path is incomplete, so return None
-                return None;
-            }
-        }
-
-        Some((path_builder, data))
+        Some(result)
     }
 
     pub fn get(&self, inode: &Inode) -> Option<InodeInfo<T>> {
         self.data.inodes.get(inode).map(|inode_value| InodeInfo {
-            parent_inode: &inode_value.parent,
+            parent: &inode_value.parent,
             name: inode_value.name.as_ref(),
             data: &inode_value.data,
         })
@@ -402,7 +385,7 @@ impl<T: Send + Sync + 'static> InodeMapper<T> {
             .inodes
             .get_mut(inode)
             .map(|inode_value| InodeInfoMut {
-                parent_inode: &inode_value.parent,
+                parent: &inode_value.parent,
                 name: inode_value.name.as_mut(),
                 data: &mut inode_value.data,
             })
@@ -688,15 +671,15 @@ mod tests {
             .unwrap();
 
         // Resolve the file inode
-        let path = mapper.resolve(&file_inode).unwrap().0;
+        let path = mapper.resolve(&file_inode).unwrap();
 
         // Check the resolved path (it should be in reverse order)
         assert_eq!(path.len(), 2);
-        assert_eq!(path[0], "file.txt");
-        assert_eq!(path[1], "dir");
+        assert_eq!(**path[0].name, "file.txt");
+        assert_eq!(**path[1].name, "dir");
 
         // Resolve the root inode (should be empty)
-        let root_path = mapper.resolve(&ROOT_INODE).unwrap().0;
+        let root_path = mapper.resolve(&ROOT_INODE).unwrap();
         assert!(root_path.is_empty());
 
         // Try to resolve a non-existent inode
@@ -759,7 +742,7 @@ mod tests {
 
         // Verify inode data is updated
         let inode_value = mapper.get(&child).unwrap();
-        assert_eq!(inode_value.parent_inode, &parent2);
+        assert_eq!(inode_value.parent, &parent2);
         assert_eq!(inode_value.name.as_os_str(), OsStr::new("new_name"));
     }
 
