@@ -1,0 +1,41 @@
+name: macOS CI
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+
+  build:
+    runs-on: macos-latest
+    
+    steps:
+    - uses: actions/checkout@v2
+    - name: Setup Rust
+      uses: actions-rs/toolchain@v1
+      with:
+        toolchain: stable
+        override: true
+    - name: Install dependencies
+      run: |
+        brew install macfuse
+    - name: Build
+      run: cargo build --verbose --features serial
+    - name: Run tests
+      run: ./tests/run_all_tests.sh
+    - name: Run tests of crates inside examples folder
+      run: |
+        crate_dir="$(pwd)"
+        for dir in examples/*/; do
+          if [ -f "${dir}Cargo.toml" ]; then
+            echo "Running tests in ${dir}"
+            if ! (cd "${dir}" && cargo test); then
+              echo "Tests failed in ${dir}"
+              exit 1
+            fi
+            cd "$crate_dir"
+          fi
+        done
