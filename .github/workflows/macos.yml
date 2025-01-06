@@ -5,27 +5,45 @@ on:
   push:
     branches: [ main ]
   pull_request:
-    branches: [ main ]
+    branches: [ main, devel ]
 
 jobs:
-
   build:
+    name: "Main tests"
     runs-on: macos-latest
+    strategy:
+      matrix:
+        toolchain:
+          - stable
+          - nightly
+        feature:
+          - serial
+          - parallel
     
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v4
     - name: Setup Rust
       uses: actions-rs/toolchain@v1
       with:
         toolchain: stable
         override: true
     - name: Install dependencies
-      run: |
-        brew install macfuse
+      run: brew install macfuse
+    - name: Set PKG_CONFIG_PATH
+      run: echo "PKG_CONFIG_PATH=/usr/lib/x86_64-linux-gnu/pkgconfig" >> $GITHUB_ENV
+    - name: Setup Rust
+      run: rustup update ${{ matrix.toolchain }} && rustup default ${{ matrix.toolchain }}
     - name: Build
-      run: cargo build --verbose --features serial
+      run: cargo build --verbose --features ${{ matrix.feature }}
+    - name: Run dependency test
+      run: cargo test --package easy_fuser --features parallel --test fuser_hello -- test_hello_fs --ignored
     - name: Run tests
-      run: ./tests/run_all_tests.sh
+      run: cargo test  --verbose --features ${{ matrix.feature }}
+
+  test_examples:
+    name: "Examples crates"
+    runs-on: macos-latest
+    steps:
     - name: Run tests of crates inside examples folder
       run: |
         crate_dir="$(pwd)"
