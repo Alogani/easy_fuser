@@ -3,7 +3,7 @@ name: macOS CI
 on:
   workflow_dispatch:
   push:
-    branches: [ main, macos_workflow ]
+    branches: [ main ]
   pull_request:
     branches: [ main, devel, macos_workflow ]
 
@@ -21,7 +21,6 @@ jobs:
     
     steps:
     - uses: actions/checkout@v4
-    - name: Setup Rust
     - name: Install dependencies
       run: brew install macfuse
     - name: Set PKG_CONFIG_PATH
