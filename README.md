@@ -1,6 +1,6 @@
 # easy_fuser
 
-![CI](https://github.com/Alogani/easy_fuser/actions/workflows/ubuntu.yml/badge.svg)
+[![CI Ubuntu](https://github.com/Alogani/easy_fuser/actions/workflows/ubuntu.yml/badge.svg?branch=main)](https://github.com/Alogani/easy_fuser/actions/workflows/ubuntu.yml?query=branch%3Amain)
 [![Crates.io](https://img.shields.io/crates/v/easy_fuser.svg)](https://crates.io/crates/easy_fuser)
 [![Documentation](https://docs.rs/easy_fuser/badge.svg)](https://docs.rs/easy_fuser)
 [![MIT License](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/Alogani/easy_fuser/blob/master/LICENSE.md)
