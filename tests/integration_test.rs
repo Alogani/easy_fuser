@@ -1,10 +1,11 @@
-use easy_fuser::spawn_mount;
+use easy_fuser::prelude::*;
 use easy_fuser::templates::{mirror_fs::*, DefaultFuseHandler};
 
 use std::fs::{self, File};
 use std::io::Write;
 use std::os::unix::fs::MetadataExt;
 use std::os::unix::fs::PermissionsExt;
+use std::time::Duration;
 use tempfile::TempDir;
 
 #[test]
@@ -15,14 +16,17 @@ fn test_mirror_fs_operations() {
 
     let mntpoint = mount_dir.path().to_path_buf();
     let source_path = source_dir.path().to_path_buf();
-    #[cfg(feature = "serial")]
-    let num_threads = 1;
-    #[cfg(feature = "parallel")]
-    let num_threads = 4;
 
-    // Create and mount the MirrorFs
-    let fs = MirrorFs::new(source_path.clone(), DefaultFuseHandler::new());
-    let session = spawn_mount(fs, &mntpoint, &[], num_threads).unwrap();
+    // We won't use spawn_mount because it MirrorFs doesn't implement Send in serial mode
+    let mntpoint_clone = mntpoint.clone();
+    let handle = std::thread::spawn(move || {
+        let fs = MirrorFs::new(source_path.clone(), DefaultFuseHandler::new());
+        #[cfg(feature = "serial")]
+        mount(fs, &mntpoint_clone, &[]).unwrap();
+        #[cfg(not(feature = "serial"))]
+        mount(fs, &mntpoint_clone, &[], 4).unwrap();
+    });
+    std::thread::sleep(Duration::from_millis(50)); // Wait for the mount to finish
 
     // Create a file and check its existence
     let test_file = mntpoint.join("test_file.txt");
@@ -90,6 +94,10 @@ fn test_mirror_fs_operations() {
     let truncated_len = fs::metadata(&new_file).unwrap().len();
     assert_eq!(truncated_len, truncate_len);
 
-    // Clean up
-    drop(session);
+    eprintln!("Unmounting filesystem...");
+    let _ = std::process::Command::new("fusermount")
+        .arg("-u")
+        .arg(&mntpoint)
+        .status();
+    handle.join().unwrap();
 }

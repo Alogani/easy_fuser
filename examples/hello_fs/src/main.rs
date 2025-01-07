@@ -169,5 +169,5 @@ fn main() {
     let options = vec![MountOption::RO, MountOption::FSName("hello".to_string())];
 
     println!("Mounting FTP filesystem...");
-    easy_fuser::mount(HelloFS::new(), Path::new(&mountpoint), &options, 1).unwrap();
+    easy_fuser::mount(HelloFS::new(), Path::new(&mountpoint), &options).unwrap();
 }

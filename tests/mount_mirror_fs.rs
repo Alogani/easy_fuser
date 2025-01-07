@@ -35,11 +35,10 @@ fn mount_fs<FS: MirrorFsTrait>() {
 
     // Mount the filesystem
     println!("Mounting MirrorFs...");
-    #[cfg(feature = "parallel")]
-    let num_workers = 4;
-    #[cfg(not(feature = "parallel"))]
-    let num_workers = 1;
-    let mount_result = mount(fs, &mount_dir, &[], num_workers);
+    #[cfg(feature = "serial")]
+    let mount_result = mount(fs, &mount_dir, &[]);
+    #[cfg(not(feature = "serial"))]
+    let mount_result = mount(fs, &mount_dir, &[], 4);
 
     match mount_result {
         Ok(_) => {

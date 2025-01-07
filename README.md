@@ -73,7 +73,11 @@ impl FuseHandler<PathBuf> for MyFS {
 
 fn main() -> std::io::Result<()> {
     let fs = MyFS { inner: Box::new(DefaultFuseHandler::new()) };
-    easy_fuser::mount(fs, Path::new("/mnt/myfs"), &[], 1)
+    #[cfg(feature="serial")]
+    easy_fuser::mount(fs, Path::new("/mnt/myfs"), &[])?;
+    #[cfg(not(feature="serial"))]
+    easy_fuser::mount(fs, Path::new("/mnt/myfs"), &[], 4)?;
+    Ok(())
 }
 ```
 
