@@ -133,9 +133,9 @@ If a program crashes or is stopped abruptly (e.g., using Ctrl+C), it may leave t
 
 To properly unmount the filesystem and stop the program (or to resolve a bad state after a crash), use the following command:
 
-    ```bash
-        fusermount -u <mountpoint>
-    ```
+  ```bash
+      fusermount -u <mountpoint>
+  ```
 
 This is the preferred method for both unmounting and resolving any issues with the mountpoint. You will find more information at the documentation of `mount` and `spawn_mount`
 
