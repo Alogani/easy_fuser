@@ -128,17 +128,18 @@ Please check the README inside the examples folder for additional details and re
 
 When working with these examples, be aware of the following:
 
-1. **Handling Crashes and Interruptions**: If a program crashes or is stopped abruptly (e.g., using Ctrl+C), it may leave the mountpoint in an inconsistent state. This applies to all examples except those that explicitly include a handler for such cases.
+1. **Crashes & Proper Unmounting**:
+If a program crashes or is stopped abruptly (e.g., using Ctrl+C), it may leave the mountpoint in an inconsistent state.
 
-2. **Proper Unmounting**: To properly unmount the filesystem and stop the program (or to resolve a bad state after a crash), use the following command:
+To properly unmount the filesystem and stop the program (or to resolve a bad state after a crash), use the following command:
 
     ```bash
         fusermount -u <mountpoint>
     ```
 
-This is the preferred method for both unmounting and resolving any issues with the mountpoint.
+This is the preferred method for both unmounting and resolving any issues with the mountpoint. You will find more information at the documentation of `mount` and `spawn_mount`
 
-3. **Modifying the source directory while mounted**: This is not well-supported behavior and can result in unexpected outcomes.
+2. **Modifying the source directory while mounted**: This is not well-supported behavior and can result in unexpected outcomes.
 
 ## Important notes
 

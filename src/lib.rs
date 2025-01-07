@@ -47,23 +47,7 @@ use core::FuseDriver;
 use fuser::{mount2, spawn_mount2};
 use prelude::*;
 
-/// Mounts a FUSE filesystem at the specified mountpoint.
-///
-/// # Parameters
-///
-/// * `filesystem`: The filesystem implementation.
-/// * `mountpoint`: The path where the filesystem should be mounted.
-/// * `options`: Mount options for the filesystem.
-/// * `num_threads` (non serial argument): Number of threads for handling filesystem operations concurrently.
-///
-/// # Type Parameters
-///
-/// * `T`: Implements `FileIdType` for file identifier conversion.
-/// * `FS`: Implements `FuseHandler<T>` for filesystem operations.
-///
-/// # Returns
-///
-/// `io::Result<()>` indicating success or failure of the mount operation.
+#[doc = include_str!("../docs/mount.md")]
 #[cfg(not(feature = "serial"))]
 pub fn mount<T, FS, P>(
     filesystem: FS,
@@ -79,6 +63,7 @@ where
     let driver = FuseDriver::new(filesystem, num_threads);
     mount2(driver, mountpoint, options)
 }
+#[doc = include_str!("../docs/mount.md")]
 #[cfg(feature = "serial")]
 pub fn mount<T, FS, P>(filesystem: FS, mountpoint: P, options: &[MountOption]) -> io::Result<()>
 where
@@ -91,30 +76,7 @@ where
     mount2(driver, mountpoint, options)
 }
 
-/// Spawns a FUSE filesystem in the background at the specified mountpoint.
-///
-/// This function mounts a FUSE filesystem and returns a `BackgroundSession` that can be used
-/// to manage the mounted filesystem.
-///
-/// # Parameters
-///
-/// * `filesystem`: The filesystem implementation that handles FUSE operations.
-/// * `mountpoint`: The path where the filesystem should be mounted.
-/// * `options`: A slice of mount options for configuring the filesystem mount.
-/// * `num_threads` (non serial argument): Number of threads for handling filesystem operations concurrently.
-///
-/// # Type Parameters
-///
-/// * `T`: Implements `FileIdType` for file identifier conversion.
-/// * `FS`: Implements `FuseHandler<T>` for filesystem operations.
-///   FS must implement the `Send`, which is not the case by defualt in serial mode.
-///   In that case, it is advised to create the filesystem in the same dedicated thread and use mount function.
-///
-/// # Returns
-///
-/// Returns `io::Result<BackgroundSession>`, which is:
-/// * `Ok(BackgroundSession)` on successful mount, providing a handle to manage the mounted filesystem.
-/// * `Err(io::Error)` if the mount operation fails.
+#[doc = include_str!("../docs/spawn_mount.md")]
 #[cfg(not(feature = "serial"))]
 pub fn spawn_mount<T, FS, P>(
     filesystem: FS,
@@ -130,6 +92,8 @@ where
     let driver = FuseDriver::new(filesystem, num_threads);
     spawn_mount2(driver, mountpoint, options)
 }
+
+#[doc = include_str!("../docs/spawn_mount.md")]
 #[cfg(feature = "serial")]
 pub fn spawn_mount<T, FS, P>(
     filesystem: FS,
