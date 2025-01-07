@@ -3,7 +3,7 @@ name: CI Ubuntu
 on:
   workflow_dispatch:
   push:
-    branches: [ main ]
+    branches: [ main, devel ]
   pull_request:
     branches: [ main, devel ]
 
