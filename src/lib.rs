@@ -19,6 +19,11 @@ compile_error!("Feature 'parallel' cannot be used with feature serial or async")
 #[cfg(all(feature = "async", any(feature = "serial", feature = "parallel")))]
 compile_error!("Feature 'async' cannot be used with feature serial or parallel");
 
+pub mod fuse_async;
+mod fuse_common;
+pub mod fuse_parallel;
+pub mod fuse_serial;
+
 mod core;
 mod fuse_handler;
 

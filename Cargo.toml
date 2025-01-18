@@ -12,12 +12,13 @@ repository = "https://github.com/Alogani/easy_fuser"
 default = []
 serial = []
 parallel = ["dep:threadpool"]
-async = ["dep:async-trait", "dep:tokio"]
+async = [ "dep:tokio"]
 deadlock_detection = ["parallel", "dep:parking_lot"]
 
 
 [dependencies]
 # Core dependencies
+easy_fuser_macro = { version = "0.1", path = "easy_fuser_macro"}
 log = "0.4"
 libc = "0.2"
 fuser = "0.15"
@@ -31,7 +32,7 @@ parking_lot = { version = "0.12", features = ["deadlock_detection"], optional = 
 # Async dependencies
 # easy_fuser_async_macro = { path = "./easy_fuser_async_macro", optional = true }
 tokio = { version = "1.42.0", features = ["full"], optional = true }
-async-trait = { version = "0.1.83", optional = true }
+async-trait = { version = "0.1.85" }
 
 [dev-dependencies]
 tempfile = "3.14"

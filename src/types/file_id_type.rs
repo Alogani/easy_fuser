@@ -39,7 +39,7 @@ use super::inode::*;
 ///    - Cons: Path components are stored in reverse order, which may require additional handling.
 ///    - Root: Represented by an empty vector.
 pub trait FileIdType:
-    'static + Debug + Clone + PartialEq + Eq + std::hash::Hash + InodeResolvable
+    'static + Debug + Clone + PartialEq + Eq + std::hash::Hash + InodeResolvable + Send
 {
     /// Full metadata type for the file system.
     ///
@@ -48,7 +48,7 @@ pub trait FileIdType:
     ///
     /// For PathBuf-based: FileAttribute
     /// - User only needs to provide FileAttribute; Inode is managed internally.
-    type Metadata;
+    type Metadata: Send;
 
     /// Minimal metadata type for the file system.
     ///
@@ -57,7 +57,7 @@ pub trait FileIdType:
     ///
     /// For PathBuf-based: FileKind
     /// - User only needs to provide FileKind; Inode is managed internally.
-    type MinimalMetadata;
+    type MinimalMetadata: Send;
     #[doc(hidden)]
     type _Id;
 
