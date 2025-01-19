@@ -88,6 +88,7 @@ fn expand_macro_placeholders(handler_type: HandlerType, input: TokenStream) -> T
         handler_type,
         &function_name,
         &all_args,
+        false,
         tokens,
     ));
 
@@ -98,6 +99,7 @@ fn expand_macro_tokens(
     handler_type: HandlerType,
     function_name: &str,
     args: &TokenStream,
+    mut log_ino: bool,
     mut tokens: impl Iterator<Item = TokenTree>,
 ) -> TokenStream {
     let mut output = TokenStream::new();
@@ -108,7 +110,7 @@ fn expand_macro_tokens(
                 if let Some(TokenTree::Ident(ident)) = tokens.next() {
                     let key = ident.to_string();
                     let replacement = match key.as_str() {
-                        "req" => quote!(let request = RequestInfo::from(req);),
+                        "req" => quote!(let req = RequestInfo::from(req);),
                         "handler" => match handler_type {
                             HandlerType::Serial => quote!(let handler = &self.handler;),
                             _ => quote!(let handler = Arc::clone(&self.handler);),
@@ -117,8 +119,20 @@ fn expand_macro_tokens(
                             HandlerType::Serial => quote!(let resolver = &self.resolver;),
                             _ => quote!(let resolver = Arc::clone(&self.resolver);),
                         },
-                        "ino" => quote!(let inode = resolver.resolve_id(ino);),
-                        "parent" => quote!(let parent = resolver.resolve_id(parent);),
+                        "ino" => {
+                            log_ino = true;
+                            quote!(
+                                let log_ino = ino;
+                                let ino = resolver.resolve_id(ino);
+                            )
+                        }
+                        "parent" => {
+                            log_ino = true;
+                            quote!(
+                                let log_ino = parent;
+                                let parent = resolver.resolve_id(parent);
+                            )
+                        }
                         "fh" => quote!(let fh = unsafe { BorrowedFileHandle::from_raw(fh) };),
                         "wrap" => {
                             if let Some(TokenTree::Group(group)) = tokens.next() {
@@ -128,6 +142,7 @@ fn expand_macro_tokens(
                                         handler_type,
                                         function_name,
                                         args,
+                                        log_ino,
                                         group.stream().into_iter(),
                                     ),
                                 )
@@ -138,22 +153,8 @@ fn expand_macro_tokens(
                         "args" => args.clone(),
                         "reply_attr" => reply_attr(),
                         "reply_entry" => reply_entry(),
-                        "warn_error" => {
-                            quote! {
-                                Err(e) => {
-                                    warn!(concat!(#function_name, ": ino {:x?}, [{}], {:?}"), ino, e, req);
-                                    reply.error(e.raw_error())
-                                }
-                            }
-                        }
-                        "info_error" => {
-                            quote! {
-                                Err(e) => {
-                                    info!(concat!(#function_name, ": ino {:x?}, [{}], {:?}"), ino, e, req);
-                                    reply.error(e.raw_error())
-                                }
-                            }
-                        }
+                        "warn_error" => error_response(function_name, false, log_ino),
+                        "info_error" => error_response(function_name, true, log_ino),
                         unknown => panic!("Unknown dollar identifier: {}", unknown),
                     };
                     output.extend(replacement);
@@ -166,6 +167,7 @@ fn expand_macro_tokens(
                     handler_type,
                     function_name,
                     args,
+                    log_ino,
                     group.stream().into_iter(),
                 );
                 output.extend(std::iter::once(TokenTree::Group(Group::new(
@@ -178,6 +180,26 @@ fn expand_macro_tokens(
     }
 
     output
+}
+
+fn error_response(function_name: &str, is_info: bool, log_ino: bool) -> TokenStream {
+    let error_type = if is_info { quote!(info) } else { quote!(warn) };
+    match log_ino {
+        true => quote! {
+            Err(e) => {
+                #error_type!(concat!(#function_name, ": ino {:x?}, [{}], {:?}"), log_ino, e, req);
+                reply.error(e.raw_error());
+                return;
+            }
+        },
+        false => quote! {
+            Err(e) => {
+                #error_type!(concat!(#function_name, ": [{}], {:?}"), e, req);
+                reply.error(e.raw_error());
+                return;
+            }
+        },
+    }
 }
 
 fn reply_attr() -> TokenStream {
@@ -204,6 +226,152 @@ fn reply_entry() -> TokenStream {
             );
         }
     }
+}
+
+fn readdir_impl(handler_type: HandlerType, is_extended_readdir: bool) -> TokenStream {
+    let fn_name = match is_extended_readdir {
+        true => quote!(readdirplus),
+        false => quote!(readdir),
+    };
+    let fn_signature = match is_extended_readdir {
+        true => quote!(fn #fn_name(
+            &mut self,
+            req: &Request,
+            ino: u64,
+            fh: u64,
+            offset: i64,
+            mut reply: ReplyDirectory,
+        )),
+        false => quote!(fn #fn_name(
+            &mut self,
+            req: &Request,
+            ino: u64,
+            fh: u64,
+            offset: i64,
+            mut reply: ReplyDirectoryPlus,
+        )),
+    };
+
+    let extract_metadata = match is_extended_readdir {
+        true => quote!(TId::extract_metadata(item.1)),
+        false => quote!(TId::extract_minimal_metadata(item.1)),
+    };
+
+    let dirmap_entries_get = match (handler_type, is_extended_readdir) {
+        (HandlerType::Serial, false) => quote!(&self.dirmap_entries),
+        (HandlerType::Serial, true) => quote!(&self.dirmapplus_entries),
+        (_, false) => quote!(Arc::clone(&self.dirmap_entries)),
+        (_, true) => quote!(Arc::clone(&self.dirmapplus_entries)),
+    };
+
+    let dirmap_entries_borrow_mut = match handler_type {
+        HandlerType::Serial => quote!(dirmap_entries.borrow_mut()),
+        _ => quote!(dirmap_entries.lock().unwrap()),
+    };
+
+    let reply_add = match is_extended_readdir {
+        true => quote! {
+            // readdirplus: Add entries with extended attributes
+            let default_ttl = handler.get_default_ttl();
+            while let Some((name, ino, file_attr)) = directory_entries.pop_front() {
+                let (fuse_attr, ttl, generation) = file_attr.to_fuse(ino);
+                if reply.add(
+                    ino,
+                    new_offset,
+                    name,
+                    &ttl.unwrap_or(default_ttl),
+                    &fuse_attr,
+                    generation.unwrap_or(get_random_generation()),
+                ) {
+                    #dirmap_entries_borrow_mut
+                        .insert((ino, new_offset), directory_entries);
+                    break;
+                }
+                new_offset += 1;
+            }
+            reply.ok();
+        },
+        false => quote! {
+            // readdir: Add entries until buffer is full
+            while let Some((name, ino, kind)) = directory_entries.pop_front() {
+                if reply.add(ino, new_offset, kind, &name) {
+                    #dirmap_entries_borrow_mut
+                        .insert((ino, new_offset), directory_entries);
+                    break;
+                }
+                new_offset += 1;
+            }
+            reply.ok();
+        },
+    };
+
+    expand_macro_placeholders(
+        handler_type,
+        quote! {
+            #fn_signature {
+                $req
+                $handler
+                $resolver
+                let dirmap_entries = #dirmap_entries_get;
+                $wrap {
+                    $ino
+                    $fh
+
+                    // Validate offset
+                    if offset < 0 {
+                        error!("readdir called with a negative offset");
+                        reply.error(ErrorKind::InvalidArgument.into());
+                        return;
+                    }
+
+                    // ### Initialize directory deque
+                    let mut directory_entries = match offset {
+                        // First read: fetch children from handler
+                        0 => match handler.#fn_name($args) {
+                            Ok(children) => {
+                                // Unpack and process children
+                                let (child_list, attr_list): (Vec<_>, Vec<_>) = children
+                                    .into_iter()
+                                    .map(|item| {
+                                        let (child_id, child_attr) = #extract_metadata;
+                                        ((item.0, child_id), child_attr)
+                                    })
+                                    .unzip();
+
+                                // Add children to resolver and create iterator
+                                resolver
+                                    .add_children(
+                                        ino,
+                                        child_list,
+                                        #is_extended_readdir,
+                                    )
+                                    .into_iter()
+                                    .zip(attr_list.into_iter())
+                                    .map(|((file_name, file_ino), file_attr)| {
+                                        (file_name, file_ino, file_attr)
+                                    })
+                                    .collect()
+                            }
+                            $warn_error
+                        },
+                        // Subsequent reads: retrieve saved iterator
+                        _ => match { #dirmap_entries_borrow_mut.remove(&(ino, offset)) } {
+                            Some(directory_entries) => directory_entries,
+                            None => {
+                                // Case when fuse tries to read again after the final item
+                                reply.ok();
+                                return;
+                            }
+                        },
+                    };
+
+                    let mut new_offset = offset + 1;
+
+                    #reply_add
+                }
+            }
+        },
+    )
 }
 
 fn generate_fuse_operation_handlers(handler_type: HandlerType) -> Vec<TokenStream> {
@@ -263,9 +431,9 @@ fn generate_fuse_operation_handlers(handler_type: HandlerType) -> Vec<TokenStrea
                 $handler
                 $resolver
                 $wrap {
-                    let ino_in = resolver.resolve_id(ino);
+                    let ino_in = resolver.resolve_id(ino_in);
                     let fh_in = unsafe { BorrowedFileHandle::from_raw(fh_in) };
-                    let ino_out = resolver.resolve_id(ino);
+                    let ino_out = resolver.resolve_id(ino_out);
                     let fh_out = unsafe { BorrowedFileHandle::from_raw(fh_out) };
                     match handler.copy_file_range($args) {
                         Ok(bytes_written) => reply.written(bytes_written),
@@ -293,9 +461,10 @@ fn generate_fuse_operation_handlers(handler_type: HandlerType) -> Vec<TokenStrea
                 $resolver
                 let name = name.to_owned();
                 $wrap {
+                    $parent
                     let name = name.as_ref();
                     let flags = OpenFlags::from_bits_retain(flags);
-                    match handler.create(&req, $args) {
+                    match handler.create($args) {
                         Ok((file_handle, metadata, response_flags)) => {
                             let default_ttl = handler.get_default_ttl();
                             let (id, file_attr) = TId::extract_metadata(metadata);
@@ -366,7 +535,6 @@ fn generate_fuse_operation_handlers(handler_type: HandlerType) -> Vec<TokenStrea
         quote! {
             fn forget(&mut self, req: &Request, ino: u64, nlookup: u64) {
                 $req
-                let ino = self.resolver.resolve_id(ino);
                 self.handler.forget(&req, ino, nlookup);
                 self.resolver.forget(ino, nlookup);
             }
@@ -417,6 +585,7 @@ fn generate_fuse_operation_handlers(handler_type: HandlerType) -> Vec<TokenStrea
                 $resolver
                 $wrap {
                     $ino
+                    fh.map(|fh| unsafe { BorrowedFileHandle::from_raw(fh) });
                     match handler.getattr($args) {
                         $reply_attr
                         $warn_error
@@ -453,7 +622,7 @@ fn generate_fuse_operation_handlers(handler_type: HandlerType) -> Vec<TokenStrea
                             pid,
                         };
                         match handler.getlk(&req, ino, fh, lock_owner, lock_info) {
-                            Ok(lock) => reply.lock(lock),
+                            Ok(lock) => reply.locked(lock),
                             $warn_error
                         }
                     }
@@ -533,6 +702,7 @@ fn generate_fuse_operation_handlers(handler_type: HandlerType) -> Vec<TokenStrea
                 $resolver
                 let newname = newname.to_owned();
                 $wrap {
+                    $ino
                     let newname = newname.as_ref();
                     let newparent = resolver.resolve_id(newparent);
                     match handler.link($args) {
@@ -746,18 +916,8 @@ fn generate_fuse_operation_handlers(handler_type: HandlerType) -> Vec<TokenStrea
             }
         },
     ));
-    /*result.push(expand_macro_placeholders(
-        handler_type,
-        quote! {
-            todo!()
-        },
-    ));
-    result.push(expand_macro_placeholders(
-        handler_type,
-        quote! {
-            todo!()
-        },
-    ));*/
+    result.push(readdir_impl(handler_type, false));
+    result.push(readdir_impl(handler_type, true));
     result.push(expand_macro_placeholders(
         handler_type,
         quote! {
@@ -1119,9 +1279,146 @@ fn generate_fuse_operation_handlers(handler_type: HandlerType) -> Vec<TokenStrea
     result
 }
 
+fn generate_fuse_driver_struct(handler_type: HandlerType) -> TokenStream {
+    match handler_type {
+        HandlerType::Serial => quote! {
+            use std::cell::RefCell;
+
+            pub(crate) struct FuseDriver<TId, THandler>
+            where
+                TId: FileIdType,
+                THandler: FuseHandler<TId>,
+            {
+                handler: THandler,
+                resolver: TId::Resolver,
+                dirmap_entries: RefCell<DirMapEntries<FileKind>>,
+                dirmapplus_entries: RefCell<DirMapEntries<FileAttribute>>,
+            }
+
+            impl<TId, THandler> FuseDriver<TId, THandler>
+            where
+                TId: FileIdType,
+                THandler: FuseHandler<TId>,
+            {
+                /// num_thread is ignored in serial mode, it is kept for consistency with other modes
+                pub fn new(handler: THandler, _num_threads: usize) -> FuseDriver<TId, THandler> {
+                    FuseDriver {
+                        handler,
+                        resolver: TId::Resolver::new(),
+                        dirmap_entries: RefCell::new(HashMap::new()),
+                        dirmapplus_entries: RefCell::new(HashMap::new()),
+                    }
+                }
+            }
+        },
+        HandlerType::Parallel => quote! {
+            use std::sync::{Arc, Mutex};
+            use threadpool::ThreadPool;
+
+            pub(crate) struct FuseDriver<TId, THandler>
+            where
+                TId: FileIdType,
+                THandler: FuseHandler<TId>,
+            {
+                handler: Arc<THandler>,
+                resolver: Arc<TId::Resolver>,
+                dirmap_entries: Arc<Mutex<DirMapEntries<FileKind>>>,
+                dirmapplus_entries: Arc<Mutex<DirMapEntries<FileAttribute>>>,
+                pub threadpool: ThreadPool,
+            }
+
+            impl<TId, THandler> FuseDriver<TId, THandler>
+            where
+                TId: FileIdType,
+                THandler: FuseHandler<TId>,
+            {
+                pub fn new(handler: THandler, num_threads: usize) -> FuseDriver<TId, THandler> {
+                    FuseDriver {
+                        handler: Arc::new(handler),
+                        resolver: Arc::new(TId::create_resolver()),
+                        dirmap_entries: Arc::new(Mutex::new(HashMap::new())),
+                        dirmapplus_entries: Arc::new(Mutex::new(HashMap::new())),
+                        threadpool: ThreadPool::new(num_threads),
+                    }
+                }
+            }
+        },
+        HandlerType::Async => quote! {
+            use std::sync::{Arc, Mutex};
+            use tokio::runtime::Runtime;
+
+            pub(crate) struct FuseDriver<TId, THandler>
+            where
+                TId: FileIdType,
+                THandler: FuseHandler<TId>,
+            {
+                handler: Arc<THandler>,
+                resolver: Arc<TId::Resolver>,
+                dirmap_entries: Arc<Mutex<DirMapEntries<FileKind>>>,
+                dirmapplus_entries: Arc<Mutex<DirMapEntries<FileAttribute>>>,
+                pub runtime: Runtime,
+            }
+
+            impl<TId, THandler> FuseDriver<TId, THandler>
+            where
+                TId: FileIdType,
+                THandler: FuseHandler<TId>,
+            {
+                pub fn new(handler: THandler, _num_threads: usize) -> FuseDriver<TId, THandler> {
+                    FuseDriver {
+                        handler: Arc::new(handler),
+                        resolver: Arc::new(TId::create_resolver()),
+                        dirmap_entries Arc::new(Mutex::new(HashMap::new())),
+                        dirmapplus_entries: Arc::new(Mutex::new(HashMap::new())),
+                        runtime: Runtime::new().unwrap(),
+                    }
+                }
+            }
+        },
+    }
+}
+
+fn get_dependencies() -> proc_macro2::TokenStream {
+    quote! {
+        use std::{
+            collections::{HashMap, VecDeque},
+            ffi::{OsStr, OsString},
+            path::Path,
+            time::{Instant, SystemTime},
+        };
+
+        use libc::c_int;
+        use log::{error, info, warn};
+
+        use fuser::{
+            self, KernelConfig, ReplyAttr, ReplyBmap, ReplyCreate, ReplyData, ReplyDirectory,
+            ReplyDirectoryPlus, ReplyEmpty, ReplyEntry, ReplyIoctl, ReplyLock, ReplyLseek, ReplyOpen,
+            ReplyStatfs, ReplyWrite, ReplyXattr, Request, TimeOrNow,
+        };
+    }
+}
+
 pub(crate) fn generate_fuse_driver_implementation(handler_type: HandlerType) -> TokenStream {
+    let dependencies = get_dependencies();
+    let fuse_driver_struct = generate_fuse_driver_struct(handler_type);
     let fn_impls = generate_fuse_operation_handlers(handler_type);
     quote! {
-        #(#fn_impls)*
+        #dependencies
+
+        type DirMapEntries<TAttr> = HashMap<(u64, i64), VecDeque<(OsString, u64, TAttr)>>;
+
+        fn get_random_generation() -> u64 {
+            Instant::now().elapsed().as_nanos() as u64
+        }
+
+        #fuse_driver_struct
+
+        impl<TId, THandler> FuseDriver<TId, THandler>
+        where
+            TId: FileIdType,
+            THandler: FuseHandler<TId>,
+        {
+            #(#fn_impls)*
+        }
     }
 }

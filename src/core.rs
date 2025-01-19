@@ -1,6 +1,6 @@
 mod fuse_driver;
 mod fuse_driver_types;
-mod inode_mapping;
+pub(crate) mod inode_mapping;
 mod macros;
 mod thread_mode;
 
