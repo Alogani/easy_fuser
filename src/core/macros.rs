@@ -157,7 +157,7 @@ macro_rules! handle_dir_read {
                 },
             };
 
-            let mut new_offset = $offset + 1;
+            let mut new_offset = $offset;
 
             // ### Process directory entries
             if_readdir!(
@@ -166,9 +166,10 @@ macro_rules! handle_dir_read {
                     // readdir: Add entries until buffer is full
                     while let Some((name, ino, kind)) = dir_iter.pop_front() {
                         if $reply.add(ino, new_offset, kind, &name) {
+                            dir_iter.push_front((name, ino, kind));
                             dirmap_iter
                                 .safe_borrow_mut()
-                                .insert(($ino, new_offset), dir_iter);
+                                .insert(($ino, new_offset - 1), dir_iter);
                             break;
                         }
                         new_offset += 1;
@@ -188,9 +189,10 @@ macro_rules! handle_dir_read {
                             &fuse_attr,
                             generation.unwrap_or(get_random_generation()),
                         ) {
+                            dir_iter.push_front((name, ino, file_attr));
                             dirmap_iter
                                 .safe_borrow_mut()
-                                .insert((ino, new_offset), dir_iter);
+                                .insert((ino, new_offset - 1), dir_iter);
                             break;
                         }
                         new_offset += 1;
