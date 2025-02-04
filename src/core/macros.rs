@@ -180,16 +180,16 @@ macro_rules! handle_dir_read {
                     // readdirplus: Add entries with extended attributes
                     let default_ttl = handler.get_default_ttl();
                     while let Some((name, ino, file_attr)) = dir_iter.pop_front() {
-                        let (fuse_attr, ttl, generation) = file_attr.to_fuse(ino);
+                        let (fuse_attr, ttl, generation) = file_attr.clone().to_fuse(ino);
                         if $reply.add(
                             ino,
                             new_offset,
-                            name,
+                            &name,
                             &ttl.unwrap_or(default_ttl),
                             &fuse_attr,
                             generation.unwrap_or(get_random_generation()),
                         ) {
-                            dir_iter.push_front((name, ino, file_attr));
+                            dir_iter.push_front((name, ino, file_attr.clone()));
                             dirmap_iter
                                 .safe_borrow_mut()
                                 .insert((ino, new_offset - 1), dir_iter);
