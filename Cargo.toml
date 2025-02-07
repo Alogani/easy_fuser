@@ -12,7 +12,7 @@ repository = "https://github.com/Alogani/easy_fuser"
 default = ["parallel"]
 serial = []
 parallel = ["dep:threadpool"]
-async = [ "dep:tokio"]
+async = [ "dep:tokio", "dep:async-trait"]
 
 [dependencies]
 # Core dependencies
@@ -28,7 +28,7 @@ threadpool = { version = "1.8", optional = true }
 # Async dependencies
 # easy_fuser_async_macro = { path = "./easy_fuser_async_macro", optional = true }
 tokio = { version = "1.42.0", features = ["full"], optional = true }
-async-trait = { version = "0.1.85" }
+async-trait = { version = "0.1.85", optional = true }
 
 [dev-dependencies]
 tempfile = "3.14"
