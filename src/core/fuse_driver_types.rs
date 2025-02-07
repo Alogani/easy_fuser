@@ -33,6 +33,7 @@ mod serial {
         TId: FileIdType,
         THandler: FuseHandler<TId>,
     {
+        /// num_thread is ignored in serial mode, it is kept for consistency with other modes
         pub fn new(handler: THandler, _num_threads: usize) -> FuseDriver<TId, THandler> {
             FuseDriver {
                 handler,

@@ -1,4 +1,4 @@
-use easy_fuser::spawn_mount;
+use easy_fuser::prelude::*;
 use easy_fuser::templates::{mirror_fs::*, DefaultFuseHandler};
 
 use std::fs;
@@ -14,27 +14,29 @@ use std::time::{Duration, Instant};
 fn test_mirror_fs_recursion() {
     // Create source and mount directories
     let source_path = PathBuf::from("/tmp/easy_fuser_recursion_fs_source");
-    let mount_path = source_path.join("mount");
+    let mntpoint = source_path.join("mount");
 
     // Ensure the directories are clean
     let _ = fs::remove_dir_all(&source_path);
     fs::create_dir_all(&source_path).unwrap();
-    fs::create_dir_all(&mount_path).unwrap();
+    fs::create_dir_all(&mntpoint).unwrap();
 
-    #[cfg(feature = "serial")]
-    let num_threads = 1;
-    #[cfg(feature = "parallel")]
-    let num_threads = 4;
-
-    // Create and mount the MirrorFs
-    let fs = MirrorFs::new(source_path.clone(), DefaultFuseHandler::new());
-    let session = spawn_mount(fs, &mount_path, &[], num_threads).unwrap();
+    // We won't use spawn_mount because it MirrorFs doesn't implement Send in serial mode
+    let mntpoint_clone = mntpoint.clone();
+    let handle = std::thread::spawn(move || {
+        let fs = MirrorFs::new(source_path.clone(), DefaultFuseHandler::new());
+        #[cfg(feature = "serial")]
+        mount(fs, &mntpoint_clone, &[]).unwrap();
+        #[cfg(not(feature = "serial"))]
+        mount(fs, &mntpoint_clone, &[], 4).unwrap();
+    });
+    std::thread::sleep(Duration::from_millis(50)); // Wait for the mount to finish
 
     // Allow some time for the filesystem to mount
     std::thread::sleep(Duration::from_secs(1));
 
     // Construct the deep recursive path
-    let deep_path = mount_path
+    let deep_path = mntpoint
         .join("easy_fuser_recursion_fs_source")
         .join("mount")
         .join("easy_fuser_recursion_fs_source")
@@ -50,10 +52,6 @@ fn test_mirror_fs_recursion() {
         .expect("Failed to execute ls command");
 
     let elapsed_time = start_time.elapsed();
-
-    // Clean up
-    session.join();
-    let _ = fs::remove_dir_all(&source_path);
 
     // Check if the command completed within 5 seconds
     if elapsed_time >= Duration::from_secs(5) {
@@ -73,4 +71,11 @@ fn test_mirror_fs_recursion() {
     );
 
     println!("Test passed: No infinite recursion detected.");
+
+    eprintln!("Unmounting filesystem...");
+    let _ = std::process::Command::new("fusermount")
+        .arg("-u")
+        .arg(&mntpoint)
+        .status();
+    handle.join().unwrap();
 }

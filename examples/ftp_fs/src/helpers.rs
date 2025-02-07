@@ -79,7 +79,6 @@ pub fn get_file_attribute(
             }
         }
     };
-    println!("size: {:?}", size);
 
     let modify_time = match ftp.mdtm(pathname) {
         Ok(t) => t,

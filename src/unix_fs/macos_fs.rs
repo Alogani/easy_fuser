@@ -1,4 +1,5 @@
 pub use super::bsd_like_fs::*;
+use std::os::fd::*;
 
 use std::ffi::c_void;
 

@@ -285,7 +285,7 @@ macro_rules! mirror_fs_readwrite_methods {
 }
 
 pub trait MirrorFsTrait: FuseHandler<PathBuf> {
-    fn new<U: FuseHandler<PathBuf> + Send>(source_path: PathBuf, inner: U) -> Self;
+    fn new<U: FuseHandler<PathBuf>>(source_path: PathBuf, inner: U) -> Self;
 
     fn source_dir(&self) -> &Path;
 }
@@ -297,7 +297,7 @@ pub struct MirrorFs {
 }
 
 impl MirrorFsTrait for MirrorFs {
-    fn new<U: FuseHandler<PathBuf> + Send>(source_path: PathBuf, inner: U) -> Self {
+    fn new<U: FuseHandler<PathBuf>>(source_path: PathBuf, inner: U) -> Self {
         Self {
             source_path,
             inner: Box::new(FdHandlerHelper::new(inner)),
@@ -325,7 +325,7 @@ pub struct MirrorFsReadOnly {
 }
 
 impl MirrorFsTrait for MirrorFsReadOnly {
-    fn new<THandler: FuseHandler<PathBuf> + Send>(source_path: PathBuf, inner: THandler) -> Self {
+    fn new<THandler: FuseHandler<PathBuf>>(source_path: PathBuf, inner: THandler) -> Self {
         Self {
             source_path,
             inner: Box::new(FdHandlerHelperReadOnly::new(inner)),

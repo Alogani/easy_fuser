@@ -68,13 +68,20 @@
 /// Many methods in this trait have default implementations that delegate to the inner handler returned by `get_inner()`.
 /// This allows for easy extension and customization of existing filesystem implementations by chaining/overriding their behaviors.
 ///
-/// # Thread Safety & Lifetime
+/// # Multithreading, Safety, Traits & Lifetime
 ///
-/// This trait does not require Send + Sync when serial feature is set. However, it does need at least Send to use spawn_mount.
+/// ## Using serial feature
 ///
-/// When using Parallel or Async flag, the Send + Sync traits are required.
+/// This trait is bound by the `'static` lifetime. However, it doesn't need `Send` or `Sync`.
 ///
-/// In any case, the trait is bound by the `'static` lifetime.
+/// **Note:** Using `spawn_mount` for your filesystem will require at least the `Send` trait.
+///
+/// ## Using parallel or async feature
+///
+/// This trait requires `Send + Sync` and `'static` lifetime.
+///
+/// **Important:** FUSE will lock some operations to run at the same time with the same inode, such as `readdir`.
+/// This behaviour is not well documented and cannot be guaranteed for now.
 ///
 //// # Additional Resources:
 /// For more detailed information, refer to the fuser project documentation, which serves as the foundation for this crate: https://docs.rs/fuser

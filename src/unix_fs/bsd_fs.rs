@@ -1,4 +1,5 @@
 pub use super::bsd_like_fs::*;
+use std::os::fd::*;
 
 use std::ffi::c_void;
 
@@ -17,7 +18,9 @@ pub(super) unsafe fn setxattr(
     _size: size_t,
     _flags: c_int,
 ) -> c_int {
-    libc::extattr_set_file(path, libc::EXTATTR_NAMESPACE_USER, name, value, value.len())
+    libc::extattr_set_file(path, libc::EXTATTR_NAMESPACE_USER, name, value, size)
+        .try_into()
+        .unwrap()
 }
 
 pub(super) unsafe fn getxattr(
