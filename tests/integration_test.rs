@@ -1,4 +1,4 @@
-use easy_fuser::prelude::*;
+use easy_fuser::fuse_parallel::*;
 use easy_fuser::templates::{mirror_fs::*, DefaultFuseHandler};
 
 use std::fs::{self, File};
@@ -21,9 +21,9 @@ fn test_mirror_fs_operations() {
     let mntpoint_clone = mntpoint.clone();
     let handle = std::thread::spawn(move || {
         let fs = MirrorFs::new(source_path.clone(), DefaultFuseHandler::new());
-        #[cfg(feature = "serial")]
-        mount(fs, &mntpoint_clone, &[]).unwrap();
-        #[cfg(not(feature = "serial"))]
+        //#[cfg(feature = "serial")]
+        //mount(fs, &mntpoint_clone, &[]).unwrap();
+        //#[cfg(not(feature = "serial"))]
         mount(fs, &mntpoint_clone, &[], 4).unwrap();
     });
     std::thread::sleep(Duration::from_millis(50)); // Wait for the mount to finish

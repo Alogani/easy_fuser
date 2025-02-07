@@ -1,2 +1,10 @@
-pub(crate) mod fuse_driver;
-pub mod fuse_handler;
+#![cfg(feature = "serial")]
+
+mod fuse_driver;
+pub(crate) use fuse_driver::FuseDriver;
+
+mod fuse_handler;
+pub use fuse_handler::FuseHandler;
+
+mod mouting;
+pub use mouting::*;

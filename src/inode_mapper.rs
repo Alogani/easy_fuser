@@ -4,7 +4,7 @@ use std::ffi::{OsStr, OsString};
 use std::hash::Hash;
 use std::sync::Arc;
 
-use super::{Inode, ROOT_INODE};
+use crate::prelude::{Inode, ROOT_INODE};
 
 /// Helper structure for managing inodes and their relationships.
 ///
@@ -538,8 +538,8 @@ mod tests {
     use std::collections::HashSet;
     use std::ffi::OsString;
 
+    use crate::prelude::ROOT_INODE;
     use crate::types::Inode;
-    use crate::ROOT_INODE;
 
     #[test]
     fn test_insert_child_returns_old_inode() {

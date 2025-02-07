@@ -77,9 +77,16 @@ fn expand_macro_placeholders(handler_type: HandlerType, input: TokenStream) -> T
     let arg_idents: Vec<_> = arg_names
         .iter()
         .skip(1) // Skip the first 'req' argument
-        .map(|arg| format_ident!("{}", arg))
+        .map(|arg| {
+            match arg.as_ref() {
+                // parent and ino shall be converted from u64 to FileREsolver id
+                "parent" => format_ident!("parent_id"),
+                "ino" => format_ident!("ino_id"),
+                _ => format_ident!("{}", arg),
+            }
+        })
         .collect();
-    let all_args = quote! {
+    let handler_args = quote! {
         #req_arg, #(#arg_idents),*
     };
 
@@ -87,7 +94,7 @@ fn expand_macro_placeholders(handler_type: HandlerType, input: TokenStream) -> T
     output.extend(expand_macro_tokens(
         handler_type,
         &function_name,
-        &all_args,
+        &handler_args,
         false,
         tokens,
     ));
@@ -98,7 +105,7 @@ fn expand_macro_placeholders(handler_type: HandlerType, input: TokenStream) -> T
 fn expand_macro_tokens(
     handler_type: HandlerType,
     function_name: &str,
-    args: &TokenStream,
+    handler_args: &TokenStream,
     mut log_ino: bool,
     mut tokens: impl Iterator<Item = TokenTree>,
 ) -> TokenStream {
@@ -119,18 +126,18 @@ fn expand_macro_tokens(
                             HandlerType::Serial => quote!(let resolver = &self.resolver;),
                             _ => quote!(let resolver = Arc::clone(&self.resolver);),
                         },
-                        "ino" => {
+                        "ino_id" => {
                             log_ino = true;
                             quote!(
-                                let log_ino = ino;
-                                let ino = resolver.resolve_id(ino);
+                                let log_ino: u64 = ino;
+                                let ino_id = resolver.resolve_id(ino);
                             )
                         }
-                        "parent" => {
+                        "parent_id" => {
                             log_ino = true;
                             quote!(
-                                let log_ino = parent;
-                                let parent = resolver.resolve_id(parent);
+                                let log_ino: u64 = parent;
+                                let parent_id = resolver.resolve_id(parent);
                             )
                         }
                         "fh" => quote!(let fh = unsafe { BorrowedFileHandle::from_raw(fh) };),
@@ -141,7 +148,7 @@ fn expand_macro_tokens(
                                     expand_macro_tokens(
                                         handler_type,
                                         function_name,
-                                        args,
+                                        handler_args,
                                         log_ino,
                                         group.stream().into_iter(),
                                     ),
@@ -150,12 +157,12 @@ fn expand_macro_tokens(
                                 panic!("Expected group after $wrap")
                             }
                         }
-                        "args" => args.clone(),
+                        "handler_args" => handler_args.clone(),
                         "reply_attr" => reply_attr(),
                         "reply_entry" => reply_entry(),
                         "warn_error" => error_response(function_name, false, log_ino),
                         "info_error" => error_response(function_name, true, log_ino),
-                        unknown => panic!("Unknown dollar identifier: {}", unknown),
+                        unknown => panic!("Unknown $ identifier: {}", unknown),
                     };
                     output.extend(replacement);
                 } else {
@@ -166,7 +173,7 @@ fn expand_macro_tokens(
                 let content = expand_macro_tokens(
                     handler_type,
                     function_name,
-                    args,
+                    handler_args,
                     log_ino,
                     group.stream().into_iter(),
                 );
@@ -234,7 +241,7 @@ fn readdir_impl(handler_type: HandlerType, is_extended_readdir: bool) -> TokenSt
         false => quote!(readdir),
     };
     let fn_signature = match is_extended_readdir {
-        true => quote!(fn #fn_name(
+        false => quote!(fn #fn_name(
             &mut self,
             req: &Request,
             ino: u64,
@@ -242,7 +249,7 @@ fn readdir_impl(handler_type: HandlerType, is_extended_readdir: bool) -> TokenSt
             offset: i64,
             mut reply: ReplyDirectory,
         )),
-        false => quote!(fn #fn_name(
+        true => quote!(fn #fn_name(
             &mut self,
             req: &Request,
             ino: u64,
@@ -314,7 +321,7 @@ fn readdir_impl(handler_type: HandlerType, is_extended_readdir: bool) -> TokenSt
                 $resolver
                 let dirmap_entries = #dirmap_entries_get;
                 $wrap {
-                    $ino
+                    $ino_id
                     $fh
 
                     // Validate offset
@@ -327,7 +334,7 @@ fn readdir_impl(handler_type: HandlerType, is_extended_readdir: bool) -> TokenSt
                     // ### Initialize directory deque
                     let mut directory_entries = match offset {
                         // First read: fetch children from handler
-                        0 => match handler.#fn_name($args) {
+                        0 => match handler.#fn_name(&req, ino_id, fh) {
                             Ok(children) => {
                                 // Unpack and process children
                                 let (child_list, attr_list): (Vec<_>, Vec<_>) = children
@@ -384,9 +391,9 @@ fn generate_fuse_operation_handlers(handler_type: HandlerType) -> Vec<TokenStrea
                 $handler
                 $resolver
                 $wrap {
-                    $ino
+                    $ino_id
                     let mask = AccessMask::from_bits_retain(mask);
-                    match handler.access($args) {
+                    match handler.access($handler_args) {
                         Ok(()) => reply.ok(),
                         $warn_error
                     }
@@ -402,8 +409,8 @@ fn generate_fuse_operation_handlers(handler_type: HandlerType) -> Vec<TokenStrea
                     $handler
                     $resolver
                     $wrap {
-                        $ino
-                        match handler.bmap($args) {
+                        $ino_id
+                        match handler.bmap($handler_args) {
                             Ok(block) => reply.bmap(block),
                             $warn_error
                         }
@@ -435,7 +442,7 @@ fn generate_fuse_operation_handlers(handler_type: HandlerType) -> Vec<TokenStrea
                     let fh_in = unsafe { BorrowedFileHandle::from_raw(fh_in) };
                     let ino_out = resolver.resolve_id(ino_out);
                     let fh_out = unsafe { BorrowedFileHandle::from_raw(fh_out) };
-                    match handler.copy_file_range($args) {
+                    match handler.copy_file_range($handler_args) {
                         Ok(bytes_written) => reply.written(bytes_written),
                         $warn_error
                     }
@@ -461,10 +468,10 @@ fn generate_fuse_operation_handlers(handler_type: HandlerType) -> Vec<TokenStrea
                 $resolver
                 let name = name.to_owned();
                 $wrap {
-                    $parent
+                    $parent_id
                     let name = name.as_ref();
                     let flags = OpenFlags::from_bits_retain(flags);
-                    match handler.create($args) {
+                    match handler.create($handler_args) {
                         Ok((file_handle, metadata, response_flags)) => {
                             let default_ttl = handler.get_default_ttl();
                             let (id, file_attr) = TId::extract_metadata(metadata);
@@ -501,10 +508,10 @@ fn generate_fuse_operation_handlers(handler_type: HandlerType) -> Vec<TokenStrea
                 $handler
                 $resolver
                 $wrap {
-                    $ino
+                    $ino_id
                     $fh
                     let mode = FallocateFlags::from_bits_retain(mode);
-                    match handler.fallocate($args) {
+                    match handler.fallocate($handler_args) {
                         Ok(()) => reply.ok(),
                         $warn_error
                     }
@@ -520,9 +527,9 @@ fn generate_fuse_operation_handlers(handler_type: HandlerType) -> Vec<TokenStrea
                 $handler
                 $resolver
                 $wrap {
-                    $ino
+                    $ino_id
                     $fh
-                    match handler.flush($args) {
+                    match handler.flush($handler_args) {
                         Ok(()) => reply.ok(),
                         $warn_error
                     }
@@ -535,7 +542,8 @@ fn generate_fuse_operation_handlers(handler_type: HandlerType) -> Vec<TokenStrea
         quote! {
             fn forget(&mut self, req: &Request, ino: u64, nlookup: u64) {
                 $req
-                self.handler.forget(&req, ino, nlookup);
+                let ino_id = self.resolver.resolve_id(ino);
+                self.handler.forget(&req, ino_id, nlookup);
                 self.resolver.forget(ino, nlookup);
             }
         },
@@ -548,9 +556,9 @@ fn generate_fuse_operation_handlers(handler_type: HandlerType) -> Vec<TokenStrea
                 $handler
                 $resolver
                 $wrap {
-                    $ino
+                    $ino_id
                     $fh
-                    match handler.fsync($args) {
+                    match handler.fsync($handler_args) {
                         Ok(()) => reply.ok(),
                         $warn_error
                     }
@@ -566,9 +574,9 @@ fn generate_fuse_operation_handlers(handler_type: HandlerType) -> Vec<TokenStrea
                 $handler
                 $resolver
                 $wrap {
-                    $ino
+                    $ino_id
                     $fh
-                    match handler.fsyncdir($args) {
+                    match handler.fsyncdir($handler_args) {
                         Ok(()) => reply.ok(),
                         $warn_error
                     }
@@ -584,9 +592,9 @@ fn generate_fuse_operation_handlers(handler_type: HandlerType) -> Vec<TokenStrea
                 $handler
                 $resolver
                 $wrap {
-                    $ino
-                    fh.map(|fh| unsafe { BorrowedFileHandle::from_raw(fh) });
-                    match handler.getattr($args) {
+                    $ino_id
+                    let fh = fh.map(|fh| unsafe { BorrowedFileHandle::from_raw(fh) });
+                    match handler.getattr($handler_args) {
                         $reply_attr
                         $warn_error
                     }
@@ -613,7 +621,7 @@ fn generate_fuse_operation_handlers(handler_type: HandlerType) -> Vec<TokenStrea
                     $handler
                     $resolver
                     $wrap {
-                        $ino
+                        $ino_id
                         $fh
                         let lock_info = LockInfo {
                             start,
@@ -621,8 +629,12 @@ fn generate_fuse_operation_handlers(handler_type: HandlerType) -> Vec<TokenStrea
                             lock_type: LockType::from_bits_retain(typ),
                             pid,
                         };
-                        match handler.getlk(&req, ino, fh, lock_owner, lock_info) {
-                            Ok(lock) => reply.locked(lock),
+                        match handler.getlk(&req, ino_id, fh, lock_owner, lock_info) {
+                            Ok(lock_info) => reply.locked(lock_info.start,
+                                lock_info.end,
+                                lock_info.lock_type.bits(),
+                                lock_info.pid,
+                            ),
                             $warn_error
                         }
                     }
@@ -638,9 +650,9 @@ fn generate_fuse_operation_handlers(handler_type: HandlerType) -> Vec<TokenStrea
                 $resolver
                 let name = name.to_owned();
                 $wrap {
-                    $ino
+                    $ino_id
                     let name = name.as_ref();
-                    match handler.getxattr($args) {
+                    match handler.getxattr($handler_args) {
                         Ok(xattr_data) => {
                             if size == 0 {
                                 reply.size(xattr_data.len() as u32);
@@ -675,10 +687,10 @@ fn generate_fuse_operation_handlers(handler_type: HandlerType) -> Vec<TokenStrea
                 $resolver
                 let in_data = in_data.to_owned();
                 $wrap {
-                    $ino
+                    $ino_id
                     $fh
                     let flags = IOCtlFlags::from_bits_retain(flags);
-                    match handler.ioctl($args) {
+                    match handler.ioctl($handler_args) {
                         Ok((result, data)) => reply.ioctl(result, &data),
                         $warn_error
                     };
@@ -700,12 +712,14 @@ fn generate_fuse_operation_handlers(handler_type: HandlerType) -> Vec<TokenStrea
                 $req
                 $handler
                 $resolver
+                let parent = newparent;
                 let newname = newname.to_owned();
                 $wrap {
-                    $ino
-                    let newname = newname.as_ref();
+                    $ino_id
                     let newparent = resolver.resolve_id(newparent);
-                    match handler.link($args) {
+                    let newname = newname.as_ref();
+                    let name = newname;
+                    match handler.link($handler_args) {
                         $reply_entry
                         $warn_error
                     }
@@ -721,8 +735,8 @@ fn generate_fuse_operation_handlers(handler_type: HandlerType) -> Vec<TokenStrea
                 $handler
                 $resolver
                 $wrap {
-                    $ino
-                    match handler.listxattr($args) {
+                    $ino_id
+                    match handler.listxattr($handler_args) {
                         Ok(xattr_data) => {
                             if size == 0 {
                                 reply.size(xattr_data.len() as u32);
@@ -747,8 +761,9 @@ fn generate_fuse_operation_handlers(handler_type: HandlerType) -> Vec<TokenStrea
                 $resolver
                 let name = name.to_owned();
                 $wrap {
-                    $parent
-                    match handler.lookup($args) {
+                    $parent_id
+                    let name = name.as_ref();
+                    match handler.lookup($handler_args) {
                         $reply_entry
                         // Lookup is preemptivly done in normal situations, we don't need to log an error
                         // eg: before creating a file
@@ -774,12 +789,12 @@ fn generate_fuse_operation_handlers(handler_type: HandlerType) -> Vec<TokenStrea
                 $handler
                 $resolver
                 $wrap {
-                    $ino
+                    $ino_id
                     $fh
                     let seek = seek_from_raw(Some(whence), offset);
                     match handler.lseek(
                         &req,
-                        ino,
+                        ino_id,
                         fh,
                         seek,
                     ) {
@@ -807,9 +822,9 @@ fn generate_fuse_operation_handlers(handler_type: HandlerType) -> Vec<TokenStrea
                 $resolver
                 let name = name.to_owned();
                 $wrap {
-                    $parent
+                    $parent_id
                     let name = name.as_ref();
-                    match handler.mkdir($args) {
+                    match handler.mkdir($handler_args) {
                         $reply_entry
                         $warn_error
                     }
@@ -835,10 +850,10 @@ fn generate_fuse_operation_handlers(handler_type: HandlerType) -> Vec<TokenStrea
                 $resolver
                 let name = name.to_owned();
                 $wrap {
-                    $parent
+                    $parent_id
                     let name = name.as_ref();
                     let rdev = DeviceType::from_rdev(rdev.try_into().unwrap());
-                    match handler.mknod($args) {
+                    match handler.mknod($handler_args) {
                         $reply_entry
                         $warn_error
                     }
@@ -854,9 +869,9 @@ fn generate_fuse_operation_handlers(handler_type: HandlerType) -> Vec<TokenStrea
                 $handler
                 $resolver
                 $wrap {
-                    $ino
+                    $ino_id
                     let flags = OpenFlags::from_bits_retain(flags);
-                    match handler.open($args) {
+                    match handler.open($handler_args) {
                         Ok((file_handle, response_flags)) => {
                             reply.opened(file_handle.as_raw(), response_flags.bits())
                         }
@@ -874,9 +889,9 @@ fn generate_fuse_operation_handlers(handler_type: HandlerType) -> Vec<TokenStrea
                 $handler
                 $resolver
                 $wrap {
-                    $ino
+                    $ino_id
                     let flags = OpenFlags::from_bits_retain(flags);
-                    match handler.opendir($args) {
+                    match handler.opendir($handler_args) {
                         Ok((file_handle, response_flags)) => {
                             reply.opened(file_handle.as_raw(), response_flags.bits())
                         }
@@ -904,11 +919,17 @@ fn generate_fuse_operation_handlers(handler_type: HandlerType) -> Vec<TokenStrea
                 $handler
                 $resolver
                 $wrap {
-                    $ino
+                    $ino_id
                     $fh
-                    let seek = seek_from_raw(Some(offset), 0);
+                    let offset = seek_from_raw(Some(match i32::try_from(offset) {
+                        Ok(offset) => offset,
+                        Err(_) => {
+                            reply.error(ErrorKind::InputOutputError.into());
+                            return;
+                        }
+                    }), 0);
                     let flags = FUSEOpenFlags::from_bits_retain(flags);
-                    match handler.read($args) {
+                    match handler.read($handler_args) {
                         Ok(data_reply) => reply.data(&data_reply),
                         $warn_error
                     };
@@ -926,10 +947,10 @@ fn generate_fuse_operation_handlers(handler_type: HandlerType) -> Vec<TokenStrea
                 $handler
                 $resolver
                 $wrap {
-                    $ino
-                    match handler.readlink($args) {
+                    $ino_id
+                    match handler.readlink($handler_args) {
                         Ok(link) => reply.data(&link),
-                        warn_error
+                        $warn_error
                     };
                 };
             }
@@ -952,10 +973,10 @@ fn generate_fuse_operation_handlers(handler_type: HandlerType) -> Vec<TokenStrea
                 $handler
                 $resolver
                 $wrap {
-                    $ino
-                    $fh
+                    $ino_id
+                    let fh = unsafe { OwnedFileHandle::from_raw(fh) };
                     let flags = OpenFlags::from_bits_retain(flags);
-                    match handler.release($args) {
+                    match handler.release($handler_args) {
                         Ok(()) => reply.ok(),
                         $warn_error
                     };
@@ -969,10 +990,10 @@ fn generate_fuse_operation_handlers(handler_type: HandlerType) -> Vec<TokenStrea
             $handler
             $resolver
             $wrap {
-                $ino
-                $fh
+                $ino_id
+                let fh = unsafe { OwnedFileHandle::from_raw(fh) };
                 let flags = OpenFlags::from_bits_retain(flags);
-                match handler.releasedir($args) {
+                match handler.releasedir($handler_args) {
                     Ok(()) => reply.ok(),
                     $warn_error
                 };
@@ -988,9 +1009,9 @@ fn generate_fuse_operation_handlers(handler_type: HandlerType) -> Vec<TokenStrea
                 $resolver
                 let name = name.to_owned();
                 $wrap {
-                    $ino
+                    $ino_id
                     let name = name.as_ref();
-                    match handler.removexattr($args) {
+                    match handler.removexattr($handler_args) {
                         Ok(()) => reply.ok(),
                         $warn_error
                     };
@@ -1017,11 +1038,12 @@ fn generate_fuse_operation_handlers(handler_type: HandlerType) -> Vec<TokenStrea
                 let name = name.to_owned();
                 let newname = newname.to_owned();
                 $wrap {
-                    $parent
+                    let parent_id = resolver.resolve_id(parent);
+                    let newparent_id = resolver.resolve_id(newparent);
                     let name = name.as_ref();
                     let newname = newname.as_ref();
                     let flags = RenameFlags::from_bits_retain(flags);
-                    match handler.rename($args) {
+                    match handler.rename(&req, parent_id, name, newparent_id, newname, flags) {
                         Ok(()) => {
                             resolver.rename(parent, &name, newparent, &newname);
                             reply.ok()
@@ -1041,9 +1063,9 @@ fn generate_fuse_operation_handlers(handler_type: HandlerType) -> Vec<TokenStrea
                 $resolver
                 let name = name.to_owned();
                 $wrap {
-                    $parent
+                    $parent_id
                     let name = name.as_ref();
-                    match handler.rmdir($args) {
+                    match handler.rmdir($handler_args) {
                         Ok(()) => reply.ok(),
                         $warn_error
                     };
@@ -1076,7 +1098,7 @@ fn generate_fuse_operation_handlers(handler_type: HandlerType) -> Vec<TokenStrea
                 $handler
                 $resolver
                 $wrap {
-                    $ino
+                    $ino_id
                     let attrs = SetAttrRequest {
                         mode,
                         uid,
@@ -1091,7 +1113,7 @@ fn generate_fuse_operation_handlers(handler_type: HandlerType) -> Vec<TokenStrea
                         flags: None,
                         file_handle: fh.map(|fh| unsafe { BorrowedFileHandle::from_raw(fh) }),
                     };
-                    match handler.setattr(&req, ino, attrs) {
+                    match handler.setattr(&req, ino_id, attrs) {
                         $reply_attr
                         $warn_error
                     }
@@ -1119,7 +1141,7 @@ fn generate_fuse_operation_handlers(handler_type: HandlerType) -> Vec<TokenStrea
                 $handler
                 $resolver
                 $wrap {
-                    $ino
+                    $ino_id
                     $fh
                     let lock_info = LockInfo {
                         start,
@@ -1129,7 +1151,7 @@ fn generate_fuse_operation_handlers(handler_type: HandlerType) -> Vec<TokenStrea
                     };
                     match handler.setlk(
                         &req,
-                        ino,
+                        ino_id,
                         fh,
                         lock_owner,
                         lock_info,
@@ -1161,9 +1183,10 @@ fn generate_fuse_operation_handlers(handler_type: HandlerType) -> Vec<TokenStrea
                 let name = name.to_owned();
                 let value = value.to_owned();
                 $wrap {
+                    $ino_id
                     let name = name.as_ref();
                     let flags = FUSESetXAttrFlags::from_bits_retain(flags);
-                    match handler.setxattr($args) {
+                    match handler.setxattr($handler_args) {
                         Ok(()) => reply.ok(),
                         $warn_error
                     };
@@ -1179,8 +1202,8 @@ fn generate_fuse_operation_handlers(handler_type: HandlerType) -> Vec<TokenStrea
                 $handler
                 $resolver
                 $wrap {
-                    $ino
-                    match handler.statfs($args) {
+                    $ino_id
+                    match handler.statfs($handler_args) {
                         Ok(statfs) => reply.statfs(
                             statfs.total_blocks,
                             statfs.free_blocks,
@@ -1214,9 +1237,11 @@ fn generate_fuse_operation_handlers(handler_type: HandlerType) -> Vec<TokenStrea
                 let link_name = link_name.to_owned();
                 let target = target.to_owned();
                 $wrap {
+                    $parent_id
                     let link_name = link_name.as_ref();
+                    let name = link_name;
                     let target = target.as_ref();
-                    match handler.symlink($args) {
+                    match handler.symlink($handler_args) {
                         $reply_entry
                         $warn_error
                     }
@@ -1244,12 +1269,18 @@ fn generate_fuse_operation_handlers(handler_type: HandlerType) -> Vec<TokenStrea
                 $resolver
                 let data = data.to_owned();
                 $wrap {
-                    $ino
+                    $ino_id
                     $fh
-                    let seek = seek_from_raw(Some(offset), 0);
+                    let offset = seek_from_raw(Some(match i32::try_from(offset) {
+                        Ok(offset) => offset,
+                        Err(_) => {
+                            reply.error(ErrorKind::InputOutputError.into());
+                            return;
+                        }
+                    }), 0);
                     let write_flags = FUSEWriteFlags::from_bits_retain(write_flags);
                     let flags = OpenFlags::from_bits_retain(flags);
-                    match handler.write($args) {
+                    match handler.write($handler_args) {
                         Ok(bytes_written) => reply.written(bytes_written),
                         $warn_error
                     };
@@ -1266,9 +1297,9 @@ fn generate_fuse_operation_handlers(handler_type: HandlerType) -> Vec<TokenStrea
                 $resolver
                 let name = name.to_owned();
                 $wrap {
-                    $parent
+                    $parent_id
                     let name = name.as_ref();
-                    match handler.unlink($args) {
+                    match handler.unlink($handler_args) {
                         Ok(()) => reply.ok(),
                         $warn_error
                     };
@@ -1391,7 +1422,7 @@ fn get_dependencies() -> proc_macro2::TokenStream {
         use log::{error, info, warn};
 
         use fuser::{
-            self, KernelConfig, ReplyAttr, ReplyBmap, ReplyCreate, ReplyData, ReplyDirectory,
+            self, Filesystem, KernelConfig, ReplyAttr, ReplyBmap, ReplyCreate, ReplyData, ReplyDirectory,
             ReplyDirectoryPlus, ReplyEmpty, ReplyEntry, ReplyIoctl, ReplyLock, ReplyLseek, ReplyOpen,
             ReplyStatfs, ReplyWrite, ReplyXattr, Request, TimeOrNow,
         };
@@ -1413,7 +1444,7 @@ pub(crate) fn generate_fuse_driver_implementation(handler_type: HandlerType) -> 
 
         #fuse_driver_struct
 
-        impl<TId, THandler> FuseDriver<TId, THandler>
+        impl<TId, THandler> fuser::Filesystem for FuseDriver<TId, THandler>
         where
             TId: FileIdType,
             THandler: FuseHandler<TId>,

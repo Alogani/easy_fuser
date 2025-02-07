@@ -15,7 +15,7 @@ use std::{
 
 use fuser::FileType as FileKind;
 
-use crate::core::InodeResolvable;
+use crate::fuse_common::InodeResolvable;
 
 use super::arguments::FileAttribute;
 use super::inode::*;
