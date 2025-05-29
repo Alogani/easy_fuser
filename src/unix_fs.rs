@@ -841,7 +841,7 @@ pub fn listxattr(path: &Path, size: u32) -> Result<Vec<u8>, PosixError> {
     let c_path = cstring_from_path(path)?;
     let mut buf = vec![0u8; size as usize];
     let ret =
-        unsafe { unix_impl::listxattr(c_path.as_ptr(), buf.as_mut_ptr() as *mut i8, buf.len()) };
+        unsafe { unix_impl::listxattr(c_path.as_ptr(), buf.as_mut_ptr() as *mut _, buf.len()) };
 
     if ret == -1 {
         return Err(PosixError::last_error(format!(
