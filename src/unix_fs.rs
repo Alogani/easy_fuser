@@ -841,7 +841,7 @@ pub fn listxattr(path: &Path, size: u32) -> Result<Vec<u8>, PosixError> {
     let c_path = cstring_from_path(path)?;
     let mut buf = vec![0u8; size as usize];
     let ret =
-        unsafe { unix_impl::listxattr(c_path.as_ptr(), buf.as_mut_ptr() as *mut i8, buf.len()) };
+        unsafe { unix_impl::listxattr(c_path.as_ptr(), buf.as_mut_ptr() as *mut _, buf.len()) };
 
     if ret == -1 {
         return Err(PosixError::last_error(format!(
@@ -918,7 +918,7 @@ pub fn access(path: &Path, mask: AccessMask) -> Result<(), PosixError> {
 ///
 /// It creates a new file if it doesn't exist, opens it with write access. It returns a file descriptor
 /// which may not necessarily be equivalent to the FUSE file handle, along with its attributes.
-/// An error is returned if the file already exists.
+/// An error is returned if the file already exists and the [OpenFlags::CREATE_EXCLUSIVE] flag is set.
 ///
 /// Although this function returns a Fd, it is guaranted to be positive and valid.
 pub fn create(
@@ -931,11 +931,18 @@ pub fn create(
     let open_flags = flags.bits();
     let final_mode = mode & !umask;
 
-    // Open the file with O_CREAT (create if it does not exist) and O_WRONLY (write only)
+    // Ensure the file is opened with write access if not specified
+    let open_flags = if open_flags & libc::O_ACCMODE == 0 {
+        open_flags | libc::O_WRONLY
+    } else {
+        open_flags
+    };
+
+    // Open the file with O_CREAT (create if it does not exist)
     let fd = unsafe {
         libc::open(
             c_path.as_ptr(),
-            open_flags | libc::O_CREAT | libc::O_WRONLY | libc::O_EXCL, // O_EXCL ensures the file is created if it doesn't exist
+            open_flags | libc::O_CREAT,
             final_mode,
         )
     };
