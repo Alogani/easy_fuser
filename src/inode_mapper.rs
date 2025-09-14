@@ -372,7 +372,7 @@ impl<T: Send + Sync + 'static> InodeMapper<T> {
         Some(result)
     }
 
-    pub fn get(&self, inode: &Inode) -> Option<InodeInfo<T>> {
+    pub fn get(&self, inode: &Inode) -> Option<InodeInfo<'_, T>> {
         self.data.inodes.get(inode).map(|inode_value| InodeInfo {
             parent: &inode_value.parent,
             name: inode_value.name.as_ref(),
@@ -380,7 +380,7 @@ impl<T: Send + Sync + 'static> InodeMapper<T> {
         })
     }
 
-    pub fn get_mut(&mut self, inode: &Inode) -> Option<InodeInfoMut<T>> {
+    pub fn get_mut(&mut self, inode: &Inode) -> Option<InodeInfoMut<'_, T>> {
         self.data
             .inodes
             .get_mut(inode)
@@ -410,7 +410,7 @@ impl<T: Send + Sync + 'static> InodeMapper<T> {
     }
 
     /// Looks up a child inode by its parent inode and name
-    pub fn lookup(&self, parent: &Inode, name: &OsStr) -> Option<LookupResult<T>> {
+    pub fn lookup(&self, parent: &Inode, name: &OsStr) -> Option<LookupResult<'_, T>> {
         self.data
             .children
             .get(parent)
