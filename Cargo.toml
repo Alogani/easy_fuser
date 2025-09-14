@@ -20,7 +20,7 @@ deadlock_detection = ["parallel", "dep:parking_lot"]
 # Core dependencies
 log = "0.4"
 libc = "0.2"
-fuser = "0.15"
+fuser = "0.16"
 bitflags = "2.6.0"
 
 # Parallel dependencies
