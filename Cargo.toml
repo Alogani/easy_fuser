@@ -1,6 +1,6 @@
 [package]
 name = "easy_fuser"
-version = "0.4.1"
+version = "0.4.2"
 edition = "2021"
 description = "A flexible and idiomatic Fuse implementation for Rust"
 license = "MIT"
@@ -20,7 +20,7 @@ deadlock_detection = ["parallel", "dep:parking_lot"]
 # Core dependencies
 log = "0.4"
 libc = "0.2"
-fuser = "0.15"
+fuser = "0.16"
 bitflags = "2.6.0"
 
 # Parallel dependencies
