@@ -545,8 +545,8 @@ mod tests {
     use std::collections::HashSet;
     use std::ffi::OsString;
 
-    use crate::types::Inode;
     use crate::ROOT_INODE;
+    use crate::types::Inode;
 
     #[test]
     fn test_insert_child_returns_old_inode() {
@@ -751,6 +751,54 @@ mod tests {
         let inode_value = mapper.get(&child).unwrap();
         assert_eq!(inode_value.parent, &parent2);
         assert_eq!(inode_value.name.as_os_str(), OsStr::new("new_name"));
+    }
+
+    #[test]
+    fn test_should_not_prematurely_purge_old_inode_after_renaming() {
+        // Data fields of all inodes in this test are 1 to simulate reflection of the FUSE inode refcount
+        let mut mapper = InodeMapper::new(1u64);
+        let root = mapper.get_root_inode();
+
+        let parent1 = mapper
+            .insert_child(&root, OsString::from("parent1"), |_| 1)
+            .unwrap();
+        let parent2 = mapper
+            .insert_child(&root, OsString::from("parent2"), |_| 1)
+            .unwrap();
+        let child1 = mapper
+            .insert_child(&parent1, OsString::from("child1"), |_| 1)
+            .unwrap();
+        let child2 = mapper
+            .insert_child(&parent2, OsString::from("child2"), |_| 1)
+            .unwrap();
+
+        // Rename child1 to child2
+        mapper
+            .rename(
+                &parent1,
+                OsStr::new("child1"),
+                &parent2,
+                OsString::from("child2"),
+            )
+            .expect("should be able to insert inode");
+        assert!(
+            mapper.get(&child1).is_some(),
+            "first inode should be present"
+        );
+        assert!(
+            mapper.get(&child1).unwrap().parent == &parent2,
+            "first inode should point to parent2 as parent"
+        );
+        assert!(
+            mapper
+                .get_children(&parent2)
+                .contains(&(&Arc::new(OsString::from("child2")), &child1)),
+            "first inode should be in parent2's child node list"
+        );
+        assert!(
+            mapper.get(&child2).is_some(),
+            "second inode must be present as an orphaned inode but not removed immediately"
+        );
     }
 
     #[test]
