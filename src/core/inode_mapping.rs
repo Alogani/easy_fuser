@@ -596,7 +596,6 @@ mod tests {
         assert_eq!(hard_link_id.first_path(), Path::new("hard_link"));
 
         let hard_link_ino_2 = resolver.lookup(dir2_ino, OsStr::new("hard_linked"), Some(7), true);
-        // TODO: Expand and get the full path
         let hard_link_id_2 = resolver.resolve_id(hard_link_ino_2);
         assert_eq!(
             hard_link_ino_2, hard_link_ino,
