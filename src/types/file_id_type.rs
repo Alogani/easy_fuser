@@ -10,15 +10,15 @@
 use std::{
     ffi::OsString,
     fmt::{Debug, Display},
+    hash::Hasher,
     path::{Path, PathBuf},
+    sync::{Arc, RwLock, atomic::AtomicU64},
 };
-
-use fuser::FileType as FileKind;
-
-use crate::core::InodeResolvable;
 
 use super::arguments::FileAttribute;
 use super::inode::*;
+use crate::{core::InodeResolvable, inode_multi_mapper::InodeMultiMapper};
+use fuser::FileType as FileKind;
 
 /// Represents the type used to identify files in the file system.
 ///
@@ -38,6 +38,20 @@ use super::inode::*;
 ///    - Pros: Slightly lower overhead than PathBuf, allows path to be divided into parts.
 ///    - Cons: Path components are stored in reverse order, which may require additional handling.
 ///    - Root: Represented by an empty vector.
+///
+/// 4. `HybridId<BackingId>`: Uses inode for identification; however, file paths are also provided for use.
+///     - Pros:
+///         - Supports automatic inode-to-path mapping, similar to PathBuf.
+///         - User can supply an optional backing ID to accurately reuse an existing inode and model a hard link
+///         if the underlying file system uses hard links, and allows for retrieving multiple paths to the same inode.
+///         - Hard links persist after unmounting and remounting the file system.
+///     - Cons:
+///         - May have more overhead compared to PathBuf.
+///         - May lead to performance degradation or service denial if the user tries to exhaustively search all paths
+///         to an inode, and hard links were extensively used.
+///         - The pre-supplied PathBuf can change over multiple requests to the same inode, so it should not be used as a
+///         comparison method.
+///     - Root: Represented by the constant ROOT_INODE with a value of 1 and an empty string.
 pub trait FileIdType:
     'static + Debug + Clone + PartialEq + Eq + std::hash::Hash + InodeResolvable
 {
@@ -146,5 +160,104 @@ impl FileIdType for Vec<OsString> {
 
     fn extract_minimal_metadata(minimal_metadata: Self::MinimalMetadata) -> (Self::_Id, FileKind) {
         ((), minimal_metadata)
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct HybridId<BackingId>
+where
+    BackingId: Clone + Eq + std::hash::Hash,
+{
+    inode: Inode,
+    first_path: PathBuf,
+    mapper: Arc<RwLock<InodeMultiMapper<AtomicU64, BackingId>>>,
+}
+
+impl<BackingId> HybridId<BackingId>
+where
+    BackingId: Clone + Eq + std::hash::Hash,
+{
+    pub fn new(
+        inode: Inode,
+        first_path: PathBuf,
+        mapper: Arc<RwLock<InodeMultiMapper<AtomicU64, BackingId>>>,
+    ) -> Self {
+        Self {
+            inode,
+            first_path,
+            mapper,
+        }
+    }
+
+    pub fn first_path(&self) -> &Path {
+        self.first_path.as_ref()
+    }
+
+    pub fn inode(&self) -> &Inode {
+        &self.inode
+    }
+
+    pub fn paths(&self, limit: usize) -> Vec<PathBuf> {
+        let mapper = self
+            .mapper
+            .read()
+            .expect("failed to acquire read lock on mapper");
+        let resolved = mapper.resolve_all(&self.inode, limit);
+        resolved
+            .iter()
+            .map(|components| {
+                components
+                    .iter()
+                    .rev()
+                    .map(|component| component.name.as_ref())
+                    .collect::<PathBuf>()
+            })
+            .collect()
+    }
+}
+
+impl<BackingId> PartialEq for HybridId<BackingId>
+where
+    BackingId: Clone + Eq + std::hash::Hash,
+{
+    fn eq(&self, other: &Self) -> bool {
+        self.inode == other.inode && Arc::ptr_eq(&self.mapper, &other.mapper)
+    }
+}
+
+impl<BackingId> Eq for HybridId<BackingId> where BackingId: Clone + Eq + std::hash::Hash {}
+
+impl<BackingId> std::hash::Hash for HybridId<BackingId>
+where
+    BackingId: Clone + Eq + std::hash::Hash,
+{
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.inode.hash(state);
+        // Resolver is not immutable (it can expire and be regenerated)
+    }
+}
+
+impl<BackingId> FileIdType for HybridId<BackingId>
+where
+    BackingId: Clone + Eq + std::hash::Hash + Send + Sync + Debug + 'static,
+{
+    type _Id = Option<BackingId>;
+    type Metadata = (Option<BackingId>, FileAttribute);
+    type MinimalMetadata = (Option<BackingId>, FileKind);
+
+    fn display(&self) -> impl Display {
+        format!("HybridId({:?}, {})", self.inode, self.first_path.display())
+    }
+
+    fn is_filesystem_root(&self) -> bool {
+        self.inode == ROOT_INODE
+    }
+
+    fn extract_metadata(metadata: Self::Metadata) -> (Self::_Id, FileAttribute) {
+        metadata
+    }
+
+    fn extract_minimal_metadata(minimal_metadata: Self::MinimalMetadata) -> (Self::_Id, FileKind) {
+        minimal_metadata
     }
 }
