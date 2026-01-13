@@ -169,7 +169,7 @@ where
     BackingId: Clone + Eq + std::hash::Hash,
 {
     inode: Inode,
-    first_path: PathBuf,
+    first_path: Option<PathBuf>,
     mapper: Arc<RwLock<InodeMultiMapper<AtomicU64, BackingId>>>,
 }
 
@@ -179,7 +179,7 @@ where
 {
     pub fn new(
         inode: Inode,
-        first_path: PathBuf,
+        first_path: Option<PathBuf>,
         mapper: Arc<RwLock<InodeMultiMapper<AtomicU64, BackingId>>>,
     ) -> Self {
         Self {
@@ -189,8 +189,8 @@ where
         }
     }
 
-    pub fn first_path(&self) -> &Path {
-        self.first_path.as_ref()
+    pub fn first_path(&self) -> Option<&Path> {
+        self.first_path.as_deref()
     }
 
     pub fn inode(&self) -> &Inode {
@@ -246,7 +246,14 @@ where
     type MinimalMetadata = (Option<BackingId>, FileKind);
 
     fn display(&self) -> impl Display {
-        format!("HybridId({:?}, {})", self.inode, self.first_path.display())
+        format!(
+            "HybridId({:?}, {})",
+            self.inode,
+            match &self.first_path {
+                Some(path) => path.display().to_string(),
+                None => "<orphaned inode>".to_string(),
+            }
+        )
     }
 
     fn is_filesystem_root(&self) -> bool {

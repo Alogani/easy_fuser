@@ -294,11 +294,13 @@ where
             .read()
             .unwrap()
             .resolve(&Inode::from(ino))
-            .expect("Failed to resolve inode")
-            .iter()
-            .map(|inode_info| (**inode_info.name).clone())
-            .rev()
-            .collect::<PathBuf>();
+            .map(|components| {
+                components
+                    .iter()
+                    .map(|inode_info| (**inode_info.name).clone())
+                    .rev()
+                    .collect::<PathBuf>()
+            });
         HybridId::new(Inode::from(ino), first_path, self.mapper.clone())
     }
 
@@ -530,16 +532,16 @@ mod tests {
         // Test lookup and resolve_id for root
         let root_ino = ROOT_INODE.into();
         let root_id = resolver.resolve_id(root_ino);
-        assert_eq!(root_id.first_path(), "");
+        assert_eq!(root_id.first_path(), Some(Path::new("")));
 
         // Test lookup and resolve_id for child and create nested structures
         let dir1_ino = resolver.lookup(root_ino, OsStr::new("dir1"), Some(1), true);
         let dir1_id = resolver.resolve_id(dir1_ino);
-        assert_eq!(dir1_id.first_path(), "dir1");
+        assert_eq!(dir1_id.first_path(), Some(Path::new("dir1")));
 
         let dir2_ino = resolver.lookup(dir1_ino, OsStr::new("dir2"), Some(2), true);
         let dir2_id = resolver.resolve_id(dir2_ino);
-        assert_eq!(dir2_id.first_path(), "dir1/dir2");
+        assert_eq!(dir2_id.first_path(), Some(Path::new("dir1/dir2")));
 
         // Test add_children
         let grandchildren = vec![
@@ -550,7 +552,10 @@ mod tests {
         assert_eq!(added_grandchildren.len(), 2);
         for (name, ino) in added_grandchildren.iter() {
             let child_path = resolver.resolve_id(*ino);
-            assert_eq!(child_path.first_path(), Path::new("dir1/dir2").join(name));
+            assert_eq!(
+                child_path.first_path(),
+                Some(Path::new("dir1/dir2").join(name).as_path())
+            );
         }
 
         // Test forget
@@ -566,7 +571,7 @@ mod tests {
         let renamed_grandchild_path = resolver.resolve_id(added_grandchildren[1].1);
         assert_eq!(
             renamed_grandchild_path.first_path(),
-            Path::new("dir1/dir2/grandchild2_renamed")
+            Some(Path::new("dir1/dir2/grandchild2_renamed"))
         );
 
         // Test rename to a different directory
@@ -580,7 +585,7 @@ mod tests {
         let renamed_grandchild_path = resolver.resolve_id(added_grandchildren[1].1);
         assert_eq!(
             renamed_grandchild_path.first_path(),
-            Path::new("dir3/grandchild2_renamed")
+            Some(Path::new("dir3/grandchild2_renamed"))
         );
 
         // Test lookup for non-existent file
@@ -588,12 +593,15 @@ mod tests {
             resolver.lookup(root_ino, OsStr::new("non_existent"), Some(6), false);
         assert_ne!(non_existent_ino, 0);
         let non_existent_path = resolver.resolve_id(non_existent_ino);
-        assert_eq!(non_existent_path.first_path(), Path::new("non_existent"));
+        assert_eq!(
+            non_existent_path.first_path(),
+            Some(Path::new("non_existent"))
+        );
 
         // Test lookup for a file with existing backing ID
         let hard_link_ino = resolver.lookup(root_ino, OsStr::new("hard_link"), Some(7), true);
         let hard_link_id = resolver.resolve_id(hard_link_ino);
-        assert_eq!(hard_link_id.first_path(), Path::new("hard_link"));
+        assert_eq!(hard_link_id.first_path(), Some(Path::new("hard_link")));
 
         let hard_link_ino_2 = resolver.lookup(dir2_ino, OsStr::new("hard_linked"), Some(7), true);
         let hard_link_id_2 = resolver.resolve_id(hard_link_ino_2);
