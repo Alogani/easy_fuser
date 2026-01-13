@@ -8,8 +8,8 @@ use std::{
 
 use std::sync::{RwLock, atomic::AtomicU64};
 
-use crate::inode_multi_mapper::*;
-use crate::types::*;
+use crate::{inode_mapper, types::*};
+use crate::{inode_mapper::InodeMapper, inode_multi_mapper::*};
 
 pub(crate) const ROOT_INO: u64 = 1;
 
@@ -115,7 +115,7 @@ impl FileIdResolver for InodeResolver {
 }
 
 pub struct ComponentsResolver {
-    mapper: RwLock<InodeMultiMapper<AtomicU64, ()>>,
+    mapper: RwLock<InodeMapper<AtomicU64>>,
 }
 
 impl FileIdResolver for ComponentsResolver {
@@ -123,7 +123,7 @@ impl FileIdResolver for ComponentsResolver {
 
     fn new() -> Self {
         ComponentsResolver {
-            mapper: RwLock::new(InodeMultiMapper::new(AtomicU64::new(0))),
+            mapper: RwLock::new(InodeMapper::new(AtomicU64::new(0))),
         }
     }
 
@@ -153,7 +153,7 @@ impl FileIdResolver for ComponentsResolver {
             self.mapper
                 .write()
                 .expect("Failed to acquire write lock")
-                .insert_child(&parent, child.to_os_string(), None, |_| {
+                .insert_child(&parent, child.to_os_string(), |_| {
                     AtomicU64::new(if increment { 1 } else { 0 })
                 })
                 .expect("Failed to insert child"),
@@ -167,7 +167,9 @@ impl FileIdResolver for ComponentsResolver {
         increment: bool,
     ) -> Vec<(OsString, u64)> {
         let value_creator =
-            |value_creator: ValueCreatorParams<AtomicU64>| match value_creator.existing_data {
+            |value_creator: inode_mapper::ValueCreatorParams<AtomicU64>| match value_creator
+                .existing_data
+            {
                 Some(nlookup) => {
                     let count = nlookup.load(Ordering::Relaxed);
                     AtomicU64::new(if increment { count + 1 } else { count })
@@ -176,7 +178,7 @@ impl FileIdResolver for ComponentsResolver {
             };
         let children_with_creator: Vec<_> = children
             .iter()
-            .map(|(name, _)| (name.clone(), None, value_creator))
+            .map(|(name, _)| (name.clone(), value_creator))
             .collect();
         let parent_inode = Inode::from(parent);
         let inserted_children = self
