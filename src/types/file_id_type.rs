@@ -166,7 +166,7 @@ impl FileIdType for Vec<OsString> {
 #[derive(Clone)]
 pub struct HybridId<BackingId>
 where
-    BackingId: Clone + Eq + std::hash::Hash,
+    BackingId: Clone + Eq + std::hash::Hash + Debug,
 {
     inode: Inode,
     first_path: Option<PathBuf>,
@@ -175,7 +175,7 @@ where
 
 impl<BackingId> HybridId<BackingId>
 where
-    BackingId: Clone + Eq + std::hash::Hash,
+    BackingId: Clone + Eq + std::hash::Hash + Debug,
 {
     pub fn new(
         inode: Inode,
@@ -218,18 +218,18 @@ where
 
 impl<BackingId> PartialEq for HybridId<BackingId>
 where
-    BackingId: Clone + Eq + std::hash::Hash,
+    BackingId: Clone + Eq + std::hash::Hash + Debug,
 {
     fn eq(&self, other: &Self) -> bool {
         self.inode == other.inode && Arc::ptr_eq(&self.mapper, &other.mapper)
     }
 }
 
-impl<BackingId> Eq for HybridId<BackingId> where BackingId: Clone + Eq + std::hash::Hash {}
+impl<BackingId> Eq for HybridId<BackingId> where BackingId: Clone + Eq + std::hash::Hash + Debug {}
 
 impl<BackingId> std::hash::Hash for HybridId<BackingId>
 where
-    BackingId: Clone + Eq + std::hash::Hash,
+    BackingId: Clone + Eq + std::hash::Hash + Debug,
 {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.inode.hash(state);
@@ -239,10 +239,11 @@ where
 
 impl<BackingId> Debug for HybridId<BackingId>
 where
-    BackingId: Clone + Eq + std::hash::Hash,
+    BackingId: Clone + Eq + std::hash::Hash + Debug,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f,
+        write!(
+            f,
             "HybridId({:?}, {})",
             self.inode,
             match &self.first_path {
@@ -256,7 +257,7 @@ where
 impl<BackingId> FileIdType for HybridId<BackingId>
 where
     BackingId: Clone + Eq + std::hash::Hash + Send + Sync + Debug + 'static,
-{   
+{
     type _Id = Option<BackingId>;
     type Metadata = (Option<BackingId>, FileAttribute);
     type MinimalMetadata = (Option<BackingId>, FileKind);

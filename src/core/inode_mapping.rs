@@ -617,6 +617,20 @@ mod tests {
         assert!(paths.contains(&PathBuf::from("dir1/dir2/hard_linked")));
         assert!(paths.contains(&PathBuf::from("hard_link")));
         assert!(paths.contains(&PathBuf::from("dir1/hard_linked_2")));
+
+        // Overriding a location with a new backing ID should always create a new inode
+        let overridden_hard_link_ino =
+            resolver.lookup(dir2_ino, OsStr::new("hard_linked"), Some(8), true);
+        assert_ne!(
+            overridden_hard_link_ino, hard_link_ino,
+            "overridden location's inode should change upon encountering a new ID"
+        );
+
+        // Test path resolution after overriding a location with a new backing ID
+        let paths = hard_link_id_2.paths(100);
+        assert!(!paths.contains(&PathBuf::from("dir1/dir2/hard_linked")), "the path list should no longer contain the overridden location");
+        assert!(paths.contains(&PathBuf::from("hard_link")));
+        assert!(paths.contains(&PathBuf::from("dir1/hard_linked_2")));
     }
 
     #[test]
