@@ -163,7 +163,7 @@ impl FileIdType for Vec<OsString> {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct HybridId<BackingId>
 where
     BackingId: Clone + Eq + std::hash::Hash,
@@ -237,10 +237,26 @@ where
     }
 }
 
+impl<BackingId> Debug for HybridId<BackingId>
+where
+    BackingId: Clone + Eq + std::hash::Hash,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f,
+            "HybridId({:?}, {})",
+            self.inode,
+            match &self.first_path {
+                Some(path) => path.display().to_string(),
+                None => "<orphaned inode>".to_string(),
+            }
+        )
+    }
+}
+
 impl<BackingId> FileIdType for HybridId<BackingId>
 where
     BackingId: Clone + Eq + std::hash::Hash + Send + Sync + Debug + 'static,
-{
+{   
     type _Id = Option<BackingId>;
     type Metadata = (Option<BackingId>, FileAttribute);
     type MinimalMetadata = (Option<BackingId>, FileKind);
