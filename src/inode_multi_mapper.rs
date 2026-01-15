@@ -5,7 +5,7 @@ use std::{
     collections::{HashMap, HashSet},
     ffi::{OsStr, OsString},
     fmt::Debug,
-    hash::Hash,
+    hash::{Hash, Hasher},
     ops::Deref,
     sync::Arc,
 };
@@ -247,6 +247,35 @@ where
         }
     }
 
+    /// Compute a deterministic inode value based on the backing ID.
+    /// If the inode already exists, the algorithm tries to find the next available inode
+    /// starting from the hash value.
+    /// If the backing ID is not provided, allocate a new inode.
+    fn compute_or_allocate_inode(&mut self, backing_id: Option<&BackingId>) -> Inode {
+        // Deterministically hash the backing ID to get a stable inode value if possible
+        match backing_id {
+            Some(backing_id) => {
+                let mut hasher = std::collections::hash_map::DefaultHasher::new();
+                backing_id.hash(&mut hasher);
+                let hash = hasher.finish();
+                let mut preferred_inode = Inode::from(hash);
+                loop {
+                    if self.data.inodes.get(&preferred_inode).is_none() {
+                        break preferred_inode;
+                    }
+                    preferred_inode = preferred_inode.add_one();
+                }
+            }
+            None => loop {
+                let new_inode = self.next_inode.clone();
+                self.next_inode = new_inode.add_one();
+                if self.data.inodes.get(&new_inode).is_none() {
+                    break new_inode;
+                }
+            },
+        }
+    }
+
     pub fn get_root_inode(&self) -> Inode {
         self.root_inode.clone()
     }
@@ -375,13 +404,7 @@ where
                         target_child_inode_data.links.remove(&parent.clone());
                     }
                     // Create new inode
-                    let new_inode = loop {
-                        let new_inode = self.next_inode.clone();
-                        self.next_inode = new_inode.add_one();
-                        if self.data.inodes.get(&new_inode).is_none() {
-                            break new_inode;
-                        }
-                    };
+                    let new_inode = self.compute_or_allocate_inode(Some(&desired_backing_id));
                     // Associate parent to new child and initialize data
                     self.data.inodes.insert(
                         new_inode.clone(),
@@ -453,13 +476,7 @@ where
                 backing_inode
             }
             (None, None) => {
-                let new_inode = loop {
-                    let new_inode = self.next_inode.clone();
-                    self.next_inode = new_inode.add_one();
-                    if self.data.inodes.get(&new_inode).is_none() {
-                        break new_inode;
-                    }
-                };
+                let new_inode = self.compute_or_allocate_inode(backing_id.as_ref());
                 // Associate parent to child and initialize data
                 self.data.inodes.insert(
                     new_inode.clone(),
@@ -477,6 +494,11 @@ where
                     },
                 );
                 // Associate child to parent
+                let parent_children = self
+                    .data
+                    .children
+                    .entry(parent.clone())
+                    .or_insert_with(HashMap::new);
                 parent_children.insert(child_name.clone(), new_inode.clone());
                 if let Some(backing_id) = backing_id {
                     self.data.backing.insert(new_inode.clone(), backing_id);
