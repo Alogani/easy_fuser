@@ -367,8 +367,9 @@ pub trait FuseHandler<TId: FileIdType>: OptionalSendSync + 'static {
         req: &RequestInfo,
         file_id: TId,
         flags: OpenFlags,
-    ) -> FuseResult<(OwnedFileHandle, FUSEOpenResponseFlags)> {
-        self.get_inner().open(req, file_id, flags)
+        helper: OpenHelper,
+    ) -> FuseResult<(OwnedFileHandle, FUSEOpenResponseFlags, Option<PassthroughBackingId>)> {
+        self.get_inner().open(req, file_id, flags, helper)
     }
 
     /// Open a directory
@@ -379,8 +380,9 @@ pub trait FuseHandler<TId: FileIdType>: OptionalSendSync + 'static {
         req: &RequestInfo,
         file_id: TId,
         flags: OpenFlags,
-    ) -> FuseResult<(OwnedFileHandle, FUSEOpenResponseFlags)> {
-        self.get_inner().opendir(req, file_id, flags)
+        helper: OpenHelper,
+    ) -> FuseResult<(OwnedFileHandle, FUSEOpenResponseFlags, Option<PassthroughBackingId>)> {
+        self.get_inner().opendir(req, file_id, flags, helper)
     }
 
     /// Read data from a file

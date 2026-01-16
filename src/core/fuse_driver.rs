@@ -620,14 +620,30 @@ where
         #[cfg_attr(feature = "serial", allow(unused_variables))]
         let reply_executor = reply_executor!(self);
         execute_task!(self, {
+            let open_helper = OpenHelper::new(&reply);
             match handler.open(
                 &req,
                 resolver.resolve_id(ino),
                 OpenFlags::from_bits_retain(_flags),
+                open_helper,
             ) {
-                Ok((file_handle, response_flags)) => {
+                Ok((file_handle, response_flags, backing_id)) => {
                     execute_reply_task!(reply_executor, {
-                        reply.opened(file_handle.as_raw(), response_flags.bits())
+                        match backing_id {
+                            #[cfg(feature = "passthrough")]
+                            Some(backing_id) => {
+                                reply.opened_passthrough(
+                                    file_handle.as_raw(),
+                                    response_flags.bits(),
+                                    backing_id.as_ref(),
+                                );
+                            }
+                            _ => {
+                                let response_flags =
+                                    response_flags & !FUSEOpenResponseFlags::PASSTHROUGH;
+                                reply.opened(file_handle.as_raw(), response_flags.bits())
+                            }
+                        }
                     });
                 }
                 Err(e) => {
@@ -645,14 +661,30 @@ where
         #[cfg_attr(feature = "serial", allow(unused_variables))]
         let reply_executor = reply_executor!(self);
         execute_task!(self, {
+            let open_helper = OpenHelper::new(&reply);
             match handler.opendir(
                 &req,
                 resolver.resolve_id(ino),
                 OpenFlags::from_bits_retain(_flags),
+                open_helper,
             ) {
-                Ok((file_handle, response_flags)) => {
+                Ok((file_handle, response_flags, backing_id)) => {
                     execute_reply_task!(reply_executor, {
-                        reply.opened(file_handle.as_raw(), response_flags.bits())
+                        match backing_id {
+                            #[cfg(feature = "passthrough")]
+                            Some(backing_id) => {
+                                reply.opened_passthrough(
+                                    file_handle.as_raw(),
+                                    response_flags.bits(),
+                                    backing_id.as_ref(),
+                                );
+                            }
+                            _ => {
+                                let response_flags =
+                                    response_flags & !FUSEOpenResponseFlags::PASSTHROUGH;
+                                reply.opened(file_handle.as_raw(), response_flags.bits())
+                            }
+                        }
                     });
                 }
                 Err(e) => {
