@@ -14,7 +14,7 @@ use fuser::{
 };
 
 use super::{
-    fuse_driver_types::{execute_task, FuseDriver},
+    fuse_driver_types::{FuseDriver, execute_task},
     inode_mapping::FileIdResolver,
     macros::*,
     thread_mode::*,
@@ -549,14 +549,27 @@ where
         let handler = self.get_handler();
         let resolver = self.get_resolver();
         execute_task!(self, {
+            let open_helper = OpenHelper::new(&reply);
             match handler.open(
                 &req,
                 resolver.resolve_id(ino),
                 OpenFlags::from_bits_retain(_flags),
+                open_helper,
             ) {
-                Ok((file_handle, response_flags)) => {
-                    reply.opened(file_handle.as_raw(), response_flags.bits())
-                }
+                Ok((file_handle, response_flags, backing_id)) => match backing_id {
+                    #[cfg(feature = "passthrough")]
+                    Some(backing_id) => {
+                        reply.opened_passthrough(
+                            file_handle.as_raw(),
+                            response_flags.bits(),
+                            backing_id.as_ref(),
+                        );
+                    }
+                    _ => {
+                        let response_flags = response_flags & !FUSEOpenResponseFlags::PASSTHROUGH;
+                        reply.opened(file_handle.as_raw(), response_flags.bits())
+                    }
+                },
                 Err(e) => {
                     warn!("open: ino {:x?}, [{}], {:?}", ino, e, req);
                     reply.error(e.raw_error())
@@ -570,14 +583,27 @@ where
         let handler = self.get_handler();
         let resolver = self.get_resolver();
         execute_task!(self, {
+            let open_helper = OpenHelper::new(&reply);
             match handler.opendir(
                 &req,
                 resolver.resolve_id(ino),
                 OpenFlags::from_bits_retain(_flags),
+                open_helper,
             ) {
-                Ok((file_handle, response_flags)) => {
-                    reply.opened(file_handle.as_raw(), response_flags.bits())
-                }
+                Ok((file_handle, response_flags, backing_id)) => match backing_id {
+                    #[cfg(feature = "passthrough")]
+                    Some(backing_id) => {
+                        reply.opened_passthrough(
+                            file_handle.as_raw(),
+                            response_flags.bits(),
+                            backing_id.as_ref(),
+                        );
+                    }
+                    _ => {
+                        let response_flags = response_flags & !FUSEOpenResponseFlags::PASSTHROUGH;
+                        reply.opened(file_handle.as_raw(), response_flags.bits())
+                    }
+                },
                 Err(e) => {
                     warn!("opendir: ino {:x?}, [{}], {:?}", ino, e, req);
                     reply.error(e.raw_error())

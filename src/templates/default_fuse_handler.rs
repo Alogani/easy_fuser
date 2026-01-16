@@ -631,7 +631,8 @@ impl<TId: FileIdType> FuseHandler<TId> for DefaultFuseHandler {
         _req: &RequestInfo,
         file_id: TId,
         flags: OpenFlags,
-    ) -> FuseResult<(OwnedFileHandle, FUSEOpenResponseFlags)> {
+        _helper: OpenHelper,
+    ) -> FuseResult<(OwnedFileHandle, FUSEOpenResponseFlags, Option<PassthroughBackingId>)> {
         match self.handling {
             HandlingMethod::Error(kind) => Err(PosixError::new(
                 kind,
@@ -654,11 +655,13 @@ impl<TId: FileIdType> FuseHandler<TId> for DefaultFuseHandler {
         _req: &RequestInfo,
         _file_id: TId,
         _flags: OpenFlags,
-    ) -> FuseResult<(OwnedFileHandle, FUSEOpenResponseFlags)> {
+        _helper: OpenHelper,
+    ) -> FuseResult<(OwnedFileHandle, FUSEOpenResponseFlags, Option<PassthroughBackingId>)> {
         // Safe because in releasedir we don't use it
         Ok((
             unsafe { OwnedFileHandle::from_raw(0) },
             FUSEOpenResponseFlags::empty(),
+            None,
         ))
     }
 
