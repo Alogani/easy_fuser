@@ -103,6 +103,7 @@ mod private {
     #[cfg(feature = "serial")]
     impl<T> OptionalSendSync for T {}
 }
+use fuser::BackingId;
 use private::OptionalSendSync;
 
 pub trait FuseHandler<TId: FileIdType>: OptionalSendSync + 'static {
