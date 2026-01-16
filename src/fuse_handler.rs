@@ -103,6 +103,7 @@ mod private {
     #[cfg(feature = "serial")]
     impl<T> OptionalSendSync for T {}
 }
+use fuser::BackingId;
 use private::OptionalSendSync;
 
 pub trait FuseHandler<TId: FileIdType>: OptionalSendSync + 'static {
@@ -367,8 +368,9 @@ pub trait FuseHandler<TId: FileIdType>: OptionalSendSync + 'static {
         req: &RequestInfo,
         file_id: TId,
         flags: OpenFlags,
-    ) -> FuseResult<(OwnedFileHandle, FUSEOpenResponseFlags)> {
-        self.get_inner().open(req, file_id, flags)
+        helper: OpenHelper,
+    ) -> FuseResult<(OwnedFileHandle, FUSEOpenResponseFlags, Option<PassthroughBackingId>)> {
+        self.get_inner().open(req, file_id, flags, helper)
     }
 
     /// Open a directory
@@ -379,8 +381,9 @@ pub trait FuseHandler<TId: FileIdType>: OptionalSendSync + 'static {
         req: &RequestInfo,
         file_id: TId,
         flags: OpenFlags,
-    ) -> FuseResult<(OwnedFileHandle, FUSEOpenResponseFlags)> {
-        self.get_inner().opendir(req, file_id, flags)
+        helper: OpenHelper,
+    ) -> FuseResult<(OwnedFileHandle, FUSEOpenResponseFlags, Option<PassthroughBackingId>)> {
+        self.get_inner().opendir(req, file_id, flags, helper)
     }
 
     /// Read data from a file
