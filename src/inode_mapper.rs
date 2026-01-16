@@ -358,7 +358,7 @@ impl<T: Send + Sync + 'static> InodeMapper<T> {
     /// # Notes
     /// - Returns `None` if any inode in the path is not found, indicating an incomplete or invalid path.
     /// - The root inode is identified when its parent is equal to itself and is never returned
-    pub fn resolve(&self, inode: &Inode) -> Option<Vec<InodeInfo<T>>> {
+    pub fn resolve(&self, inode: &Inode) -> Option<Vec<InodeInfo<'_, T>>> {
         let mut result: Vec<InodeInfo<T>> = Vec::new();
         let mut current_info = self.get(inode)?;
         let mut current_inode = inode.clone();
