@@ -14,7 +14,7 @@ use fuser::{
 };
 
 use super::{
-    fuse_driver_types::{execute_task, FuseDriver},
+    fuse_driver_types::{FuseDriver, execute_reply_task, execute_task, reply_executor},
     inode_mapping::FileIdResolver,
     macros::*,
     thread_mode::*,
@@ -49,16 +49,20 @@ where
         let req = RequestInfo::from(req);
         let handler = self.get_handler();
         let resolver = self.get_resolver();
+        #[cfg_attr(feature = "serial", allow(unused_variables))]
+        let reply_executor = reply_executor!(self);
         execute_task!(self, {
             match handler.access(
                 &req,
                 resolver.resolve_id(ino),
                 AccessMask::from_bits_retain(mask),
             ) {
-                Ok(()) => reply.ok(),
+                Ok(()) => {
+                    execute_reply_task!(reply_executor, { reply.ok() });
+                }
                 Err(e) => {
                     warn!("access: ino {:x?}, [{}], {:?}", ino, e, req);
-                    reply.error(e.raw_error())
+                    execute_reply_task!(reply_executor, { reply.error(e.raw_error()) });
                 }
             };
         });
@@ -68,12 +72,16 @@ where
         let req = RequestInfo::from(req);
         let handler = self.get_handler();
         let resolver = self.get_resolver();
+        #[cfg_attr(feature = "serial", allow(unused_variables))]
+        let reply_executor = reply_executor!(self);
         execute_task!(self, {
             match handler.bmap(&req, resolver.resolve_id(ino), blocksize, idx) {
-                Ok(block) => reply.bmap(block),
+                Ok(block) => {
+                    execute_reply_task!(reply_executor, { reply.bmap(block) });
+                }
                 Err(e) => {
                     warn!("bmap: ino {:x?}, [{}], {:?}", ino, e, req);
-                    reply.error(e.raw_error())
+                    execute_reply_task!(reply_executor, { reply.error(e.raw_error()) });
                 }
             };
         });
@@ -95,6 +103,8 @@ where
         let req = RequestInfo::from(req);
         let handler = self.get_handler();
         let resolver = self.get_resolver();
+        #[cfg_attr(feature = "serial", allow(unused_variables))]
+        let reply_executor = reply_executor!(self);
         execute_task!(self, {
             match handler.copy_file_range(
                 &req,
@@ -107,10 +117,12 @@ where
                 len,
                 flags,
             ) {
-                Ok(bytes_written) => reply.written(bytes_written),
+                Ok(bytes_written) => {
+                    execute_reply_task!(reply_executor, { reply.written(bytes_written) });
+                }
                 Err(e) => {
                     warn!("copy_file_range: ino {:x?}, [{}], {:?}", ino_in, e, req);
-                    reply.error(e.raw_error())
+                    execute_reply_task!(reply_executor, { reply.error(e.raw_error()) });
                 }
             };
         });
@@ -130,6 +142,8 @@ where
         let handler = self.get_handler();
         let resolver = self.get_resolver();
         let name = name.to_owned();
+        #[cfg_attr(feature = "serial", allow(unused_variables))]
+        let reply_executor = reply_executor!(self);
         execute_task!(self, {
             match handler.create(
                 &req,
@@ -144,17 +158,19 @@ where
                     let (id, file_attr) = TId::extract_metadata(metadata);
                     let ino = resolver.lookup(parent, &name, id, true);
                     let (fuse_attr, ttl, generation) = file_attr.to_fuse(ino);
-                    reply.created(
-                        &ttl.unwrap_or(default_ttl),
-                        &fuse_attr,
-                        generation.unwrap_or(get_random_generation()),
-                        file_handle.as_raw(),
-                        response_flags.bits(),
-                    );
+                    execute_reply_task!(reply_executor, {
+                        reply.created(
+                            &ttl.unwrap_or(default_ttl),
+                            &fuse_attr,
+                            generation.unwrap_or(get_random_generation()),
+                            file_handle.as_raw(),
+                            response_flags.bits(),
+                        );
+                    });
                 }
                 Err(e) => {
                     warn!("create: {:?}, parent_ino: {:x?}, {:?}", parent, e, req);
-                    reply.error(e.raw_error())
+                    execute_reply_task!(reply_executor, { reply.error(e.raw_error()) });
                 }
             };
         });
@@ -173,6 +189,8 @@ where
         let req = RequestInfo::from(req);
         let handler = self.get_handler();
         let resolver = self.get_resolver();
+        #[cfg_attr(feature = "serial", allow(unused_variables))]
+        let reply_executor = reply_executor!(self);
         execute_task!(self, {
             match handler.fallocate(
                 &req,
@@ -182,10 +200,12 @@ where
                 length,
                 FallocateFlags::from_bits_retain(mode),
             ) {
-                Ok(()) => reply.ok(),
+                Ok(()) => {
+                    execute_reply_task!(reply_executor, { reply.ok() });
+                }
                 Err(e) => {
                     warn!("fallocate: ino {:x?}, [{}], {:?}", ino, e, req);
-                    reply.error(e.raw_error())
+                    execute_reply_task!(reply_executor, { reply.error(e.raw_error()) });
                 }
             };
         });
@@ -195,6 +215,8 @@ where
         let req = RequestInfo::from(req);
         let handler = self.get_handler();
         let resolver = self.get_resolver();
+        #[cfg_attr(feature = "serial", allow(unused_variables))]
+        let reply_executor = reply_executor!(self);
         execute_task!(self, {
             match handler.flush(
                 &req,
@@ -202,10 +224,12 @@ where
                 unsafe { BorrowedFileHandle::from_raw(fh) },
                 lock_owner,
             ) {
-                Ok(()) => reply.ok(),
+                Ok(()) => {
+                    execute_reply_task!(reply_executor, { reply.ok() });
+                }
                 Err(e) => {
                     warn!("flush: ino {:x?}, [{}], {:?}", ino, e, req);
-                    reply.error(e.raw_error())
+                    execute_reply_task!(reply_executor, { reply.error(e.raw_error()) });
                 }
             };
         });
@@ -223,6 +247,8 @@ where
         let req = RequestInfo::from(req);
         let handler = self.get_handler();
         let resolver = self.get_resolver();
+        #[cfg_attr(feature = "serial", allow(unused_variables))]
+        let reply_executor = reply_executor!(self);
         execute_task!(self, {
             match handler.fsync(
                 &req,
@@ -230,10 +256,12 @@ where
                 unsafe { BorrowedFileHandle::from_raw(fh) },
                 datasync,
             ) {
-                Ok(()) => reply.ok(),
+                Ok(()) => {
+                    execute_reply_task!(reply_executor, { reply.ok() });
+                }
                 Err(e) => {
                     warn!("fsync: ino {:x?}, [{}], {:?}", ino, e, req);
-                    reply.error(e.raw_error())
+                    execute_reply_task!(reply_executor, { reply.error(e.raw_error()) });
                 }
             };
         });
@@ -243,6 +271,8 @@ where
         let req = RequestInfo::from(req);
         let handler = self.get_handler();
         let resolver = self.get_resolver();
+        #[cfg_attr(feature = "serial", allow(unused_variables))]
+        let reply_executor = reply_executor!(self);
         execute_task!(self, {
             match handler.fsyncdir(
                 &req,
@@ -250,10 +280,12 @@ where
                 unsafe { BorrowedFileHandle::from_raw(fh) },
                 datasync,
             ) {
-                Ok(()) => reply.ok(),
+                Ok(()) => {
+                    execute_reply_task!(reply_executor, { reply.ok() });
+                }
                 Err(e) => {
                     warn!("fsyncdir: ino {:x?}, [{}], {:?}", ino, e, req);
-                    reply.error(e.raw_error())
+                    execute_reply_task!(reply_executor, { reply.error(e.raw_error()) });
                 }
             };
         });
@@ -263,8 +295,11 @@ where
         let req = RequestInfo::from(req);
         let handler = self.get_handler();
         let resolver = self.get_resolver();
+        #[cfg_attr(feature = "serial", allow(unused_variables))]
+        let reply_executor = reply_executor!(self);
         execute_task!(self, {
             handle_fuse_reply_attr!(
+                reply_executor,
                 handler,
                 resolver,
                 &req,
@@ -295,6 +330,8 @@ where
         let req = RequestInfo::from(req);
         let handler = self.get_handler();
         let resolver = self.get_resolver();
+        #[cfg_attr(feature = "serial", allow(unused_variables))]
+        let reply_executor = reply_executor!(self);
         execute_task!(self, {
             let lock_info = LockInfo {
                 start,
@@ -309,15 +346,19 @@ where
                 lock_owner,
                 lock_info,
             ) {
-                Ok(lock_info) => reply.locked(
-                    lock_info.start,
-                    lock_info.end,
-                    lock_info.lock_type.bits(),
-                    lock_info.pid,
-                ),
+                Ok(lock_info) => {
+                    execute_reply_task!(reply_executor, {
+                        reply.locked(
+                            lock_info.start,
+                            lock_info.end,
+                            lock_info.lock_type.bits(),
+                            lock_info.pid,
+                        )
+                    });
+                }
                 Err(e) => {
                     warn!("getlk: ino {:x?}, [{}], {:?}", ino, e, req);
-                    reply.error(e.raw_error())
+                    execute_reply_task!(reply_executor, { reply.error(e.raw_error()) });
                 }
             };
         });
@@ -328,20 +369,24 @@ where
         let handler = self.get_handler();
         let resolver = self.get_resolver();
         let name = name.to_owned();
+        #[cfg_attr(feature = "serial", allow(unused_variables))]
+        let reply_executor = reply_executor!(self);
         execute_task!(self, {
             match handler.getxattr(&req, resolver.resolve_id(ino), &name, size) {
                 Ok(xattr_data) => {
-                    if size == 0 {
-                        reply.size(xattr_data.len() as u32);
-                    } else if size >= xattr_data.len() as u32 {
-                        reply.data(&xattr_data);
-                    } else {
-                        reply.error(ErrorKind::ResultTooLarge.into());
-                    }
+                    execute_reply_task!(reply_executor, {
+                        if size == 0 {
+                            reply.size(xattr_data.len() as u32);
+                        } else if size >= xattr_data.len() as u32 {
+                            reply.data(&xattr_data);
+                        } else {
+                            reply.error(ErrorKind::ResultTooLarge.into());
+                        }
+                    });
                 }
                 Err(e) => {
                     warn!("getxattr: ino {:x?}, [{}], {:?}", ino, e, req);
-                    reply.error(e.raw_error())
+                    execute_reply_task!(reply_executor, { reply.error(e.raw_error()) });
                 }
             };
         });
@@ -362,6 +407,8 @@ where
         let handler = self.get_handler();
         let resolver = self.get_resolver();
         let in_data = in_data.to_owned();
+        #[cfg_attr(feature = "serial", allow(unused_variables))]
+        let reply_executor = reply_executor!(self);
         execute_task!(self, {
             match handler.ioctl(
                 &req,
@@ -372,10 +419,12 @@ where
                 in_data,
                 out_size,
             ) {
-                Ok((result, data)) => reply.ioctl(result, &data),
+                Ok((result, data)) => {
+                    execute_reply_task!(reply_executor, { reply.ioctl(result, &data) });
+                }
                 Err(e) => {
                     warn!("ioctl: ino {:x?}, [{}], {:?}", ino, e, req);
-                    reply.error(e.raw_error())
+                    execute_reply_task!(reply_executor, { reply.error(e.raw_error()) });
                 }
             };
         });
@@ -393,8 +442,11 @@ where
         let handler = self.get_handler();
         let resolver = self.get_resolver();
         let newname = newname.to_owned();
+        #[cfg_attr(feature = "serial", allow(unused_variables))]
+        let reply_executor = reply_executor!(self);
         execute_task!(self, {
             handle_fuse_reply_entry!(
+                reply_executor,
                 handler,
                 resolver,
                 &req,
@@ -416,20 +468,24 @@ where
         let req = RequestInfo::from(req);
         let handler = self.get_handler();
         let resolver = self.get_resolver();
+        #[cfg_attr(feature = "serial", allow(unused_variables))]
+        let reply_executor = reply_executor!(self);
         execute_task!(self, {
             match handler.listxattr(&req, resolver.resolve_id(ino), size) {
                 Ok(xattr_data) => {
-                    if size == 0 {
-                        reply.size(xattr_data.len() as u32);
-                    } else if size >= xattr_data.len() as u32 {
-                        reply.data(&xattr_data);
-                    } else {
-                        reply.error(ErrorKind::ResultTooLarge.into());
-                    }
+                    execute_reply_task!(reply_executor, {
+                        if size == 0 {
+                            reply.size(xattr_data.len() as u32);
+                        } else if size >= xattr_data.len() as u32 {
+                            reply.data(&xattr_data);
+                        } else {
+                            reply.error(ErrorKind::ResultTooLarge.into());
+                        }
+                    });
                 }
                 Err(e) => {
                     warn!("listxattr: ino {:x?}, [{}], {:?}", ino, e, req);
-                    reply.error(e.raw_error())
+                    execute_reply_task!(reply_executor, { reply.error(e.raw_error()) });
                 }
             };
         });
@@ -440,8 +496,11 @@ where
         let handler = self.get_handler();
         let resolver = self.get_resolver();
         let name = name.to_owned();
+        #[cfg_attr(feature = "serial", allow(unused_variables))]
+        let reply_executor = reply_executor!(self);
         execute_task!(self, {
             handle_fuse_reply_entry!(
+                reply_executor,
                 handler,
                 resolver,
                 &req,
@@ -466,6 +525,8 @@ where
         let req = RequestInfo::from(req);
         let handler = self.get_handler();
         let resolver = self.get_resolver();
+        #[cfg_attr(feature = "serial", allow(unused_variables))]
+        let reply_executor = reply_executor!(self);
         execute_task!(self, {
             match handler.lseek(
                 &req,
@@ -473,10 +534,12 @@ where
                 unsafe { BorrowedFileHandle::from_raw(fh) },
                 seek_from_raw(Some(whence), offset),
             ) {
-                Ok(new_offset) => reply.offset(new_offset),
+                Ok(new_offset) => {
+                    execute_reply_task!(reply_executor, { reply.offset(new_offset) });
+                }
                 Err(e) => {
                     warn!("lseek: ino {:x?}, [{}], {:?}", ino, e, req);
-                    reply.error(e.raw_error())
+                    execute_reply_task!(reply_executor, { reply.error(e.raw_error()) });
                 }
             };
         });
@@ -495,8 +558,11 @@ where
         let handler = self.get_handler();
         let resolver = self.get_resolver();
         let name = name.to_owned();
+        #[cfg_attr(feature = "serial", allow(unused_variables))]
+        let reply_executor = reply_executor!(self);
         execute_task!(self, {
             handle_fuse_reply_entry!(
+                reply_executor,
                 handler,
                 resolver,
                 &req,
@@ -523,8 +589,11 @@ where
         let handler = self.get_handler();
         let resolver = self.get_resolver();
         let name = name.to_owned();
+        #[cfg_attr(feature = "serial", allow(unused_variables))]
+        let reply_executor = reply_executor!(self);
         execute_task!(self, {
             handle_fuse_reply_entry!(
+                reply_executor,
                 handler,
                 resolver,
                 &req,
@@ -548,6 +617,8 @@ where
         let req = RequestInfo::from(req);
         let handler = self.get_handler();
         let resolver = self.get_resolver();
+        #[cfg_attr(feature = "serial", allow(unused_variables))]
+        let reply_executor = reply_executor!(self);
         execute_task!(self, {
             match handler.open(
                 &req,
@@ -555,11 +626,13 @@ where
                 OpenFlags::from_bits_retain(_flags),
             ) {
                 Ok((file_handle, response_flags)) => {
-                    reply.opened(file_handle.as_raw(), response_flags.bits())
+                    execute_reply_task!(reply_executor, {
+                        reply.opened(file_handle.as_raw(), response_flags.bits())
+                    });
                 }
                 Err(e) => {
                     warn!("open: ino {:x?}, [{}], {:?}", ino, e, req);
-                    reply.error(e.raw_error())
+                    execute_reply_task!(reply_executor, { reply.error(e.raw_error()) });
                 }
             };
         });
@@ -569,6 +642,8 @@ where
         let req = RequestInfo::from(req);
         let handler = self.get_handler();
         let resolver = self.get_resolver();
+        #[cfg_attr(feature = "serial", allow(unused_variables))]
+        let reply_executor = reply_executor!(self);
         execute_task!(self, {
             match handler.opendir(
                 &req,
@@ -576,11 +651,13 @@ where
                 OpenFlags::from_bits_retain(_flags),
             ) {
                 Ok((file_handle, response_flags)) => {
-                    reply.opened(file_handle.as_raw(), response_flags.bits())
+                    execute_reply_task!(reply_executor, {
+                        reply.opened(file_handle.as_raw(), response_flags.bits())
+                    });
                 }
                 Err(e) => {
                     warn!("opendir: ino {:x?}, [{}], {:?}", ino, e, req);
-                    reply.error(e.raw_error())
+                    execute_reply_task!(reply_executor, { reply.error(e.raw_error()) });
                 }
             };
         });
@@ -600,6 +677,8 @@ where
         let req = RequestInfo::from(req);
         let handler = self.get_handler();
         let resolver = self.get_resolver();
+        #[cfg_attr(feature = "serial", allow(unused_variables))]
+        let reply_executor = reply_executor!(self);
         execute_task!(self, {
             match handler.read(
                 &req,
@@ -610,10 +689,12 @@ where
                 FUSEOpenFlags::from_bits_retain(flags),
                 lock_owner,
             ) {
-                Ok(data_reply) => reply.data(&data_reply),
+                Ok(data_reply) => {
+                    execute_reply_task!(reply_executor, { reply.data(&data_reply) });
+                }
                 Err(e) => {
                     warn!("read: ino {:x?}, [{}], {:?}", ino, e, req);
-                    reply.error(e.raw_error())
+                    execute_reply_task!(reply_executor, { reply.error(e.raw_error()) });
                 }
             };
         });
@@ -665,12 +746,16 @@ where
         let req = RequestInfo::from(req);
         let handler = self.get_handler();
         let resolver = self.get_resolver();
+        #[cfg_attr(feature = "serial", allow(unused_variables))]
+        let reply_executor = reply_executor!(self);
         execute_task!(self, {
             match handler.readlink(&req, resolver.resolve_id(ino)) {
-                Ok(link) => reply.data(&link),
+                Ok(link) => {
+                    execute_reply_task!(reply_executor, { reply.data(&link) });
+                }
                 Err(e) => {
                     warn!("[{}] readlink, ino: {:x?}, {:?}", ino, e, req);
-                    reply.error(e.raw_error())
+                    execute_reply_task!(reply_executor, { reply.error(e.raw_error()) });
                 }
             };
         });
@@ -689,6 +774,8 @@ where
         let req = RequestInfo::from(req);
         let handler = self.get_handler();
         let resolver = self.get_resolver();
+        #[cfg_attr(feature = "serial", allow(unused_variables))]
+        let reply_executor = reply_executor!(self);
         execute_task!(self, {
             match handler.release(
                 &req,
@@ -698,10 +785,12 @@ where
                 _lock_owner,
                 _flush,
             ) {
-                Ok(()) => reply.ok(),
+                Ok(()) => {
+                    execute_reply_task!(reply_executor, { reply.ok() });
+                }
                 Err(e) => {
                     warn!("release: ino {:x?}, [{}], {:?}", ino, e, req);
-                    reply.error(e.raw_error())
+                    execute_reply_task!(reply_executor, { reply.error(e.raw_error()) });
                 }
             };
         });
@@ -711,6 +800,8 @@ where
         let req = RequestInfo::from(req);
         let handler = self.get_handler();
         let resolver = self.get_resolver();
+        #[cfg_attr(feature = "serial", allow(unused_variables))]
+        let reply_executor = reply_executor!(self);
         execute_task!(self, {
             match handler.releasedir(
                 &req,
@@ -718,10 +809,12 @@ where
                 unsafe { OwnedFileHandle::from_raw(fh) },
                 OpenFlags::from_bits_retain(flags),
             ) {
-                Ok(()) => reply.ok(),
+                Ok(()) => {
+                    execute_reply_task!(reply_executor, { reply.ok() });
+                }
                 Err(e) => {
                     warn!("releasedir: ino {:x?}, [{}], {:?}", ino, e, req);
-                    reply.error(e.raw_error())
+                    execute_reply_task!(reply_executor, { reply.error(e.raw_error()) });
                 }
             };
         });
@@ -732,12 +825,16 @@ where
         let handler = self.get_handler();
         let resolver = self.get_resolver();
         let name = name.to_owned();
+        #[cfg_attr(feature = "serial", allow(unused_variables))]
+        let reply_executor = reply_executor!(self);
         execute_task!(self, {
             match handler.removexattr(&req, resolver.resolve_id(ino), &name) {
-                Ok(()) => reply.ok(),
+                Ok(()) => {
+                    execute_reply_task!(reply_executor, { reply.ok() });
+                }
                 Err(e) => {
                     warn!("removexattr: ino {:x?}, [{}], {:?}", ino, e, req);
-                    reply.error(e.raw_error())
+                    execute_reply_task!(reply_executor, { reply.error(e.raw_error()) });
                 }
             };
         });
@@ -758,6 +855,8 @@ where
         let resolver = self.get_resolver();
         let name = name.to_owned();
         let newname = newname.to_owned();
+        #[cfg_attr(feature = "serial", allow(unused_variables))]
+        let reply_executor = reply_executor!(self);
         execute_task!(self, {
             match handler.rename(
                 &req,
@@ -769,11 +868,11 @@ where
             ) {
                 Ok(()) => {
                     resolver.rename(parent, &name, newparent, &newname);
-                    reply.ok()
+                    execute_reply_task!(reply_executor, { reply.ok() });
                 }
                 Err(e) => {
                     warn!("[{}] rename: parent_ino: {:x?}, {:?}", parent, e, req);
-                    reply.error(e.raw_error())
+                    execute_reply_task!(reply_executor, { reply.error(e.raw_error()) });
                 }
             }
         });
@@ -784,12 +883,16 @@ where
         let handler = self.get_handler();
         let resolver = self.get_resolver();
         let name = name.to_owned();
+        #[cfg_attr(feature = "serial", allow(unused_variables))]
+        let reply_executor = reply_executor!(self);
         execute_task!(self, {
             match handler.rmdir(&req, resolver.resolve_id(parent), &name) {
-                Ok(()) => reply.ok(),
+                Ok(()) => {
+                    execute_reply_task!(reply_executor, { reply.ok() });
+                }
                 Err(e) => {
                     warn!("[{}] rmdir: parent_ino: {:x?}, {:?}", parent, e, req);
-                    reply.error(e.raw_error())
+                    execute_reply_task!(reply_executor, { reply.error(e.raw_error()) });
                 }
             };
         });
@@ -830,8 +933,11 @@ where
             flags: None,
             file_handle: fh.map(|fh| unsafe { BorrowedFileHandle::from_raw(fh) }),
         };
+        #[cfg_attr(feature = "serial", allow(unused_variables))]
+        let reply_executor = reply_executor!(self);
         execute_task!(self, {
             handle_fuse_reply_attr!(
+                reply_executor,
                 handler,
                 resolver,
                 &req,
@@ -859,6 +965,8 @@ where
         let req = RequestInfo::from(req);
         let handler = self.get_handler();
         let resolver = self.get_resolver();
+        #[cfg_attr(feature = "serial", allow(unused_variables))]
+        let reply_executor = reply_executor!(self);
         execute_task!(self, {
             let lock_info = LockInfo {
                 start,
@@ -874,10 +982,12 @@ where
                 lock_info,
                 sleep,
             ) {
-                Ok(()) => reply.ok(),
+                Ok(()) => {
+                    execute_reply_task!(reply_executor, { reply.ok() });
+                }
                 Err(e) => {
                     warn!("setlk: ino {:x?}, [{}], {:?}", ino, e, req);
-                    reply.error(e.raw_error())
+                    execute_reply_task!(reply_executor, { reply.error(e.raw_error()) });
                 }
             };
         });
@@ -898,6 +1008,8 @@ where
         let resolver = self.get_resolver();
         let name = name.to_owned();
         let value = value.to_owned();
+        #[cfg_attr(feature = "serial", allow(unused_variables))]
+        let reply_executor = reply_executor!(self);
         execute_task!(self, {
             match handler.setxattr(
                 &req,
@@ -907,10 +1019,12 @@ where
                 FUSESetXAttrFlags::from_bits_retain(flags),
                 position,
             ) {
-                Ok(()) => reply.ok(),
+                Ok(()) => {
+                    execute_reply_task!(reply_executor, { reply.ok() });
+                }
                 Err(e) => {
                     warn!("setxattr: ino {:x?}, [{}], {:?}", ino, e, req);
-                    reply.error(e.raw_error())
+                    execute_reply_task!(reply_executor, { reply.error(e.raw_error()) });
                 }
             };
         });
@@ -920,21 +1034,27 @@ where
         let req = RequestInfo::from(req);
         let handler = self.get_handler();
         let resolver = self.get_resolver();
+        #[cfg_attr(feature = "serial", allow(unused_variables))]
+        let reply_executor = reply_executor!(self);
         execute_task!(self, {
             match handler.statfs(&req, resolver.resolve_id(ino)) {
-                Ok(statfs) => reply.statfs(
-                    statfs.total_blocks,
-                    statfs.free_blocks,
-                    statfs.available_blocks,
-                    statfs.total_files,
-                    statfs.free_files,
-                    statfs.block_size,
-                    statfs.max_filename_length,
-                    statfs.fragment_size,
-                ),
+                Ok(statfs) => {
+                    execute_reply_task!(reply_executor, {
+                        reply.statfs(
+                            statfs.total_blocks,
+                            statfs.free_blocks,
+                            statfs.available_blocks,
+                            statfs.total_files,
+                            statfs.free_files,
+                            statfs.block_size,
+                            statfs.max_filename_length,
+                            statfs.fragment_size,
+                        )
+                    });
+                }
                 Err(e) => {
                     warn!("statfs: ino {:x?}, [{}], {:?}", ino, e, req);
-                    reply.error(e.raw_error())
+                    execute_reply_task!(reply_executor, { reply.error(e.raw_error()) });
                 }
             };
         });
@@ -953,8 +1073,11 @@ where
         let resolver = self.get_resolver();
         let link_name = link_name.to_owned();
         let target = target.to_owned();
+        #[cfg_attr(feature = "serial", allow(unused_variables))]
+        let reply_executor = reply_executor!(self);
         execute_task!(self, {
             handle_fuse_reply_entry!(
+                reply_executor,
                 handler,
                 resolver,
                 &req,
@@ -983,6 +1106,8 @@ where
         let handler = self.get_handler();
         let resolver = self.get_resolver();
         let data = data.to_owned();
+        #[cfg_attr(feature = "serial", allow(unused_variables))]
+        let reply_executor = reply_executor!(self);
         execute_task!(self, {
             match handler.write(
                 &req,
@@ -994,10 +1119,12 @@ where
                 OpenFlags::from_bits_retain(flags),
                 lock_owner,
             ) {
-                Ok(bytes_written) => reply.written(bytes_written),
+                Ok(bytes_written) => {
+                    execute_reply_task!(reply_executor, { reply.written(bytes_written) });
+                }
                 Err(e) => {
                     warn!("write: ino {:x?}, [{}], {:?}", ino, e, req);
-                    reply.error(e.raw_error())
+                    execute_reply_task!(reply_executor, { reply.error(e.raw_error()) });
                 }
             };
         });
@@ -1008,12 +1135,16 @@ where
         let handler = self.get_handler();
         let resolver = self.get_resolver();
         let name = name.to_owned();
+        #[cfg_attr(feature = "serial", allow(unused_variables))]
+        let reply_executor = reply_executor!(self);
         execute_task!(self, {
             match handler.unlink(&req, resolver.resolve_id(parent), &name) {
-                Ok(()) => reply.ok(),
+                Ok(()) => {
+                    execute_reply_task!(reply_executor, { reply.ok() });
+                }
                 Err(e) => {
                     warn!("[{}] unlink: parent_ino: {:x?}, {:?}", parent, e, req);
-                    reply.error(e.raw_error())
+                    execute_reply_task!(reply_executor, { reply.error(e.raw_error()) });
                 }
             };
         });
