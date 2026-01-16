@@ -387,11 +387,11 @@ where
                     .get_mut(&target_child_inode)
                     .expect("target child inode not found");
                 if let Some(desired_backing_id) = backing_id.clone()
-                    && let Some(target_child_inode_backing_id) = target_child_inode_backing_id
+                    && let Some(_target_child_inode_backing_id) = target_child_inode_backing_id
                 {
                     #[cfg(debug_assertions)]
                     assert_ne!(
-                        desired_backing_id, target_child_inode_backing_id,
+                        desired_backing_id, _target_child_inode_backing_id,
                         "the desired backing ID should not match because it is not yet recognized"
                     );
                     // Deassociate parent from target child
