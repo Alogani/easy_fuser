@@ -32,6 +32,7 @@ pub struct PassthroughBackingId {
     pub(crate) backing_id: Arc<BackingId>,
 }
 
+#[cfg(feature = "passthrough")]
 impl AsRef<BackingId> for PassthroughBackingId {
     fn as_ref(&self) -> &BackingId {
         self.backing_id.as_ref()
