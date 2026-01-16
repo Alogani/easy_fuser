@@ -24,15 +24,15 @@ pub(super) unsafe fn renameat2(
     newpath: *const c_char,
     flags: c_uint,
 ) -> c_int {
-    libc::renameat2(olddirfd, oldpath, newdirfd, newpath, flags)
+    unsafe { libc::renameat2(olddirfd, oldpath, newdirfd, newpath, flags) }
 }
 
 pub(super) unsafe fn fdatasync(fd: c_int) -> c_int {
-    libc::fdatasync(fd)
+    unsafe { libc::fdatasync(fd) }
 }
 
 pub(super) unsafe fn fallocate(fd: c_int, mode: c_int, offset: off_t, len: off_t) -> c_int {
-    libc::fallocate(fd, mode, offset, len)
+    unsafe { libc::fallocate(fd, mode, offset, len) }
 }
 
 pub(super) unsafe fn setxattr(
@@ -43,7 +43,7 @@ pub(super) unsafe fn setxattr(
     _position: u32,
     flags: c_int,
 ) -> c_int {
-    libc::setxattr(path, name, value, size, flags)
+    unsafe { libc::setxattr(path, name, value, size, flags) }
 }
 
 pub(super) unsafe fn getxattr(
@@ -52,15 +52,15 @@ pub(super) unsafe fn getxattr(
     value: *mut c_void,
     size: size_t,
 ) -> ssize_t {
-    libc::getxattr(path, name, value, size)
+    unsafe { libc::getxattr(path, name, value, size) }
 }
 
 pub(super) unsafe fn listxattr(path: *const c_char, list: *mut c_char, size: size_t) -> ssize_t {
-    libc::listxattr(path, list, size)
+    unsafe { libc::listxattr(path, list, size) }
 }
 
 pub(super) unsafe fn removexattr(path: *const c_char, name: *const c_char) -> c_int {
-    libc::removexattr(path, name)
+    unsafe { libc::removexattr(path, name) }
 }
 
 /// Retrieves file system statistics for the specified path.

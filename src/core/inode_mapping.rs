@@ -374,4 +374,39 @@ mod tests {
         let non_existent_path = resolver.resolve_id(non_existent_ino);
         assert_eq!(non_existent_path, PathBuf::from("non_existent"));
     }
+
+    #[test]
+    fn test_path_resolver_back_and_forth_rename() {
+        let resolver = PathResolver::new();
+
+        // Test lookup and resolve_id for root
+        let root_ino = ROOT_INODE.into();
+        let root_path = resolver.resolve_id(root_ino);
+        assert_eq!(root_path, PathBuf::from(""));
+
+        // Add directories
+        let dir1_ino = resolver.lookup(root_ino, OsStr::new("dir1"), (), true);
+        let dir2_ino = resolver.lookup(dir1_ino, OsStr::new("dir2"), (), true);
+        let file_ino = resolver.lookup(root_ino, OsStr::new("file.txt"), (), true);
+
+        // Rename file to a different directory
+        resolver.rename(
+            root_ino,
+            OsStr::new("file.txt"),
+            dir2_ino,
+            OsStr::new("file.txt"),
+        );
+        let renamed_file_path = resolver.resolve_id(file_ino);
+        assert_eq!(renamed_file_path, PathBuf::from("dir1/dir2/file.txt"));
+
+        // Rename file back to original directory
+        resolver.rename(
+            dir2_ino,
+            OsStr::new("file.txt"),
+            root_ino,
+            OsStr::new("file.txt"),
+        );
+        let renamed_file_path = resolver.resolve_id(file_ino);
+        assert_eq!(renamed_file_path, PathBuf::from("file.txt"));
+    }
 }

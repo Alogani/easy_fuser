@@ -475,8 +475,9 @@ impl<T: Send + Sync + 'static> InodeMapper<T> {
         if let Some(_) = self
             .data
             .children
-            .get_mut(newparent)
-            .and_then(|children| children.insert(newname, child_inode))
+            .entry(newparent.clone())
+            .or_insert_with(HashMap::new)
+            .insert(newname, child_inode)
         {
             // The FUSE file system owns the old inode until it issues enough forget calls
             // to reduce the inode's reference count to 0. Therefore, inodes may not be removed from
@@ -544,8 +545,8 @@ mod tests {
     use std::collections::HashSet;
     use std::ffi::OsString;
 
-    use crate::types::Inode;
     use crate::ROOT_INODE;
+    use crate::types::Inode;
 
     #[test]
     fn test_insert_child_returns_old_inode() {
@@ -750,6 +751,119 @@ mod tests {
         let inode_value = mapper.get(&child).unwrap();
         assert_eq!(inode_value.parent, &parent2);
         assert_eq!(inode_value.name.as_os_str(), OsStr::new("new_name"));
+    }
+
+    #[test]
+    fn test_should_not_prematurely_purge_old_inode_after_renaming() {
+        // Data fields of all inodes in this test are 1 to simulate reflection of the FUSE inode refcount
+        let mut mapper = InodeMapper::new(1u64);
+        let root = mapper.get_root_inode();
+
+        let parent1 = mapper
+            .insert_child(&root, OsString::from("parent1"), |_| 1)
+            .unwrap();
+        let parent2 = mapper
+            .insert_child(&root, OsString::from("parent2"), |_| 1)
+            .unwrap();
+        let child1 = mapper
+            .insert_child(&parent1, OsString::from("child1"), |_| 1)
+            .unwrap();
+        let child2 = mapper
+            .insert_child(&parent2, OsString::from("child2"), |_| 1)
+            .unwrap();
+
+        // Rename child1 to child2
+        mapper
+            .rename(
+                &parent1,
+                OsStr::new("child1"),
+                &parent2,
+                OsString::from("child2"),
+            )
+            .expect("should be able to insert inode");
+        assert!(
+            mapper.get(&child1).is_some(),
+            "first inode should be present"
+        );
+        assert!(
+            mapper.get(&child1).unwrap().parent == &parent2,
+            "first inode should point to parent2 as parent"
+        );
+        assert!(
+            mapper
+                .get_children(&parent2)
+                .contains(&(&Arc::new(OsString::from("child2")), &child1)),
+            "first inode should be in parent2's child node list"
+        );
+        assert!(
+            mapper.get(&child2).is_some(),
+            "second inode must be present as an orphaned inode but not removed immediately"
+        );
+    }
+
+    #[test]
+    fn test_rename_child_inode_into_empty_dir_inode() {
+        let mut mapper = InodeMapper::new(());
+        let root = mapper.get_root_inode();
+
+        // Insert initial structure
+        let parent1 = mapper
+            .insert_child(&root, OsString::from("parent1"), |_| ())
+            .unwrap();
+        let parent2 = mapper
+            .insert_child(&parent1, OsString::from("parent2"), |_| ())
+            .unwrap();
+        let child = mapper
+            .insert_child(&root, OsString::from("test_name"), |_| ())
+            .unwrap();
+
+        // Perform rename
+        let result = mapper.rename(
+            &root,
+            OsStr::new("test_name"),
+            &parent2,
+            OsString::from("test_name"),
+        );
+
+        // Assert successful rename
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), None);
+
+        // Verify new location
+        let renamed_child = mapper.lookup(&parent2, OsStr::new("test_name"));
+        assert!(renamed_child.is_some());
+        assert_eq!(renamed_child.unwrap().inode, &child);
+
+        // Verify old location is empty
+        assert!(mapper.lookup(&root, OsStr::new("test_name")).is_none());
+
+        // Verify inode data is updated
+        let inode_value = mapper.get(&child).unwrap();
+        assert_eq!(inode_value.parent, &parent2);
+        assert_eq!(inode_value.name.as_os_str(), OsStr::new("test_name"));
+
+        // Perform rename back to original path
+        let result = mapper.rename(
+            &parent2,
+            OsStr::new("test_name"),
+            &root,
+            OsString::from("test_name"),
+        );
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), None);
+
+        // Verify new location
+        let renamed_child = mapper.lookup(&root, OsStr::new("test_name"));
+        assert!(renamed_child.is_some());
+        assert_eq!(renamed_child.unwrap().inode, &child);
+
+        // Verify old location is empty
+        assert!(mapper.lookup(&parent2, OsStr::new("test_name")).is_none());
+
+        // Verify inode data is updated
+        let inode_value = mapper.get(&child).unwrap();
+        assert_eq!(inode_value.parent, &root);
+        assert_eq!(inode_value.name.as_os_str(), OsStr::new("test_name"));
     }
 
     #[test]

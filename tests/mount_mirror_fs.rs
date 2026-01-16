@@ -7,7 +7,7 @@ use std::time::Duration;
 // cargo test --package easy_fuser --test mount_mirror_fs --features "parallel" -- mount_mirror_fs --nocapture --ignored
 
 fn mount_fs<FS: MirrorFsTrait>() {
-    std::env::set_var("RUST_BACKTRACE", "full");
+    unsafe { std::env::set_var("RUST_BACKTRACE", "full") };
     let _ = env_logger::builder()
         .is_test(true)
         .filter_level(log::LevelFilter::Trace)
