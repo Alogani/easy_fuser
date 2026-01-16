@@ -20,7 +20,7 @@ passthrough = ["fuser/abi-7-40"]
 # Core dependencies
 log = "0.4"
 libc = "0.2"
-fuser = { version = "0.16", features = ["abi-7-40"] }
+fuser = { version = "0.16" }
 bitflags = "2.10"
 
 # Parallel dependencies
