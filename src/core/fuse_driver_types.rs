@@ -66,14 +66,31 @@ mod serial {
         };
     }
 
+    macro_rules! reply_executor {
+        ($self:expr) => {
+            ()
+        };
+    }
+
+    macro_rules! execute_reply_task {
+        ($reply_executor:expr, $block:block) => {
+            $block
+        };
+    }
+
+    pub(crate) use execute_reply_task;
     pub(crate) use execute_task;
+    pub(crate) use reply_executor;
 }
 
 #[cfg(feature = "parallel")]
 mod parallel {
     use super::*;
 
-    use std::sync::Arc;
+    use std::{
+        sync::Arc,
+        thread::{self, available_parallelism},
+    };
 
     use threadpool::ThreadPool;
 
@@ -92,6 +109,18 @@ mod parallel {
         dirmap_iter: Arc<Mutex<DirIter<FileKind>>>,
         dirmapplus_iter: Arc<Mutex<DirIter<FileAttribute>>>,
         pub threadpool: ThreadPool,
+        pub reply_threadpool: ThreadPool,
+    }
+
+    impl<TId, THandler> Drop for FuseDriver<TId, THandler>
+    where
+        TId: FileIdType,
+        THandler: FuseHandler<TId>,
+    {
+        fn drop(&mut self) {
+            self.threadpool.join();
+            self.reply_threadpool.join();
+        }
     }
 
     impl<TId, THandler> FuseDriver<TId, THandler>
@@ -102,12 +131,20 @@ mod parallel {
         pub fn new(handler: THandler, num_threads: usize) -> FuseDriver<TId, THandler> {
             #[cfg(feature = "deadlock_detection")]
             spawn_deadlock_checker();
+            // FIXME: This is a general estimation, we should allow user to set the number of reply threads through an API,
+            // possibly through the spawn_mount method, or make a breaking change that modifies this method
+            let parallelism = thread::available_parallelism();
+            let estimated_num_reply_threads = num_threads * 3;
+            let adjusted_num_reply_threads = parallelism
+                .map(|p: std::num::NonZero<usize>| (p.get() * 2).min(estimated_num_reply_threads))
+                .unwrap_or(estimated_num_reply_threads);
             FuseDriver {
                 handler: Arc::new(handler),
                 resolver: Arc::new(TId::create_resolver()),
                 dirmap_iter: Arc::new(Mutex::new(HashMap::new())),
                 dirmapplus_iter: Arc::new(Mutex::new(HashMap::new())),
                 threadpool: ThreadPool::new(num_threads),
+                reply_threadpool: ThreadPool::new(adjusted_num_reply_threads),
             }
         }
 
@@ -130,11 +167,25 @@ mod parallel {
 
     macro_rules! execute_task {
         ($self:expr, $block:block) => {
-            $self.threadpool.execute(move || $block);
+            $self.threadpool.execute(move || $block)
         };
     }
 
+    macro_rules! reply_executor {
+        ($self:expr) => {
+            $self.reply_threadpool.clone()
+        };
+    }
+
+    macro_rules! execute_reply_task {
+        ($reply_executor:expr, $block:block) => {
+            $reply_executor.execute(move || $block);
+        };
+    }
+
+    pub(crate) use execute_reply_task;
     pub(crate) use execute_task;
+    pub(crate) use reply_executor;
 }
 
 #[cfg(feature = "async")]
@@ -154,7 +205,7 @@ mod async_task {
         resolver: Arc<TId::Resolver>,
         dirmap_iter: Arc<Mutex<DirIter<FileKind>>>,
         dirmapplus_iter: Arc<Mutex<DirIter<FileAttribute>>>,
-        pub runtime: Runtime,
+        pub runtime: Arc<Runtime>,
     }
 
     impl<TId, THandler> FuseDriver<TId, THandler>
@@ -170,7 +221,7 @@ mod async_task {
                 resolver: Arc::new(TId::create_resolver()),
                 dirmap_iter: Arc::new(Mutex::new(HashMap::new())),
                 dirmapplus_iter: Arc::new(Mutex::new(HashMap::new())),
-                runtime: Runtime::new().unwrap(),
+                runtime: Arc::new(Runtime::new().unwrap()),
             }
         }
 
@@ -193,11 +244,25 @@ mod async_task {
 
     macro_rules! execute_task {
         ($self:expr, $block:block) => {
-            $self.runtime.spawn(async move { $block });
+            $self.runtime.spawn(async move { $block })
         };
     }
 
+    macro_rules! reply_executor {
+        ($self:expr) => {
+            $self.runtime.clone()
+        };
+    }
+
+    macro_rules! execute_reply_task {
+        ($reply_executor:expr, $block:block) => {
+            $reply_executor.spawn(async move { $block })
+        };
+    }
+
+    pub(crate) use execute_reply_task;
     pub(crate) use execute_task;
+    pub(crate) use reply_executor;
 }
 
 #[cfg(feature = "deadlock_detection")]
@@ -208,19 +273,21 @@ fn spawn_deadlock_checker() {
     use std::time::Duration;
 
     // Create a background thread which checks for deadlocks every 10s
-    thread::spawn(move || loop {
-        thread::sleep(Duration::from_secs(10));
-        let deadlocks = deadlock::check_deadlock();
-        if deadlocks.is_empty() {
-            info!("# No deadlock");
-            continue;
-        }
+    thread::spawn(move || {
+        loop {
+            thread::sleep(Duration::from_secs(10));
+            let deadlocks = deadlock::check_deadlock();
+            if deadlocks.is_empty() {
+                info!("# No deadlock");
+                continue;
+            }
 
-        eprintln!("# {} deadlocks detected", deadlocks.len());
-        for (i, threads) in deadlocks.iter().enumerate() {
-            error!("Deadlock #{}", i);
-            for t in threads {
-                error!("Thread Id {:#?}\n, {:#?}", t.thread_id(), t.backtrace());
+            eprintln!("# {} deadlocks detected", deadlocks.len());
+            for (i, threads) in deadlocks.iter().enumerate() {
+                error!("Deadlock #{}", i);
+                for t in threads {
+                    error!("Thread Id {:#?}\n, {:#?}", t.thread_id(), t.backtrace());
+                }
             }
         }
     });
