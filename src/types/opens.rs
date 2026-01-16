@@ -5,6 +5,7 @@ use fuser::ReplyOpen;
 use std::sync::Arc;
 
 pub struct OpenHelper<'a> {
+    #[allow(dead_code)]
     reply_open: &'a ReplyOpen,
 }
 
