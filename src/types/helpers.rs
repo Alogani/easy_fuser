@@ -62,3 +62,36 @@ impl AsRef<BackingId> for PassthroughBackingId {
         self.backing_id.as_ref()
     }
 }
+
+impl PassthroughBackingId {
+    #[cfg(feature = "passthrough")]
+    pub fn downgrade(&self) -> WeakPassthroughBackingId {
+        WeakPassthroughBackingId {
+            backing_id: Arc::downgrade(&self.backing_id),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct WeakPassthroughBackingId {
+    #[cfg(feature = "passthrough")]
+    pub(crate) backing_id: Weak<BackingId>,
+}
+
+impl WeakPassthroughBackingId {
+    #[cfg(feature = "passthrough")]
+    pub fn new() -> Self {
+        Self {
+            backing_id: Weak::new(),
+        }
+    }
+
+    #[cfg(feature = "passthrough")]
+    pub fn upgrade(&self) -> Option<PassthroughBackingId> {
+        self.backing_id
+            .upgrade()
+            .map(|backing_id| PassthroughBackingId {
+                backing_id: backing_id,
+            })
+    }
+}
