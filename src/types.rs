@@ -23,8 +23,8 @@ pub mod file_handle;
 mod file_id_type;
 pub mod flags;
 mod inode;
-pub mod opens;
+pub mod helpers;
 
-pub use self::{arguments::*, errors::*, file_handle::*, file_id_type::*, flags::*, inode::*, opens::*};
+pub use self::{arguments::*, errors::*, file_handle::*, file_id_type::*, flags::*, inode::*, helpers::*};
 
 pub use fuser::{FileType as FileKind, KernelConfig, TimeOrNow};

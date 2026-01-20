@@ -183,9 +183,15 @@ pub trait FuseHandler<TId: FileIdType>: OptionalSendSync + 'static {
         mode: u32,
         umask: u32,
         flags: OpenFlags,
-    ) -> FuseResult<(OwnedFileHandle, TId::Metadata, FUSEOpenResponseFlags)> {
+        helper: CreateHelper,
+    ) -> FuseResult<(
+        OwnedFileHandle,
+        TId::Metadata,
+        FUSEOpenResponseFlags,
+        Option<PassthroughBackingId>,
+    )> {
         self.get_inner()
-            .create(req, parent_id, name, mode, umask, flags)
+            .create(req, parent_id, name, mode, umask, flags, helper)
     }
 
     /// Preallocate or deallocate space to a file
@@ -368,7 +374,11 @@ pub trait FuseHandler<TId: FileIdType>: OptionalSendSync + 'static {
         file_id: TId,
         flags: OpenFlags,
         helper: OpenHelper,
-    ) -> FuseResult<(OwnedFileHandle, FUSEOpenResponseFlags, Option<PassthroughBackingId>)> {
+    ) -> FuseResult<(
+        OwnedFileHandle,
+        FUSEOpenResponseFlags,
+        Option<PassthroughBackingId>,
+    )> {
         self.get_inner().open(req, file_id, flags, helper)
     }
 
@@ -381,7 +391,11 @@ pub trait FuseHandler<TId: FileIdType>: OptionalSendSync + 'static {
         file_id: TId,
         flags: OpenFlags,
         helper: OpenHelper,
-    ) -> FuseResult<(OwnedFileHandle, FUSEOpenResponseFlags, Option<PassthroughBackingId>)> {
+    ) -> FuseResult<(
+        OwnedFileHandle,
+        FUSEOpenResponseFlags,
+        Option<PassthroughBackingId>,
+    )> {
         self.get_inner().opendir(req, file_id, flags, helper)
     }
 

@@ -131,6 +131,7 @@ where
         let resolver = self.get_resolver();
         let name = name.to_owned();
         execute_task!(self, {
+            let helper = CreateHelper::new(&reply);
             match handler.create(
                 &req,
                 resolver.resolve_id(parent),
@@ -138,19 +139,39 @@ where
                 mode,
                 umask,
                 OpenFlags::from_bits_retain(flags),
+                helper,
             ) {
-                Ok((file_handle, metadata, response_flags)) => {
+                Ok((file_handle, metadata, response_flags, passthrough_backing_id)) => {
                     let default_ttl = handler.get_default_ttl();
                     let (id, file_attr) = TId::extract_metadata(metadata);
                     let ino = resolver.lookup(parent, &name, id, true);
                     let (fuse_attr, ttl, generation) = file_attr.to_fuse(ino);
-                    reply.created(
-                        &ttl.unwrap_or(default_ttl),
-                        &fuse_attr,
-                        generation.unwrap_or(get_random_generation()),
-                        file_handle.as_raw(),
-                        response_flags.bits(),
-                    );
+                    match passthrough_backing_id {
+                        #[cfg(feature = "passthrough")]
+                        Some(passthrough_backing_id) => {
+                            let response_flags =
+                                response_flags | FUSEOpenResponseFlags::PASSTHROUGH;
+                            reply.created_passthrough(
+                                &ttl.unwrap_or(default_ttl),
+                                &fuse_attr,
+                                generation.unwrap_or(get_random_generation()),
+                                file_handle.as_raw(),
+                                response_flags.bits(),
+                                passthrough_backing_id.as_ref(),
+                            );
+                        }
+                        _ => {
+                            let response_flags =
+                                response_flags & !FUSEOpenResponseFlags::PASSTHROUGH;
+                            reply.created(
+                                &ttl.unwrap_or(default_ttl),
+                                &fuse_attr,
+                                generation.unwrap_or(get_random_generation()),
+                                file_handle.as_raw(),
+                                response_flags.bits(),
+                            );
+                        }
+                    }
                 }
                 Err(e) => {
                     warn!("create: {:?}, parent_ino: {:x?}, {:?}", parent, e, req);
