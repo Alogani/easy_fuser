@@ -80,6 +80,13 @@ pub struct WeakPassthroughBackingId {
 
 impl WeakPassthroughBackingId {
     #[cfg(feature = "passthrough")]
+    pub fn new() -> Self {
+        Self {
+            backing_id: Weak::new(),
+        }
+    }
+
+    #[cfg(feature = "passthrough")]
     pub fn upgrade(&self) -> Option<PassthroughBackingId> {
         self.backing_id
             .upgrade()
