@@ -2,7 +2,7 @@
 use fuser::BackingId;
 use fuser::{ReplyCreate, ReplyOpen};
 #[cfg(feature = "passthrough")]
-use std::sync::Arc;
+use std::sync::{Arc, Weak};
 
 pub struct OpenHelper<'a> {
     #[allow(dead_code)]
@@ -60,5 +60,31 @@ pub struct PassthroughBackingId {
 impl AsRef<BackingId> for PassthroughBackingId {
     fn as_ref(&self) -> &BackingId {
         self.backing_id.as_ref()
+    }
+}
+
+impl PassthroughBackingId {
+    #[cfg(feature = "passthrough")]
+    pub fn downgrade(&self) -> WeakPassthroughBackingId {
+        WeakPassthroughBackingId {
+            backing_id: Arc::downgrade(&self.backing_id),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct WeakPassthroughBackingId {
+    #[cfg(feature = "passthrough")]
+    pub(crate) backing_id: Weak<BackingId>,
+}
+
+impl WeakPassthroughBackingId {
+    #[cfg(feature = "passthrough")]
+    pub fn upgrade(&self) -> Option<PassthroughBackingId> {
+        self.backing_id
+            .upgrade()
+            .map(|backing_id| PassthroughBackingId {
+                backing_id: backing_id,
+            })
     }
 }
