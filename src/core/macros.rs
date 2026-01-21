@@ -35,7 +35,7 @@ macro_rules! handle_fuse_reply_entry {
                 }, {
                     warn!("{}: parent_ino {:x?}, [{}], {:?}", stringify!($function), $parent, e, $req);
                 });
-                $reply.error(e.raw_error())
+                $reply.error(e.into())
             }
         }
     };
@@ -52,7 +52,7 @@ macro_rules! handle_fuse_reply_attr {
             }
             Err(e) => {
                 warn!("{}: ino {:x?}, [{}], {:?}", stringify!($function), $ino, e, $req);
-                $reply.error(e.raw_error())
+                $reply.error(e.into());
             }
         }
     };
@@ -99,18 +99,11 @@ macro_rules! handle_dir_read {
         let dirmap_iter = $self.$get_iter_method();
 
         execute_task!($self, {
-            // Validate offset
-            if $offset < 0 {
-                error!("readdir called with a negative offset");
-                $reply.error(ErrorKind::InvalidArgument.into());
-                return;
-            }
-
             // ### Initialize directory iterator
             let mut dir_iter = match $offset {
                 // First read: fetch children from handler
                 0 => match handler.$handler_method(&req_info, resolver.resolve_id($ino), unsafe {
-                    BorrowedFileHandle::from_raw($fh)
+                    BorrowedFileHandle::from_fuser_file_handle($fh)
                 }) {
                     Ok(children) => {
                         // Unpack and process children
@@ -142,7 +135,7 @@ macro_rules! handle_dir_read {
                     }
                     Err(e) => {
                         warn!("readdir {:?}: {:?}", req_info, e);
-                        $reply.error(e.raw_error());
+                        $reply.error(e.into());
                         return;
                     }
                 },
@@ -192,7 +185,7 @@ macro_rules! handle_dir_read {
                             dir_iter.push_front((name, ino, file_attr.clone()));
                             dirmap_iter
                                 .safe_borrow_mut()
-                                .insert((ino, new_offset - 1), dir_iter);
+                                .insert(($ino, new_offset - 1), dir_iter);
                             break;
                         }
                         new_offset += 1;

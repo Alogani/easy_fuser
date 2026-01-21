@@ -2,7 +2,7 @@
 use fuser::BackingId;
 use fuser::{ReplyCreate, ReplyOpen};
 #[cfg(feature = "passthrough")]
-use std::sync::Arc;
+use std::sync::{Arc, Weak};
 
 pub struct OpenHelper<'a> {
     #[allow(dead_code)]

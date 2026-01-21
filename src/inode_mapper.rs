@@ -555,7 +555,7 @@ mod tests {
         let child_name = OsString::from("child");
 
         // Insert the first child
-        let first_child_inode = Inode::from(2);
+        let first_child_inode = Inode::new(2);
         assert_eq!(
             mapper.insert_child(&root, child_name.clone(), |value_creator_params| {
                 assert!(value_creator_params.existing_data.is_none());
@@ -619,7 +619,7 @@ mod tests {
             }
             path.push(OsString::from(format!("file_{}", i)));
             entries.push((path, move |_: ValueCreatorParams<u64>| i));
-            expected_inodes.insert(Inode::from(i + 2)); // Start from 2 to avoid conflict with root_inode
+            expected_inodes.insert(Inode::new(i + 2)); // Start from 2 to avoid conflict with root_inode
         }
 
         // Perform batch insert
@@ -630,7 +630,7 @@ mod tests {
 
         // Check if all inserted inodes exist
         for i in 2..=(FILE_COUNT as u64 + 1) {
-            let inode = Inode::from(i);
+            let inode = Inode::new(i);
             assert!(mapper.get(&inode).is_some(), "{:?} should exist", inode);
         }
 
@@ -690,13 +690,13 @@ mod tests {
         assert!(root_path.is_empty());
 
         // Try to resolve a non-existent inode
-        assert!(mapper.resolve(&Inode::from(999)).is_none());
+        assert!(mapper.resolve(&Inode::new(999)).is_none());
     }
 
     #[test]
     fn test_resolve_invalid_inode() {
         let mapper = InodeMapper::new(0);
-        let invalid_inode = Inode::from(999);
+        let invalid_inode = Inode::new(999);
 
         // Attempt to resolve an invalid inode
         let result = mapper.resolve(&invalid_inode);
@@ -893,11 +893,11 @@ mod tests {
     #[test]
     fn test_remove_cascading() {
         let mut mapper = InodeMapper::new(());
-        let child1 = Inode::from(2);
-        let child2 = Inode::from(3);
-        let grandchild1 = Inode::from(4);
-        let grandchild2 = Inode::from(5);
-        let great_grandchild = Inode::from(6);
+        let child1 = Inode::new(2);
+        let child2 = Inode::new(3);
+        let grandchild1 = Inode::new(4);
+        let grandchild2 = Inode::new(5);
+        let great_grandchild = Inode::new(6);
 
         // Create a deeper nested structure
         mapper

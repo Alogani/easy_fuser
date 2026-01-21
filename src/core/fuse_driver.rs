@@ -1,16 +1,15 @@
+use log::{info, warn};
 use std::{
     ffi::OsStr,
     path::Path,
     time::{Instant, SystemTime},
 };
 
-use libc::c_int;
-use log::{error, info, warn};
-
 use fuser::{
-    self, KernelConfig, ReplyAttr, ReplyBmap, ReplyCreate, ReplyData, ReplyDirectory,
-    ReplyDirectoryPlus, ReplyEmpty, ReplyEntry, ReplyIoctl, ReplyLock, ReplyLseek, ReplyOpen,
-    ReplyStatfs, ReplyWrite, ReplyXattr, Request, TimeOrNow,
+    self, AccessFlags, Errno, FileHandle, FopenFlags, Generation, INodeNo, IoctlFlags,
+    KernelConfig, LockOwner, ReadFlags, ReplyAttr, ReplyBmap, ReplyCreate, ReplyData,
+    ReplyDirectory, ReplyDirectoryPlus, ReplyEmpty, ReplyEntry, ReplyIoctl, ReplyLock, ReplyLseek,
+    ReplyOpen, ReplyStatfs, ReplyWrite, ReplyXattr, Request, TimeOrNow, WriteFlags,
 };
 
 use super::{
@@ -21,8 +20,8 @@ use super::{
 };
 use crate::{fuse_handler::FuseHandler, types::*};
 
-fn get_random_generation() -> u64 {
-    Instant::now().elapsed().as_nanos() as u64
+fn get_random_generation() -> Generation {
+    Generation(Instant::now().elapsed().as_nanos() as u64)
 }
 
 impl<TId, THandler> fuser::Filesystem for FuseDriver<TId, THandler>
@@ -30,13 +29,13 @@ where
     TId: FileIdType,
     THandler: FuseHandler<TId>,
 {
-    fn init(&mut self, req: &Request, config: &mut KernelConfig) -> Result<(), c_int> {
+    fn init(&mut self, req: &Request, config: &mut KernelConfig) -> Result<(), Errno> {
         let req = RequestInfo::from(req);
         match self.get_handler().init(&req, config) {
             Ok(()) => Ok(()),
             Err(e) => {
                 warn!("[{}] init {:?}", e, req);
-                Err(e.raw_error())
+                Err(e.into())
             }
         }
     }
@@ -45,26 +44,24 @@ where
         self.get_handler().destroy();
     }
 
-    fn access(&mut self, req: &Request, ino: u64, mask: i32, reply: ReplyEmpty) {
+    fn access(&self, req: &Request, ino: INodeNo, mask: AccessFlags, reply: ReplyEmpty) {
         let req = RequestInfo::from(req);
         let handler = self.get_handler();
         let resolver = self.get_resolver();
         execute_task!(self, {
-            match handler.access(
-                &req,
-                resolver.resolve_id(ino),
-                AccessMask::from_bits_retain(mask),
-            ) {
-                Ok(()) => reply.ok(),
+            match handler.access(&req, resolver.resolve_id(ino), AccessMask::from(mask)) {
+                Ok(()) => {
+                    reply.ok();
+                }
                 Err(e) => {
                     warn!("access: ino {:x?}, [{}], {:?}", ino, e, req);
-                    reply.error(e.raw_error())
+                    reply.error(e.into());
                 }
             };
         });
     }
 
-    fn bmap(&mut self, req: &Request<'_>, ino: u64, blocksize: u32, idx: u64, reply: ReplyBmap) {
+    fn bmap(&self, req: &Request, ino: INodeNo, blocksize: u32, idx: u64, reply: ReplyBmap) {
         let req = RequestInfo::from(req);
         let handler = self.get_handler();
         let resolver = self.get_resolver();
@@ -73,23 +70,23 @@ where
                 Ok(block) => reply.bmap(block),
                 Err(e) => {
                     warn!("bmap: ino {:x?}, [{}], {:?}", ino, e, req);
-                    reply.error(e.raw_error())
+                    reply.error(e.into())
                 }
             };
         });
     }
 
     fn copy_file_range(
-        &mut self,
+        &self,
         req: &Request,
-        ino_in: u64,
-        fh_in: u64,
+        ino_in: INodeNo,
+        fh_in: FileHandle,
         offset_in: i64,
-        ino_out: u64,
-        fh_out: u64,
+        ino_out: INodeNo,
+        fh_out: FileHandle,
         offset_out: i64,
         len: u64,
-        flags: u32,
+        flags: fuser::CopyFileRangeFlags,
         reply: ReplyWrite,
     ) {
         let req = RequestInfo::from(req);
@@ -99,27 +96,27 @@ where
             match handler.copy_file_range(
                 &req,
                 resolver.resolve_id(ino_in),
-                unsafe { BorrowedFileHandle::from_raw(fh_in) },
+                unsafe { BorrowedFileHandle::from_fuser_file_handle(fh_in) },
                 offset_in,
                 resolver.resolve_id(ino_out),
-                unsafe { BorrowedFileHandle::from_raw(fh_out) },
+                unsafe { BorrowedFileHandle::from_fuser_file_handle(fh_out) },
                 offset_out,
                 len,
-                flags,
+                CopyFileRangeFlags::from(flags),
             ) {
                 Ok(bytes_written) => reply.written(bytes_written),
                 Err(e) => {
                     warn!("copy_file_range: ino {:x?}, [{}], {:?}", ino_in, e, req);
-                    reply.error(e.raw_error())
+                    reply.error(e.into())
                 }
             };
         });
     }
 
     fn create(
-        &mut self,
+        &self,
         req: &Request,
-        parent: u64,
+        parent: INodeNo,
         name: &OsStr,
         mode: u32,
         umask: u32,
@@ -155,8 +152,8 @@ where
                                 &ttl.unwrap_or(default_ttl),
                                 &fuse_attr,
                                 generation.unwrap_or(get_random_generation()),
-                                file_handle.as_raw(),
-                                response_flags.bits(),
+                                file_handle.as_fuser_file_handle(),
+                                FopenFlags::from(response_flags),
                                 passthrough_backing_id.as_ref(),
                             );
                         }
@@ -167,25 +164,25 @@ where
                                 &ttl.unwrap_or(default_ttl),
                                 &fuse_attr,
                                 generation.unwrap_or(get_random_generation()),
-                                file_handle.as_raw(),
-                                response_flags.bits(),
+                                file_handle.as_fuser_file_handle(),
+                                FopenFlags::from(response_flags),
                             );
                         }
                     }
                 }
                 Err(e) => {
                     warn!("create: {:?}, parent_ino: {:x?}, {:?}", parent, e, req);
-                    reply.error(e.raw_error())
+                    reply.error(e.into())
                 }
             };
         });
     }
 
     fn fallocate(
-        &mut self,
+        &self,
         req: &Request,
-        ino: u64,
-        fh: u64,
+        ino: INodeNo,
+        fh: FileHandle,
         offset: i64,
         length: i64,
         mode: i32,
@@ -198,7 +195,7 @@ where
             match handler.fallocate(
                 &req,
                 resolver.resolve_id(ino),
-                unsafe { BorrowedFileHandle::from_raw(fh) },
+                unsafe { BorrowedFileHandle::from_fuser_file_handle(fh) },
                 offset,
                 length,
                 FallocateFlags::from_bits_retain(mode),
@@ -206,13 +203,20 @@ where
                 Ok(()) => reply.ok(),
                 Err(e) => {
                     warn!("fallocate: ino {:x?}, [{}], {:?}", ino, e, req);
-                    reply.error(e.raw_error())
+                    reply.error(e.into())
                 }
             };
         });
     }
 
-    fn flush(&mut self, req: &Request, ino: u64, fh: u64, lock_owner: u64, reply: ReplyEmpty) {
+    fn flush(
+        &self,
+        req: &Request,
+        ino: INodeNo,
+        fh: FileHandle,
+        lock_owner: LockOwner,
+        reply: ReplyEmpty,
+    ) {
         let req = RequestInfo::from(req);
         let handler = self.get_handler();
         let resolver = self.get_resolver();
@@ -220,19 +224,19 @@ where
             match handler.flush(
                 &req,
                 resolver.resolve_id(ino),
-                unsafe { BorrowedFileHandle::from_raw(fh) },
+                unsafe { BorrowedFileHandle::from_fuser_file_handle(fh) },
                 lock_owner,
             ) {
                 Ok(()) => reply.ok(),
                 Err(e) => {
                     warn!("flush: ino {:x?}, [{}], {:?}", ino, e, req);
-                    reply.error(e.raw_error())
+                    reply.error(e.into())
                 }
             };
         });
     }
 
-    fn forget(&mut self, req: &Request, ino: u64, nlookup: u64) {
+    fn forget(&self, req: &Request, ino: INodeNo, nlookup: u64) {
         let req = RequestInfo::from(req);
         let handler = self.get_handler();
         let resolver = self.get_resolver();
@@ -240,7 +244,14 @@ where
         resolver.forget(ino, nlookup);
     }
 
-    fn fsync(&mut self, req: &Request, ino: u64, fh: u64, datasync: bool, reply: ReplyEmpty) {
+    fn fsync(
+        &self,
+        req: &Request,
+        ino: INodeNo,
+        fh: FileHandle,
+        datasync: bool,
+        reply: ReplyEmpty,
+    ) {
         let req = RequestInfo::from(req);
         let handler = self.get_handler();
         let resolver = self.get_resolver();
@@ -248,19 +259,26 @@ where
             match handler.fsync(
                 &req,
                 resolver.resolve_id(ino),
-                unsafe { BorrowedFileHandle::from_raw(fh) },
+                unsafe { BorrowedFileHandle::from_fuser_file_handle(fh) },
                 datasync,
             ) {
                 Ok(()) => reply.ok(),
                 Err(e) => {
                     warn!("fsync: ino {:x?}, [{}], {:?}", ino, e, req);
-                    reply.error(e.raw_error())
+                    reply.error(e.into())
                 }
             };
         });
     }
 
-    fn fsyncdir(&mut self, req: &Request, ino: u64, fh: u64, datasync: bool, reply: ReplyEmpty) {
+    fn fsyncdir(
+        &self,
+        req: &Request,
+        ino: INodeNo,
+        fh: FileHandle,
+        datasync: bool,
+        reply: ReplyEmpty,
+    ) {
         let req = RequestInfo::from(req);
         let handler = self.get_handler();
         let resolver = self.get_resolver();
@@ -268,19 +286,19 @@ where
             match handler.fsyncdir(
                 &req,
                 resolver.resolve_id(ino),
-                unsafe { BorrowedFileHandle::from_raw(fh) },
+                unsafe { BorrowedFileHandle::from_fuser_file_handle(fh) },
                 datasync,
             ) {
                 Ok(()) => reply.ok(),
                 Err(e) => {
                     warn!("fsyncdir: ino {:x?}, [{}], {:?}", ino, e, req);
-                    reply.error(e.raw_error())
+                    reply.error(e.into())
                 }
             };
         });
     }
 
-    fn getattr(&mut self, req: &Request, ino: u64, fh: Option<u64>, reply: ReplyAttr) {
+    fn getattr(&self, req: &Request, ino: INodeNo, fh: Option<FileHandle>, reply: ReplyAttr) {
         let req = RequestInfo::from(req);
         let handler = self.get_handler();
         let resolver = self.get_resolver();
@@ -295,18 +313,18 @@ where
                 (
                     &req,
                     resolver.resolve_id(ino),
-                    fh.map(|fh| unsafe { BorrowedFileHandle::from_raw(fh) })
+                    fh.map(|fh| unsafe { BorrowedFileHandle::from_fuser_file_handle(fh) })
                 )
             );
         });
     }
 
     fn getlk(
-        &mut self,
-        req: &Request<'_>,
-        ino: u64,
-        fh: u64,
-        lock_owner: u64,
+        &self,
+        req: &Request,
+        ino: INodeNo,
+        fh: FileHandle,
+        lock_owner: LockOwner,
         start: u64,
         end: u64,
         typ: i32,
@@ -326,7 +344,7 @@ where
             match handler.getlk(
                 &req,
                 resolver.resolve_id(ino),
-                unsafe { BorrowedFileHandle::from_raw(fh) },
+                unsafe { BorrowedFileHandle::from_fuser_file_handle(fh) },
                 lock_owner,
                 lock_info,
             ) {
@@ -338,13 +356,13 @@ where
                 ),
                 Err(e) => {
                     warn!("getlk: ino {:x?}, [{}], {:?}", ino, e, req);
-                    reply.error(e.raw_error())
+                    reply.error(e.into())
                 }
             };
         });
     }
 
-    fn getxattr(&mut self, req: &Request, ino: u64, name: &OsStr, size: u32, reply: ReplyXattr) {
+    fn getxattr(&self, req: &Request, ino: INodeNo, name: &OsStr, size: u32, reply: ReplyXattr) {
         let req = RequestInfo::from(req);
         let handler = self.get_handler();
         let resolver = self.get_resolver();
@@ -357,23 +375,29 @@ where
                     } else if size >= xattr_data.len() as u32 {
                         reply.data(&xattr_data);
                     } else {
-                        reply.error(ErrorKind::ResultTooLarge.into());
+                        reply.error(
+                            PosixError::new(
+                                ErrorKind::ResultTooLarge,
+                                "returned result is too large",
+                            )
+                            .into(),
+                        );
                     }
                 }
                 Err(e) => {
                     warn!("getxattr: ino {:x?}, [{}], {:?}", ino, e, req);
-                    reply.error(e.raw_error())
+                    reply.error(e.into())
                 }
             };
         });
     }
 
     fn ioctl(
-        &mut self,
-        req: &Request<'_>,
-        ino: u64,
-        fh: u64,
-        flags: u32,
+        &self,
+        req: &Request,
+        ino: INodeNo,
+        fh: FileHandle,
+        flags: IoctlFlags,
         cmd: u32,
         in_data: &[u8],
         out_size: u32,
@@ -387,8 +411,8 @@ where
             match handler.ioctl(
                 &req,
                 resolver.resolve_id(ino),
-                unsafe { BorrowedFileHandle::from_raw(fh) },
-                IOCtlFlags::from_bits_retain(flags),
+                unsafe { BorrowedFileHandle::from_fuser_file_handle(fh) },
+                FUSEIoctlFlags::from(flags),
                 cmd,
                 in_data,
                 out_size,
@@ -396,17 +420,17 @@ where
                 Ok((result, data)) => reply.ioctl(result, &data),
                 Err(e) => {
                     warn!("ioctl: ino {:x?}, [{}], {:?}", ino, e, req);
-                    reply.error(e.raw_error())
+                    reply.error(e.into())
                 }
             };
         });
     }
 
     fn link(
-        &mut self,
+        &self,
         req: &Request,
-        ino: u64,
-        newparent: u64,
+        ino: INodeNo,
+        newparent: INodeNo,
         newname: &OsStr,
         reply: ReplyEntry,
     ) {
@@ -433,7 +457,7 @@ where
         });
     }
 
-    fn listxattr(&mut self, req: &Request, ino: u64, size: u32, reply: ReplyXattr) {
+    fn listxattr(&self, req: &Request, ino: INodeNo, size: u32, reply: ReplyXattr) {
         let req = RequestInfo::from(req);
         let handler = self.get_handler();
         let resolver = self.get_resolver();
@@ -445,18 +469,24 @@ where
                     } else if size >= xattr_data.len() as u32 {
                         reply.data(&xattr_data);
                     } else {
-                        reply.error(ErrorKind::ResultTooLarge.into());
+                        reply.error(
+                            PosixError::new(
+                                ErrorKind::ResultTooLarge,
+                                "returned result is too large than allowed size",
+                            )
+                            .into(),
+                        );
                     }
                 }
                 Err(e) => {
                     warn!("listxattr: ino {:x?}, [{}], {:?}", ino, e, req);
-                    reply.error(e.raw_error())
+                    reply.error(e.into())
                 }
             };
         });
     }
 
-    fn lookup(&mut self, req: &Request, parent: u64, name: &OsStr, reply: ReplyEntry) {
+    fn lookup(&self, req: &Request, parent: INodeNo, name: &OsStr, reply: ReplyEntry) {
         let req = RequestInfo::from(req);
         let handler = self.get_handler();
         let resolver = self.get_resolver();
@@ -476,10 +506,10 @@ where
     }
 
     fn lseek(
-        &mut self,
+        &self,
         req: &Request,
-        ino: u64,
-        fh: u64,
+        ino: INodeNo,
+        fh: FileHandle,
         offset: i64,
         whence: i32,
         reply: ReplyLseek,
@@ -491,22 +521,22 @@ where
             match handler.lseek(
                 &req,
                 resolver.resolve_id(ino),
-                unsafe { BorrowedFileHandle::from_raw(fh) },
+                unsafe { BorrowedFileHandle::from_fuser_file_handle(fh) },
                 seek_from_raw(Some(whence), offset),
             ) {
                 Ok(new_offset) => reply.offset(new_offset),
                 Err(e) => {
                     warn!("lseek: ino {:x?}, [{}], {:?}", ino, e, req);
-                    reply.error(e.raw_error())
+                    reply.error(e.into())
                 }
             };
         });
     }
 
     fn mkdir(
-        &mut self,
+        &self,
         req: &Request,
-        parent: u64,
+        parent: INodeNo,
         name: &OsStr,
         mode: u32,
         umask: u32,
@@ -531,9 +561,9 @@ where
     }
 
     fn mknod(
-        &mut self,
+        &self,
         req: &Request,
-        parent: u64,
+        parent: INodeNo,
         name: &OsStr,
         mode: u32,
         umask: u32,
@@ -565,7 +595,7 @@ where
         });
     }
 
-    fn open(&mut self, req: &Request, ino: u64, _flags: i32, reply: ReplyOpen) {
+    fn open(&self, req: &Request, ino: INodeNo, flags: fuser::OpenFlags, reply: ReplyOpen) {
         let req = RequestInfo::from(req);
         let handler = self.get_handler();
         let resolver = self.get_resolver();
@@ -574,32 +604,32 @@ where
             match handler.open(
                 &req,
                 resolver.resolve_id(ino),
-                OpenFlags::from_bits_retain(_flags),
+                OpenFlags::from(flags),
                 open_helper,
             ) {
                 Ok((file_handle, response_flags, backing_id)) => match backing_id {
                     #[cfg(feature = "passthrough")]
                     Some(backing_id) => {
                         reply.opened_passthrough(
-                            file_handle.as_raw(),
-                            response_flags.bits(),
+                            file_handle.as_fuser_file_handle(),
+                            FopenFlags::from(response_flags),
                             backing_id.as_ref(),
                         );
                     }
                     _ => {
                         let response_flags = response_flags & !FUSEOpenResponseFlags::PASSTHROUGH;
-                        reply.opened(file_handle.as_raw(), response_flags.bits())
+                        reply.opened(file_handle.as_fuser_file_handle(), FopenFlags::from(response_flags))
                     }
                 },
                 Err(e) => {
                     warn!("open: ino {:x?}, [{}], {:?}", ino, e, req);
-                    reply.error(e.raw_error())
+                    reply.error(e.into())
                 }
             };
         });
     }
 
-    fn opendir(&mut self, req: &Request, ino: u64, _flags: i32, reply: ReplyOpen) {
+    fn opendir(&self, req: &Request, ino: INodeNo, flags: fuser::OpenFlags, reply: ReplyOpen) {
         let req = RequestInfo::from(req);
         let handler = self.get_handler();
         let resolver = self.get_resolver();
@@ -608,40 +638,44 @@ where
             match handler.opendir(
                 &req,
                 resolver.resolve_id(ino),
-                OpenFlags::from_bits_retain(_flags),
+                OpenFlags::from(flags),
                 open_helper,
             ) {
                 Ok((file_handle, response_flags, backing_id)) => match backing_id {
                     #[cfg(feature = "passthrough")]
                     Some(backing_id) => {
                         reply.opened_passthrough(
-                            file_handle.as_raw(),
-                            response_flags.bits(),
+                            file_handle.as_fuser_file_handle(),
+                            FopenFlags::from(response_flags),
                             backing_id.as_ref(),
                         );
                     }
                     _ => {
                         let response_flags = response_flags & !FUSEOpenResponseFlags::PASSTHROUGH;
-                        reply.opened(file_handle.as_raw(), response_flags.bits())
+                        reply.opened(
+                            file_handle.as_fuser_file_handle(),
+                            FopenFlags::from(response_flags),
+                        )
                     }
                 },
                 Err(e) => {
                     warn!("opendir: ino {:x?}, [{}], {:?}", ino, e, req);
-                    reply.error(e.raw_error())
+                    reply.error(e.into())
                 }
             };
         });
     }
 
     fn read(
-        &mut self,
+        &self,
         req: &Request,
-        ino: u64,
-        fh: u64,
-        offset: i64,
+        ino: INodeNo,
+        fh: FileHandle,
+        offset: u64,
         size: u32,
-        flags: i32,
-        lock_owner: Option<u64>,
+        read_flags: ReadFlags,
+        flags: u32,
+        lock_owner: Option<LockOwner>,
         reply: ReplyData,
     ) {
         let req = RequestInfo::from(req);
@@ -651,27 +685,28 @@ where
             match handler.read(
                 &req,
                 resolver.resolve_id(ino),
-                unsafe { BorrowedFileHandle::from_raw(fh) },
-                seek_from_raw(None, offset),
+                unsafe { BorrowedFileHandle::from_fuser_file_handle(fh) },
+                SeekFrom::Start(offset),
                 size,
-                FUSEOpenFlags::from_bits_retain(flags),
+                FUSEReadFlags::from(read_flags),
+                OpenFlags::from_bits_retain(flags as i32),
                 lock_owner,
             ) {
                 Ok(data_reply) => reply.data(&data_reply),
                 Err(e) => {
                     warn!("read: ino {:x?}, [{}], {:?}", ino, e, req);
-                    reply.error(e.raw_error())
+                    reply.error(e.into())
                 }
             };
         });
     }
 
     fn readdir(
-        &mut self,
+        &self,
         req: &Request,
-        ino: u64,
-        fh: u64,
-        offset: i64,
+        ino: INodeNo,
+        fh: FileHandle,
+        offset: u64,
         mut reply: ReplyDirectory,
     ) {
         handle_dir_read!(
@@ -688,11 +723,11 @@ where
     }
 
     fn readdirplus(
-        &mut self,
+        &self,
         req: &Request,
-        ino: u64,
-        fh: u64,
-        offset: i64,
+        ino: INodeNo,
+        fh: FileHandle,
+        offset: u64,
         mut reply: ReplyDirectoryPlus,
     ) {
         handle_dir_read!(
@@ -708,7 +743,7 @@ where
         );
     }
 
-    fn readlink(&mut self, req: &Request, ino: u64, reply: ReplyData) {
+    fn readlink(&self, req: &Request, ino: INodeNo, reply: ReplyData) {
         let req = RequestInfo::from(req);
         let handler = self.get_handler();
         let resolver = self.get_resolver();
@@ -717,19 +752,19 @@ where
                 Ok(link) => reply.data(&link),
                 Err(e) => {
                     warn!("[{}] readlink, ino: {:x?}, {:?}", ino, e, req);
-                    reply.error(e.raw_error())
+                    reply.error(e.into())
                 }
             };
         });
     }
 
     fn release(
-        &mut self,
+        &self,
         req: &Request,
-        ino: u64,
-        fh: u64,
-        _flags: i32,
-        _lock_owner: Option<u64>,
+        ino: INodeNo,
+        fh: FileHandle,
+        flags: i32,
+        lock_owner: Option<LockOwner>,
         _flush: bool,
         reply: ReplyEmpty,
     ) {
@@ -740,21 +775,28 @@ where
             match handler.release(
                 &req,
                 resolver.resolve_id(ino),
-                unsafe { OwnedFileHandle::from_raw(fh) },
-                OpenFlags::from_bits_retain(_flags),
-                _lock_owner,
+                unsafe { OwnedFileHandle::from_fuser_file_handle(fh) },
+                OpenFlags::from_bits_retain(flags),
+                lock_owner,
                 _flush,
             ) {
                 Ok(()) => reply.ok(),
                 Err(e) => {
                     warn!("release: ino {:x?}, [{}], {:?}", ino, e, req);
-                    reply.error(e.raw_error())
+                    reply.error(e.into())
                 }
             };
         });
     }
 
-    fn releasedir(&mut self, req: &Request, ino: u64, fh: u64, flags: i32, reply: ReplyEmpty) {
+    fn releasedir(
+        &self,
+        req: &Request,
+        ino: INodeNo,
+        fh: FileHandle,
+        flags: i32,
+        reply: ReplyEmpty,
+    ) {
         let req = RequestInfo::from(req);
         let handler = self.get_handler();
         let resolver = self.get_resolver();
@@ -762,19 +804,19 @@ where
             match handler.releasedir(
                 &req,
                 resolver.resolve_id(ino),
-                unsafe { OwnedFileHandle::from_raw(fh) },
+                unsafe { OwnedFileHandle::from_fuser_file_handle(fh) },
                 OpenFlags::from_bits_retain(flags),
             ) {
                 Ok(()) => reply.ok(),
                 Err(e) => {
                     warn!("releasedir: ino {:x?}, [{}], {:?}", ino, e, req);
-                    reply.error(e.raw_error())
+                    reply.error(e.into())
                 }
             };
         });
     }
 
-    fn removexattr(&mut self, req: &Request, ino: u64, name: &OsStr, reply: ReplyEmpty) {
+    fn removexattr(&self, req: &Request, ino: INodeNo, name: &OsStr, reply: ReplyEmpty) {
         let req = RequestInfo::from(req);
         let handler = self.get_handler();
         let resolver = self.get_resolver();
@@ -784,20 +826,20 @@ where
                 Ok(()) => reply.ok(),
                 Err(e) => {
                     warn!("removexattr: ino {:x?}, [{}], {:?}", ino, e, req);
-                    reply.error(e.raw_error())
+                    reply.error(e.into())
                 }
             };
         });
     }
 
     fn rename(
-        &mut self,
+        &self,
         req: &Request,
-        parent: u64,
+        parent: INodeNo,
         name: &OsStr,
-        newparent: u64,
+        newparent: INodeNo,
         newname: &OsStr,
-        flags: u32,
+        flags: fuser::RenameFlags,
         reply: ReplyEmpty,
     ) {
         let req = RequestInfo::from(req);
@@ -812,7 +854,7 @@ where
                 &name,
                 resolver.resolve_id(newparent),
                 &newname,
-                RenameFlags::from_bits_retain(flags),
+                RenameFlags::from(flags),
             ) {
                 Ok(()) => {
                     resolver.rename(parent, &name, newparent, &newname);
@@ -820,13 +862,13 @@ where
                 }
                 Err(e) => {
                     warn!("[{}] rename: parent_ino: {:x?}, {:?}", parent, e, req);
-                    reply.error(e.raw_error())
+                    reply.error(e.into())
                 }
             }
         });
     }
 
-    fn rmdir(&mut self, req: &Request, parent: u64, name: &OsStr, reply: ReplyEmpty) {
+    fn rmdir(&self, req: &Request, parent: INodeNo, name: &OsStr, reply: ReplyEmpty) {
         let req = RequestInfo::from(req);
         let handler = self.get_handler();
         let resolver = self.get_resolver();
@@ -836,16 +878,16 @@ where
                 Ok(()) => reply.ok(),
                 Err(e) => {
                     warn!("[{}] rmdir: parent_ino: {:x?}, {:?}", parent, e, req);
-                    reply.error(e.raw_error())
+                    reply.error(e.into())
                 }
             };
         });
     }
 
     fn setattr(
-        &mut self,
+        &self,
         req: &Request,
-        ino: u64,
+        ino: INodeNo,
         mode: Option<u32>,
         uid: Option<u32>,
         gid: Option<u32>,
@@ -853,7 +895,7 @@ where
         atime: Option<TimeOrNow>,
         mtime: Option<TimeOrNow>,
         ctime: Option<SystemTime>,
-        fh: Option<u64>,
+        fh: Option<FileHandle>,
         crtime: Option<SystemTime>,
         chgtime: Option<SystemTime>,
         bkuptime: Option<SystemTime>,
@@ -875,7 +917,7 @@ where
             chgtime: chgtime,
             bkuptime: bkuptime,
             flags: None,
-            file_handle: fh.map(|fh| unsafe { BorrowedFileHandle::from_raw(fh) }),
+            file_handle: fh.map(|fh| unsafe { BorrowedFileHandle::from_fuser_file_handle(fh) }),
         };
         execute_task!(self, {
             handle_fuse_reply_attr!(
@@ -891,11 +933,11 @@ where
     }
 
     fn setlk(
-        &mut self,
-        req: &Request<'_>,
-        ino: u64,
-        fh: u64,
-        lock_owner: u64,
+        &self,
+        req: &Request,
+        ino: INodeNo,
+        fh: FileHandle,
+        lock_owner: LockOwner,
         start: u64,
         end: u64,
         typ: i32,
@@ -916,7 +958,7 @@ where
             match handler.setlk(
                 &req,
                 resolver.resolve_id(ino),
-                unsafe { BorrowedFileHandle::from_raw(fh) },
+                unsafe { BorrowedFileHandle::from_fuser_file_handle(fh) },
                 lock_owner,
                 lock_info,
                 sleep,
@@ -924,16 +966,16 @@ where
                 Ok(()) => reply.ok(),
                 Err(e) => {
                     warn!("setlk: ino {:x?}, [{}], {:?}", ino, e, req);
-                    reply.error(e.raw_error())
+                    reply.error(e.into())
                 }
             };
         });
     }
 
     fn setxattr(
-        &mut self,
+        &self,
         req: &Request,
-        ino: u64,
+        ino: INodeNo,
         name: &OsStr,
         value: &[u8],
         flags: i32,
@@ -957,13 +999,13 @@ where
                 Ok(()) => reply.ok(),
                 Err(e) => {
                     warn!("setxattr: ino {:x?}, [{}], {:?}", ino, e, req);
-                    reply.error(e.raw_error())
+                    reply.error(e.into())
                 }
             };
         });
     }
 
-    fn statfs(&mut self, req: &Request, ino: u64, reply: ReplyStatfs) {
+    fn statfs(&self, req: &Request, ino: INodeNo, reply: ReplyStatfs) {
         let req = RequestInfo::from(req);
         let handler = self.get_handler();
         let resolver = self.get_resolver();
@@ -981,16 +1023,16 @@ where
                 ),
                 Err(e) => {
                     warn!("statfs: ino {:x?}, [{}], {:?}", ino, e, req);
-                    reply.error(e.raw_error())
+                    reply.error(e.into());
                 }
             };
         });
     }
 
     fn symlink(
-        &mut self,
+        &self,
         req: &Request,
-        parent: u64,
+        parent: INodeNo,
         link_name: &OsStr,
         target: &Path,
         reply: ReplyEntry,
@@ -1015,15 +1057,15 @@ where
     }
 
     fn write(
-        &mut self,
+        &self,
         req: &Request,
-        ino: u64,
-        fh: u64,
+        ino: INodeNo,
+        fh: FileHandle,
         offset: i64,
         data: &[u8],
-        write_flags: u32,
+        write_flags: WriteFlags,
         flags: i32,
-        lock_owner: Option<u64>,
+        lock_owner: Option<LockOwner>,
         reply: ReplyWrite,
     ) {
         let req = RequestInfo::from(req);
@@ -1034,23 +1076,23 @@ where
             match handler.write(
                 &req,
                 resolver.resolve_id(ino),
-                unsafe { BorrowedFileHandle::from_raw(fh) },
+                unsafe { BorrowedFileHandle::from_fuser_file_handle(fh) },
                 seek_from_raw(None, offset),
                 data,
-                FUSEWriteFlags::from_bits_retain(write_flags),
+                FUSEWriteFlags::from(write_flags),
                 OpenFlags::from_bits_retain(flags),
                 lock_owner,
             ) {
                 Ok(bytes_written) => reply.written(bytes_written),
                 Err(e) => {
                     warn!("write: ino {:x?}, [{}], {:?}", ino, e, req);
-                    reply.error(e.raw_error())
+                    reply.error(e.into())
                 }
             };
         });
     }
 
-    fn unlink(&mut self, req: &Request, parent: u64, name: &OsStr, reply: ReplyEmpty) {
+    fn unlink(&self, req: &Request, parent: INodeNo, name: &OsStr, reply: ReplyEmpty) {
         let req = RequestInfo::from(req);
         let handler = self.get_handler();
         let resolver = self.get_resolver();
@@ -1060,7 +1102,7 @@ where
                 Ok(()) => reply.ok(),
                 Err(e) => {
                     warn!("[{}] unlink: parent_ino: {:x?}, {:?}", parent, e, req);
-                    reply.error(e.raw_error())
+                    reply.error(e.into())
                 }
             };
         });
