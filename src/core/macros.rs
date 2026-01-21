@@ -43,7 +43,7 @@ macro_rules! handle_fuse_reply_entry {
                 execute_reply_task!(
                     $reply_executor,
                     {
-                        $reply.error(e.raw_error())
+                        $reply.error(Errno::from_i32(e.raw_error()))
                     }
                 );
             }
@@ -70,7 +70,7 @@ macro_rules! handle_fuse_reply_attr {
                 execute_reply_task!(
                     $reply_executor,
                     {
-                        $reply.error(e.raw_error())
+                        $reply.error(Errno::from_i32(e.raw_error()))
                     }
                 );
             }
@@ -121,20 +121,11 @@ macro_rules! handle_dir_read {
         let reply_executor = reply_executor!($self);
 
         execute_task!($self, {
-            // Validate offset
-            if $offset < 0 {
-                error!("readdir called with a negative offset");
-                execute_reply_task!(reply_executor, {
-                    $reply.error(ErrorKind::InvalidArgument.into());
-                });
-                return;
-            }
-
             // ### Initialize directory iterator
             let mut dir_iter = match $offset {
                 // First read: fetch children from handler
                 0 => match handler.$handler_method(&req_info, resolver.resolve_id($ino), unsafe {
-                    BorrowedFileHandle::from_raw($fh)
+                    BorrowedFileHandle::from_fuser_file_handle($fh)
                 }) {
                     Ok(children) => {
                         // Unpack and process children
@@ -167,7 +158,7 @@ macro_rules! handle_dir_read {
                     Err(e) => {
                         warn!("readdir {:?}: {:?}", req_info, e);
                         execute_reply_task!(reply_executor, {
-                            $reply.error(e.raw_error());
+                            $reply.error(Errno::from_i32(e.raw_error()));
                         });
                         return;
                     }
@@ -221,7 +212,7 @@ macro_rules! handle_dir_read {
                                 dir_iter.push_front((name, ino, file_attr.clone()));
                                 dirmap_iter
                                     .safe_borrow_mut()
-                                    .insert((ino, new_offset - 1), dir_iter);
+                                    .insert(($ino, new_offset - 1), dir_iter);
                                 break;
                             }
                             new_offset += 1;

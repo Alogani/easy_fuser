@@ -58,6 +58,18 @@ impl OwnedFileHandle {
         Self(handle)
     }
 
+    /// Creates an OwnedFileHandle from a [`fuser::FileHandle`].
+    ///
+    /// Unsafe because it assumes the provided value is a valid, open file handle.
+    pub unsafe fn from_fuser_file_handle(handle: fuser::FileHandle) -> Self {
+        Self(handle.0)
+    }
+
+    /// Converts the OwnedFileHandle into a [`fuser::FileHandle`].
+    pub fn as_fuser_file_handle(&self) -> fuser::FileHandle {
+        fuser::FileHandle(self.0)
+    }
+
     /// Borrows the file handle, creating a BorrowedFileHandle with a lifetime tied to self.
     pub fn borrow(&self) -> BorrowedFileHandle<'_> {
         BorrowedFileHandle(self.0, PhantomData)
@@ -113,6 +125,18 @@ impl<'a> BorrowedFileHandle<'a> {
     /// Unsafe because it assumes the provided value is a valid, open file handle.
     pub unsafe fn from_raw(handle: u64) -> Self {
         Self(handle, PhantomData)
+    }
+
+    /// Creates a BorrowedFileHandle from a [`fuser::FileHandle`].
+    ///
+    /// Unsafe because it assumes the provided value is a valid, open file handle.
+    pub unsafe fn from_fuser_file_handle(handle: fuser::FileHandle) -> Self {
+        Self(handle.0, PhantomData)
+    }
+
+    /// Converts the BorrowedFileHandle into a [`fuser::FileHandle`].
+    pub fn as_fuser_file_handle(&self) -> fuser::FileHandle {
+        fuser::FileHandle(self.0)
     }
 
     /// Converts the BorrowedFileHandle into a BorrowedFd.

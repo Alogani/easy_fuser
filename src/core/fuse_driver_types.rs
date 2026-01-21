@@ -9,7 +9,7 @@ use super::inode_mapping::FileIdResolver;
 use crate::fuse_handler::FuseHandler;
 use crate::types::*;
 
-type DirIter<TAttr> = HashMap<(u64, i64), VecDeque<(OsString, u64, TAttr)>>;
+type DirIter<TAttr> = HashMap<(INodeNo, u64), VecDeque<(OsString, INodeNo, TAttr)>>;
 
 #[cfg(feature = "serial")]
 mod serial {
@@ -293,6 +293,7 @@ fn spawn_deadlock_checker() {
     });
 }
 
+use fuser::INodeNo;
 #[cfg(feature = "serial")]
 pub use serial::*;
 

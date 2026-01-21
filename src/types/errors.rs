@@ -16,6 +16,8 @@
 //! - [`ErrorKind::to_error`]: Converts an ErrorKind to a PosixError with a custom message.
 //!
 
+use fuser::Errno;
+
 use crate::unix_fs::get_errno;
 use std::any::Any;
 
@@ -87,6 +89,12 @@ where
         } else {
             PosixError::new(libc::EIO, e.to_string())
         }
+    }
+}
+
+impl From<PosixError> for Errno {
+    fn from(error: PosixError) -> Self {
+        Errno::from_i32(error.raw_error())
     }
 }
 

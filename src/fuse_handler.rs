@@ -103,6 +103,7 @@ mod private {
     #[cfg(feature = "serial")]
     impl<T> OptionalSendSync for T {}
 }
+use fuser::LockOwner;
 use private::OptionalSendSync;
 
 pub trait FuseHandler<TId: FileIdType>: OptionalSendSync + 'static {
@@ -154,7 +155,7 @@ pub trait FuseHandler<TId: FileIdType>: OptionalSendSync + 'static {
         file_handle_out: BorrowedFileHandle,
         offset_out: i64,
         len: u64,
-        flags: u32, // Not implemented yet in standard
+        flags: CopyFileRangeFlags, // Not implemented yet in standard
     ) -> FuseResult<u32> {
         self.get_inner().copy_file_range(
             req,
@@ -217,7 +218,7 @@ pub trait FuseHandler<TId: FileIdType>: OptionalSendSync + 'static {
         req: &RequestInfo,
         file_id: TId,
         file_handle: BorrowedFileHandle,
-        lock_owner: u64,
+        lock_owner: LockOwner,
     ) -> FuseResult<()> {
         self.get_inner()
             .flush(req, file_id, file_handle, lock_owner)
@@ -274,7 +275,7 @@ pub trait FuseHandler<TId: FileIdType>: OptionalSendSync + 'static {
         req: &RequestInfo,
         file_id: TId,
         file_handle: BorrowedFileHandle,
-        lock_owner: u64,
+        lock_owner: LockOwner,
         lock_info: LockInfo,
     ) -> FuseResult<LockInfo> {
         self.get_inner()
@@ -298,7 +299,7 @@ pub trait FuseHandler<TId: FileIdType>: OptionalSendSync + 'static {
         req: &RequestInfo,
         file_id: TId,
         file_handle: BorrowedFileHandle,
-        flags: IOCtlFlags,
+        flags: FUSEIoctlFlags,
         cmd: u32,
         in_data: Vec<u8>,
         out_size: u32,
@@ -411,11 +412,20 @@ pub trait FuseHandler<TId: FileIdType>: OptionalSendSync + 'static {
         file_handle: BorrowedFileHandle,
         seek: SeekFrom,
         size: u32,
-        flags: FUSEOpenFlags,
-        lock_owner: Option<u64>,
+        read_flags: FUSEReadFlags,
+        flags: OpenFlags,
+        lock_owner: Option<LockOwner>,
     ) -> FuseResult<Vec<u8>> {
-        self.get_inner()
-            .read(req, file_id, file_handle, seek, size, flags, lock_owner)
+        self.get_inner().read(
+            req,
+            file_id,
+            file_handle,
+            seek,
+            size,
+            read_flags,
+            flags,
+            lock_owner,
+        )
     }
 
     /// Read directory contents
@@ -469,7 +479,7 @@ pub trait FuseHandler<TId: FileIdType>: OptionalSendSync + 'static {
         file_id: TId,
         file_handle: OwnedFileHandle,
         flags: OpenFlags,
-        lock_owner: Option<u64>,
+        lock_owner: Option<LockOwner>,
         flush: bool,
     ) -> FuseResult<()> {
         self.get_inner()
@@ -537,7 +547,7 @@ pub trait FuseHandler<TId: FileIdType>: OptionalSendSync + 'static {
         req: &RequestInfo,
         file_id: TId,
         file_handle: BorrowedFileHandle,
-        lock_owner: u64,
+        lock_owner: LockOwner,
         lock_info: LockInfo,
         sleep: bool,
     ) -> FuseResult<()> {
@@ -589,7 +599,7 @@ pub trait FuseHandler<TId: FileIdType>: OptionalSendSync + 'static {
         data: Vec<u8>,
         write_flags: FUSEWriteFlags,
         flags: OpenFlags,
-        lock_owner: Option<u64>,
+        lock_owner: Option<LockOwner>,
     ) -> FuseResult<u32> {
         self.get_inner().write(
             req,

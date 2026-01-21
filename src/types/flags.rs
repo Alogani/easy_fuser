@@ -23,6 +23,37 @@ bitflags! {
     }
 }
 
+impl From<fuser::AccessFlags> for AccessMask {
+    fn from(flags: fuser::AccessFlags) -> Self {
+        AccessMask::from_bits_retain(flags.bits())
+    }
+}
+
+impl From<AccessMask> for fuser::AccessFlags {
+    fn from(flags: AccessMask) -> Self {
+        fuser::AccessFlags::from_bits_retain(flags.bits())
+    }
+}
+
+bitflags! {
+    #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+    pub struct CopyFileRangeFlags: u64 {
+        const _ = !0;
+    }
+}
+
+impl From<fuser::CopyFileRangeFlags> for CopyFileRangeFlags {
+    fn from(flags: fuser::CopyFileRangeFlags) -> Self {
+        CopyFileRangeFlags::from_bits_retain(flags.bits())
+    }
+}
+
+impl From<CopyFileRangeFlags> for fuser::CopyFileRangeFlags {
+    fn from(flags: CopyFileRangeFlags) -> Self {
+        fuser::CopyFileRangeFlags::from_bits_retain(flags.bits())
+    }
+}
+
 bitflags! {
     #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
     /// Flags used in fallocate calls.
@@ -98,6 +129,18 @@ bitflags! {
     }
 }
 
+impl From<fuser::FopenFlags> for FUSEOpenResponseFlags {
+    fn from(flags: fuser::FopenFlags) -> Self {
+        FUSEOpenResponseFlags::from_bits_retain(flags.bits())
+    }
+}
+
+impl From<FUSEOpenResponseFlags> for fuser::FopenFlags {
+    fn from(flags: FUSEOpenResponseFlags) -> Self {
+        fuser::FopenFlags::from_bits_retain(flags.bits())
+    }
+}
+
 bitflags! {
     #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
     pub struct FUSEIoctlFlags: u32 {
@@ -111,11 +154,35 @@ bitflags! {
     }
 }
 
+impl From<fuser::IoctlFlags> for FUSEIoctlFlags {
+    fn from(flags: fuser::IoctlFlags) -> Self {
+        FUSEIoctlFlags::from_bits_retain(flags.bits())
+    }
+}
+
+impl From<FUSEIoctlFlags> for fuser::IoctlFlags {
+    fn from(flags: FUSEIoctlFlags) -> Self {
+        fuser::IoctlFlags::from_bits_retain(flags.bits())
+    }
+}
+
 bitflags! {
     #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
     pub struct FUSEReadFlags: i32 {
         const LOCKOWNER = 1 << 0;
         const _ = !0;
+    }
+}
+
+impl From<fuser::ReadFlags> for FUSEReadFlags {
+    fn from(flags: fuser::ReadFlags) -> Self {
+        FUSEReadFlags::from_bits_retain(flags.bits() as i32)
+    }
+}
+
+impl From<FUSEReadFlags> for fuser::ReadFlags {
+    fn from(flags: FUSEReadFlags) -> Self {
+        fuser::ReadFlags::from_bits_retain(flags.bits() as u32)
     }
 }
 
@@ -154,11 +221,15 @@ bitflags! {
     }
 }
 
-bitflags! {
-    #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
-    pub struct IOCtlFlags: u32 {
-        // Placeholder for future flags
-        const _ = !0;
+impl From<fuser::WriteFlags> for FUSEWriteFlags {
+    fn from(flags: fuser::WriteFlags) -> Self {
+        FUSEWriteFlags::from_bits_retain(flags.bits())
+    }
+}
+
+impl From<FUSEWriteFlags> for fuser::WriteFlags {
+    fn from(flags: FUSEWriteFlags) -> Self {
+        fuser::WriteFlags::from_bits_retain(flags.bits())
     }
 }
 
@@ -219,6 +290,18 @@ bitflags! {
     }
 }
 
+impl From<fuser::OpenFlags> for OpenFlags {
+    fn from(flags: fuser::OpenFlags) -> Self {
+        OpenFlags::from_bits_retain(flags.0)
+    }
+}
+
+impl From<OpenFlags> for fuser::OpenFlags {
+    fn from(flags: OpenFlags) -> Self {
+        fuser::OpenFlags(flags.bits())
+    }
+}
+
 bitflags! {
     #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
     /// Flags used in rename operations.
@@ -230,5 +313,17 @@ bitflags! {
         #[cfg(target_os = "linux")]
         const NOREPLACE = libc::RENAME_NOREPLACE;
         const _ = !0;
+    }
+}
+
+impl From<fuser::RenameFlags> for RenameFlags {
+    fn from(flags: fuser::RenameFlags) -> Self {
+        RenameFlags::from_bits_retain(flags.bits())
+    }
+}
+
+impl From<RenameFlags> for fuser::RenameFlags {
+    fn from(flags: RenameFlags) -> Self {
+        fuser::RenameFlags::from_bits_retain(flags.bits())
     }
 }

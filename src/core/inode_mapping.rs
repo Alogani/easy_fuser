@@ -8,6 +8,8 @@ use std::{
 
 use std::sync::{RwLock, atomic::AtomicU64};
 
+use fuser::INodeNo;
+
 use crate::{inode_mapper, types::*};
 use crate::{inode_mapper::InodeMapper, inode_multi_mapper::*};
 
@@ -61,22 +63,22 @@ pub trait FileIdResolver: Send + Sync + 'static {
     type ResolvedType: FileIdType;
 
     fn new() -> Self;
-    fn resolve_id(&self, ino: u64) -> Self::ResolvedType;
+    fn resolve_id(&self, ino: INodeNo) -> Self::ResolvedType;
     fn lookup(
         &self,
-        parent: u64,
+        parent: INodeNo,
         child: &OsStr,
         id: <Self::ResolvedType as FileIdType>::_Id,
         increment: bool,
-    ) -> u64;
+    ) -> INodeNo;
     fn add_children(
         &self,
-        parent: u64,
+        parent: INodeNo,
         children: Vec<(OsString, <Self::ResolvedType as FileIdType>::_Id)>,
         increment: bool,
-    ) -> Vec<(OsString, u64)>;
-    fn forget(&self, ino: u64, nlookup: u64);
-    fn rename(&self, parent: u64, name: &OsStr, newparent: u64, newname: &OsStr);
+    ) -> Vec<(OsString, INodeNo)>;
+    fn forget(&self, ino: INodeNo, nlookup: u64);
+    fn rename(&self, parent: INodeNo, name: &OsStr, newparent: INodeNo, newname: &OsStr);
 }
 
 pub struct InodeResolver {}
@@ -88,30 +90,30 @@ impl FileIdResolver for InodeResolver {
         Self {}
     }
 
-    fn resolve_id(&self, ino: u64) -> Self::ResolvedType {
+    fn resolve_id(&self, ino: INodeNo) -> Self::ResolvedType {
         Inode::from(ino)
     }
 
-    fn lookup(&self, _parent: u64, _child: &OsStr, id: Inode, _increment: bool) -> u64 {
+    fn lookup(&self, _parent: INodeNo, _child: &OsStr, id: Inode, _increment: bool) -> INodeNo {
         id.into()
     }
 
     // Do nothing, user should provide its own inode
     fn add_children(
         &self,
-        _parent: u64,
+        _parent: INodeNo,
         children: Vec<(OsString, Inode)>,
         _increment: bool,
-    ) -> Vec<(OsString, u64)> {
+    ) -> Vec<(OsString, INodeNo)> {
         children
             .into_iter()
-            .map(|(name, inode)| (name, u64::from(inode)))
+            .map(|(name, inode)| (name, INodeNo::from(inode)))
             .collect()
     }
 
-    fn forget(&self, _ino: u64, _nlookup: u64) {}
+    fn forget(&self, _ino: INodeNo, _nlookup: u64) {}
 
-    fn rename(&self, _parent: u64, _name: &OsStr, _newparent: u64, _newname: &OsStr) {}
+    fn rename(&self, _parent: INodeNo, _name: &OsStr, _newparent: INodeNo, _newname: &OsStr) {}
 }
 
 pub struct ComponentsResolver {
@@ -127,7 +129,7 @@ impl FileIdResolver for ComponentsResolver {
         }
     }
 
-    fn resolve_id(&self, ino: u64) -> Self::ResolvedType {
+    fn resolve_id(&self, ino: INodeNo) -> Self::ResolvedType {
         self.mapper
             .read()
             .unwrap()
@@ -138,7 +140,7 @@ impl FileIdResolver for ComponentsResolver {
             .collect()
     }
 
-    fn lookup(&self, parent: u64, child: &OsStr, _id: (), increment: bool) -> u64 {
+    fn lookup(&self, parent: INodeNo, child: &OsStr, _id: (), increment: bool) -> INodeNo {
         let parent = Inode::from(parent);
         {
             // Optimistically assume the child exists
@@ -146,10 +148,10 @@ impl FileIdResolver for ComponentsResolver {
                 if increment {
                     lookup_result.data.fetch_add(1, Ordering::SeqCst);
                 }
-                return u64::from(lookup_result.inode.clone());
+                return INodeNo::from(lookup_result.inode.clone());
             }
         }
-        u64::from(
+        INodeNo::from(
             self.mapper
                 .write()
                 .expect("Failed to acquire write lock")
@@ -162,10 +164,10 @@ impl FileIdResolver for ComponentsResolver {
 
     fn add_children(
         &self,
-        parent: u64,
+        parent: INodeNo,
         children: Vec<(OsString, ())>,
         increment: bool,
-    ) -> Vec<(OsString, u64)> {
+    ) -> Vec<(OsString, INodeNo)> {
         let value_creator =
             |value_creator: inode_mapper::ValueCreatorParams<AtomicU64>| match value_creator
                 .existing_data
@@ -190,11 +192,11 @@ impl FileIdResolver for ComponentsResolver {
         inserted_children
             .into_iter()
             .zip(children)
-            .map(|(inode, (name, _))| (name, u64::from(inode)))
+            .map(|(inode, (name, _))| (name, INodeNo::from(inode)))
             .collect()
     }
 
-    fn forget(&self, ino: u64, nlookup: u64) {
+    fn forget(&self, ino: INodeNo, nlookup: u64) {
         let inode = Inode::from(ino);
         {
             // Optimistically assume we don't have to remove yet
@@ -207,7 +209,7 @@ impl FileIdResolver for ComponentsResolver {
         self.mapper.write().unwrap().remove(&inode).unwrap();
     }
 
-    fn rename(&self, parent: u64, name: &OsStr, newparent: u64, newname: &OsStr) {
+    fn rename(&self, parent: INodeNo, name: &OsStr, newparent: INodeNo, newname: &OsStr) {
         let parent_inode = Inode::from(parent);
         let newparent_inode = Inode::from(newparent);
         self.mapper
@@ -236,7 +238,7 @@ impl FileIdResolver for PathResolver {
         }
     }
 
-    fn resolve_id(&self, ino: u64) -> Self::ResolvedType {
+    fn resolve_id(&self, ino: INodeNo) -> Self::ResolvedType {
         self.resolver
             .resolve_id(ino)
             .iter()
@@ -246,28 +248,28 @@ impl FileIdResolver for PathResolver {
 
     fn lookup(
         &self,
-        parent: u64,
+        parent: INodeNo,
         child: &OsStr,
         id: <Self::ResolvedType as FileIdType>::_Id,
         increment: bool,
-    ) -> u64 {
+    ) -> INodeNo {
         self.resolver.lookup(parent, child, id, increment)
     }
 
     fn add_children(
         &self,
-        parent: u64,
+        parent: INodeNo,
         children: Vec<(OsString, <Self::ResolvedType as FileIdType>::_Id)>,
         increment: bool,
-    ) -> Vec<(OsString, u64)> {
+    ) -> Vec<(OsString, INodeNo)> {
         self.resolver.add_children(parent, children, increment)
     }
 
-    fn forget(&self, ino: u64, nlookup: u64) {
+    fn forget(&self, ino: INodeNo, nlookup: u64) {
         self.resolver.forget(ino, nlookup);
     }
 
-    fn rename(&self, parent: u64, name: &OsStr, newparent: u64, newname: &OsStr) {
+    fn rename(&self, parent: INodeNo, name: &OsStr, newparent: INodeNo, newname: &OsStr) {
         self.resolver.rename(parent, name, newparent, newname);
     }
 }
@@ -290,7 +292,7 @@ where
         HybridResolver { mapper: instance }
     }
 
-    fn resolve_id(&self, ino: u64) -> Self::ResolvedType {
+    fn resolve_id(&self, ino: INodeNo) -> Self::ResolvedType {
         let first_path = self
             .mapper
             .read()
@@ -308,11 +310,11 @@ where
 
     fn lookup(
         &self,
-        parent: u64,
+        parent: INodeNo,
         child: &OsStr,
         id: <Self::ResolvedType as FileIdType>::_Id,
         increment: bool,
-    ) -> u64 {
+    ) -> INodeNo {
         let parent = Inode::from(parent);
         {
             // Optimistically assume the child exists
@@ -327,11 +329,11 @@ where
                 if increment {
                     lookup_result.data.fetch_add(1, Ordering::SeqCst);
                 }
-                return u64::from(lookup_result.inode.clone());
+                return INodeNo::from(lookup_result.inode.clone());
             }
         }
         // This scenario happens if the child node does not exist or the backing ID does not match
-        u64::from(
+        INodeNo::from(
             self.mapper
                 .write()
                 .expect("Failed to acquire write lock")
@@ -350,7 +352,7 @@ where
         )
     }
 
-    fn forget(&self, ino: u64, nlookup: u64) {
+    fn forget(&self, ino: INodeNo, nlookup: u64) {
         let inode = Inode::from(ino);
         {
             // Optimistically assume we don't have to remove yet
@@ -369,10 +371,10 @@ where
 
     fn add_children(
         &self,
-        parent: u64,
+        parent: INodeNo,
         children: Vec<(OsString, <Self::ResolvedType as FileIdType>::_Id)>,
         increment: bool,
-    ) -> Vec<(OsString, u64)> {
+    ) -> Vec<(OsString, INodeNo)> {
         let value_creator =
             |value_creator: ValueCreatorParams<AtomicU64>| match value_creator.existing_data {
                 Some(nlookup) => {
@@ -395,11 +397,11 @@ where
         inserted_children
             .into_iter()
             .zip(children)
-            .map(|(inode, (name, _))| (name, u64::from(inode)))
+            .map(|(inode, (name, _))| (name, INodeNo::from(inode)))
             .collect()
     }
 
-    fn rename(&self, parent: u64, name: &OsStr, newparent: u64, newname: &OsStr) {
+    fn rename(&self, parent: INodeNo, name: &OsStr, newparent: INodeNo, newname: &OsStr) {
         let parent_inode = Inode::from(parent);
         let newparent_inode = Inode::from(newparent);
         self.mapper
@@ -522,7 +524,7 @@ mod tests {
 
         // Test lookup for non-existent file
         let non_existent_ino = resolver.lookup(root_ino, OsStr::new("non_existent"), (), false);
-        assert_ne!(non_existent_ino, 0);
+        assert_ne!(non_existent_ino, INodeNo(0));
         let non_existent_path = resolver.resolve_id(non_existent_ino);
         assert_eq!(non_existent_path, PathBuf::from("non_existent"));
     }
@@ -593,7 +595,7 @@ mod tests {
         // Test lookup for non-existent file
         let non_existent_ino =
             resolver.lookup(root_ino, OsStr::new("non_existent"), Some(6), false);
-        assert_ne!(non_existent_ino, 0);
+        assert_ne!(non_existent_ino, INodeNo(0));
         let non_existent_path = resolver.resolve_id(non_existent_ino);
         assert_eq!(
             non_existent_path.first_path(),
@@ -628,7 +630,10 @@ mod tests {
 
         // Test path resolution after overriding a location with a new backing ID
         let paths = hard_link_id_2.paths(100);
-        assert!(!paths.contains(&PathBuf::from("dir1/dir2/hard_linked")), "the path list should no longer contain the overridden location");
+        assert!(
+            !paths.contains(&PathBuf::from("dir1/dir2/hard_linked")),
+            "the path list should no longer contain the overridden location"
+        );
         assert!(paths.contains(&PathBuf::from("hard_link")));
         assert!(paths.contains(&PathBuf::from("dir1/hard_linked_2")));
     }
