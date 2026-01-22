@@ -8,3 +8,7 @@ description = "A FUSE passthrough filesystem example using easy_fuser"
 easy_fuser = { path = "../..", features = ["parallel"] }
 clap = { version = "4.5", features = ["derive"] }
 ctrlc = "3.4"
+
+[patch.crates-io]
+# Bleeding edge patch for FUSE create() passthrough, will be removed when patch is merged
+fuser = { git = "https://github.com/khanhtranngoccva/fuser", branch = "passthrough" }

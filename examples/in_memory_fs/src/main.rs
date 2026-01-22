@@ -1,7 +1,8 @@
 #![doc = include_str!("../README.md")]
 
 use easy_fuser::prelude::*;
-use std::ffi::OsStr;
+use std::fs::File;
+use std::io::Write;
 use std::path::Path;
 
 const README_CONTENT: &[u8] = include_bytes!("../README.md") as &[u8];
@@ -11,38 +12,8 @@ pub use filesystem::InMemoryFS;
 
 fn create_memory_fs() -> InMemoryFS {
     let memoryfs = InMemoryFS::new();
-    #[cfg(feature = "readme")]
-    {
-        // An example of interacting directly with the filesystem
-        let request_info = RequestInfo {
-            id: 0,
-            uid: 0,
-            gid: 0,
-            pid: 0,
-        }; // dummy RequestInfo
-        let (fd, (inode, _), _) = memoryfs
-            .create(
-                &request_info,
-                ROOT_INODE,
-                OsStr::new("README.md"),
-                0o755,
-                0,
-                OpenFlags::empty(),
-            )
-            .unwrap();
-        let _ = memoryfs
-            .write(
-                &request_info,
-                inode,
-                fd.borrow(),
-                SeekFrom::Start(0),
-                README_CONTENT.to_vec(),
-                FUSEWriteFlags::empty(),
-                OpenFlags::empty(),
-                None,
-            )
-            .unwrap();
-    }
+    // NOTE: manual call example here is removed because the [`CreateHelper`]
+    // parameter is not supported
     memoryfs
 }
 
@@ -66,5 +37,15 @@ fn main() {
     let memoryfs = create_memory_fs();
 
     println!("Mounting filesystem...");
-    easy_fuser::mount(memoryfs, Path::new(&mountpoint), &options, 1).unwrap();
+    let session = easy_fuser::spawn_mount(memoryfs, Path::new(&mountpoint), &options, 1).unwrap();
+    // Insert the readme here
+    #[cfg(feature = "readme")]
+    File::create(Path::new(&mountpoint).join("README.md"))
+        .unwrap()
+        .write_all(README_CONTENT)
+        .unwrap();
+    let mut wait_string = String::new();
+    println!("Press Enter to unmount...");
+    std::io::stdin().read_line(&mut wait_string).unwrap();
+    session.unmount_and_join().unwrap();
 }

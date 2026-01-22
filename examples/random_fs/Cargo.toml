@@ -6,3 +6,7 @@ edition = "2021"
 [dependencies]
 easy_fuser = { path = "../..", features = ["parallel"] }
 rand = "0.8.5"
+
+[patch.crates-io]
+# Bleeding edge patch for FUSE create() passthrough, will be removed when patch is merged
+fuser = { git = "https://github.com/khanhtranngoccva/fuser", branch = "passthrough" }

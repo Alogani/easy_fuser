@@ -77,11 +77,13 @@ impl FuseHandler<Inode> for RandomFS {
         _mode: u32,
         _umask: u32,
         _flags: OpenFlags,
+        _helper: CreateHelper<'_>,
     ) -> Result<
         (
             OwnedFileHandle,
             (Inode, FileAttribute),
             FUSEOpenResponseFlags,
+            Option<PassthroughBackingId>,
         ),
         PosixError,
     > {
@@ -93,6 +95,7 @@ impl FuseHandler<Inode> for RandomFS {
             unsafe { OwnedFileHandle::from_raw(0) },
             (ino, attr),
             FUSEOpenResponseFlags::empty(),
+            None,
         ))
     }
 
@@ -171,8 +174,9 @@ impl FuseHandler<Inode> for RandomFS {
         _fh: BorrowedFileHandle,
         offset: SeekFrom,
         size: u32,
-        _flags: FUSEOpenFlags,
-        _lock_owner: Option<u64>,
+        _read_flags: FUSEReadFlags,
+        _flags: OpenFlags,
+        _lock_owner: Option<LockOwner>,
     ) -> FuseResult<Vec<u8>> {
         let mut rng = rand::thread_rng();
         let lines = rng.gen_range(0..81);
@@ -238,7 +242,7 @@ impl FuseHandler<Inode> for RandomFS {
         data: Vec<u8>,
         _write_flags: FUSEWriteFlags,
         _flags: OpenFlags,
-        _lock_owner: Option<u64>,
+        _lock_owner: Option<LockOwner>,
     ) -> FuseResult<u32> {
         Ok(data.len() as u32)
     }

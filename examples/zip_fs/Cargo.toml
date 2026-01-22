@@ -12,3 +12,7 @@ ctrlc = "3.4"
 
 [dev-dependencies]
 tempfile = "3.2"
+
+[patch.crates-io]
+# Bleeding edge patch for FUSE create() passthrough, will be removed when patch is merged
+fuser = { git = "https://github.com/khanhtranngoccva/fuser", branch = "passthrough" }
