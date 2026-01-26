@@ -4,21 +4,29 @@ use fuser::{ReplyCreate, ReplyOpen};
 #[cfg(feature = "passthrough")]
 use std::sync::{Arc, Weak};
 
+/// Helper object for the [`open`](crate::FuseHandler::open) method.
 pub struct OpenHelper<'a> {
     #[allow(dead_code)]
     reply_open: &'a ReplyOpen,
 }
 
+/// Helper object for the [`create`](crate::FuseHandler::create) method.
 pub struct CreateHelper<'a> {
     #[allow(dead_code)]
     reply_create: &'a ReplyCreate,
 }
 
 impl<'a> CreateHelper<'a> {
+    /// Initializes a new [`CreateHelper`] object.
     pub(crate) fn new(reply_create: &'a ReplyCreate) -> Self {
         Self { reply_create }
     }
 
+    /// Registers a backing ID for FUSE passthrough operations and returns
+    /// a [`PassthroughBackingId`], which can be used as the fourth return value
+    /// of the [`create`](crate::FuseHandler::create) method.
+    ///
+    /// Check [`PassthroughBackingId`] for information on correct usage.
     #[cfg(feature = "passthrough")]
     pub fn open_backing(
         self,
@@ -33,10 +41,16 @@ impl<'a> CreateHelper<'a> {
 }
 
 impl<'a> OpenHelper<'a> {
+    /// Initializes a new [`OpenHelper`] object.
     pub(crate) fn new(reply_open: &'a ReplyOpen) -> Self {
         Self { reply_open }
     }
 
+    /// Registers a backing ID for FUSE passthrough operations and returns
+    /// a [`PassthroughBackingId`], which can be used as the third return value
+    /// of the [`open`](crate::FuseHandler::open) method.
+    ///
+    /// Check [`PassthroughBackingId`] for information on correct usage.
     #[cfg(feature = "passthrough")]
     pub fn open_backing(
         self,
@@ -50,6 +64,33 @@ impl<'a> OpenHelper<'a> {
     }
 }
 
+/// Passthrough backing ID for FUSE passthrough operations.
+///
+/// This structure is created by the [`OpenHelper::open_backing`]
+/// and [`CreateHelper::open_backing`] methods, and allows the FUSE
+/// kernel module to bypass the FUSE daemon to increase performance.
+///
+/// This structure is a no-op if the `passthrough` feature is not
+/// enabled.
+///
+/// In the scope of a single file ID (e.g. [`Inode`](crate::types::inode::Inode),
+/// [`PathBuf`](std::path::PathBuf), [`Vec<OsString>`](std::ffi::OsString) or
+/// [`HybridId<BackingId>`](crate::types::file_id_type::HybridId<BackingId>)),
+/// - All active file handle objects ([`FileHandle`](crate::types::file_handle::OwnedFileHandle))
+/// must be opened in the same mode (passthrough or non-passthrough).
+/// - If the file handles are opened in passthrough mode, they must share the same
+/// [`PassthroughBackingId`] value. Identical [`PassthroughBackingId`] values can be
+/// obtained by cloning an existing value.
+/// - If either or both of these rules is not met, the FUSE kernel module will return
+/// an [`EIO`](libc::EIO) error code that is very difficult to troubleshoot. It is best
+/// to return [`EBUSY`](libc::EBUSY) when you detect this situation, which usually happens
+/// when trying to open a file twice may result in two completely different file views.
+///
+/// Backing IDs can be downgraded to a [`WeakPassthroughBackingId`] value, similar to
+/// the underlying [`Arc`] type. This allows the passthrough ID references to be stored in
+/// a file ID to passthrough ID hash table (required to fulfill these above two rules)
+/// without interfering with the ability of the backing ID to be released when the last
+/// file handle to an inode is closed.
 #[derive(Debug, Clone)]
 pub struct PassthroughBackingId {
     #[cfg(feature = "passthrough")]
@@ -64,6 +105,9 @@ impl AsRef<BackingId> for PassthroughBackingId {
 }
 
 impl PassthroughBackingId {
+    /// Downgrades a [`PassthroughBackingId`] to a weak reference, which allows it
+    /// to be stored in a long-lived table without preventing the backing ID from being
+    /// released when the last file handle to an inode is closed.
     #[cfg(feature = "passthrough")]
     pub fn downgrade(&self) -> WeakPassthroughBackingId {
         WeakPassthroughBackingId {
@@ -86,6 +130,7 @@ impl WeakPassthroughBackingId {
         }
     }
 
+    /// Upgrades a [`WeakPassthroughBackingId`] to a [`PassthroughBackingId`].
     #[cfg(feature = "passthrough")]
     pub fn upgrade(&self) -> Option<PassthroughBackingId> {
         self.backing_id
