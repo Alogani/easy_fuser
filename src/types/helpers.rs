@@ -21,7 +21,7 @@ impl<'a> CreateHelper<'a> {
 
     #[cfg(feature = "passthrough")]
     pub fn open_backing(
-        self,
+        &self,
         fd: impl std::os::fd::AsFd,
     ) -> Result<PassthroughBackingId, std::io::Error> {
         self.reply_create
@@ -39,7 +39,7 @@ impl<'a> OpenHelper<'a> {
 
     #[cfg(feature = "passthrough")]
     pub fn open_backing(
-        self,
+        &self,
         fd: impl std::os::fd::AsFd,
     ) -> Result<PassthroughBackingId, std::io::Error> {
         self.reply_open
