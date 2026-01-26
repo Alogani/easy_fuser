@@ -76,7 +76,7 @@ impl<'a> OpenHelper<'a> {
 /// In the scope of a single file ID (e.g. [`Inode`](crate::types::inode::Inode),
 /// [`PathBuf`](std::path::PathBuf), [`Vec<OsString>`](std::ffi::OsString) or
 /// [`HybridId<BackingId>`](crate::types::file_id_type::HybridId<BackingId>)),
-/// - All active file handle objects ([`FileHandle`](crate::types::file_handle::OwnedFileHandle))
+/// - All active file handle objects ([`OwnedFileHandle`](crate::types::file_handle::OwnedFileHandle))
 /// must be opened in the same mode (passthrough or non-passthrough).
 /// - If the file handles are opened in passthrough mode, they must share the same
 /// [`PassthroughBackingId`] value. Identical [`PassthroughBackingId`] values can be
