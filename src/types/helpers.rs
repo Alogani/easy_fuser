@@ -4,21 +4,29 @@ use fuser::{ReplyCreate, ReplyOpen};
 #[cfg(feature = "passthrough")]
 use std::sync::{Arc, Weak};
 
+/// Helper object for the [`open`](crate::FuseHandler::open) method.
 pub struct OpenHelper<'a> {
     #[allow(dead_code)]
     reply_open: &'a ReplyOpen,
 }
 
+/// Helper object for the [`create`](crate::FuseHandler::create) method.
 pub struct CreateHelper<'a> {
     #[allow(dead_code)]
     reply_create: &'a ReplyCreate,
 }
 
 impl<'a> CreateHelper<'a> {
+    /// Initializes a new [`CreateHelper`] object.
     pub(crate) fn new(reply_create: &'a ReplyCreate) -> Self {
         Self { reply_create }
     }
 
+    /// Registers a backing ID for FUSE passthrough operations and returns
+    /// a [`PassthroughBackingId`], which can be used as the fourth return value
+    /// of the [`create`](crate::FuseHandler::create) method.
+    ///
+    /// Check [`PassthroughBackingId`] for information on correct usage.
     #[cfg(feature = "passthrough")]
     pub fn open_backing(
         &self,
@@ -33,10 +41,16 @@ impl<'a> CreateHelper<'a> {
 }
 
 impl<'a> OpenHelper<'a> {
+    /// Initializes a new [`OpenHelper`] object.
     pub(crate) fn new(reply_open: &'a ReplyOpen) -> Self {
         Self { reply_open }
     }
 
+    /// Registers a backing ID for FUSE passthrough operations and returns
+    /// a [`PassthroughBackingId`], which can be used as the third return value
+    /// of the [`open`](crate::FuseHandler::open) method.
+    ///
+    /// Check [`PassthroughBackingId`] for information on correct usage.
     #[cfg(feature = "passthrough")]
     pub fn open_backing(
         &self,
@@ -91,6 +105,9 @@ impl AsRef<BackingId> for PassthroughBackingId {
 }
 
 impl PassthroughBackingId {
+    /// Downgrades a [`PassthroughBackingId`] to a weak reference, which allows it
+    /// to be stored in a long-lived table without preventing the backing ID from being
+    /// released when the last file handle to an inode is closed.
     #[cfg(feature = "passthrough")]
     pub fn downgrade(&self) -> WeakPassthroughBackingId {
         WeakPassthroughBackingId {
@@ -113,6 +130,7 @@ impl WeakPassthroughBackingId {
         }
     }
 
+    /// Upgrades a [`WeakPassthroughBackingId`] to a [`PassthroughBackingId`].
     #[cfg(feature = "passthrough")]
     pub fn upgrade(&self) -> Option<PassthroughBackingId> {
         self.backing_id
