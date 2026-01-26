@@ -291,19 +291,7 @@ where
     }
 
     fn resolve_id(&self, ino: u64) -> Self::ResolvedType {
-        let first_path = self
-            .mapper
-            .read()
-            .unwrap()
-            .resolve(&Inode::from(ino))
-            .map(|components| {
-                components
-                    .iter()
-                    .map(|inode_info| (**inode_info.name).clone())
-                    .rev()
-                    .collect::<PathBuf>()
-            });
-        HybridId::new(Inode::from(ino), first_path, self.mapper.clone())
+        HybridId::new(Inode::from(ino), self.mapper.clone())
     }
 
     fn lookup(
@@ -419,7 +407,7 @@ where
 mod tests {
     use super::*;
     use std::ffi::OsStr;
-    use std::path::{Path, PathBuf};
+    use std::path::PathBuf;
 
     #[test]
     fn test_components_resolver() {
@@ -534,16 +522,16 @@ mod tests {
         // Test lookup and resolve_id for root
         let root_ino = ROOT_INODE.into();
         let root_id = resolver.resolve_id(root_ino);
-        assert_eq!(root_id.first_path(), Some(Path::new("")));
+        assert_eq!(root_id.first_path(), Some(PathBuf::from("")));
 
         // Test lookup and resolve_id for child and create nested structures
         let dir1_ino = resolver.lookup(root_ino, OsStr::new("dir1"), Some(1), true);
         let dir1_id = resolver.resolve_id(dir1_ino);
-        assert_eq!(dir1_id.first_path(), Some(Path::new("dir1")));
+        assert_eq!(dir1_id.first_path(), Some(PathBuf::from("dir1")));
 
         let dir2_ino = resolver.lookup(dir1_ino, OsStr::new("dir2"), Some(2), true);
         let dir2_id = resolver.resolve_id(dir2_ino);
-        assert_eq!(dir2_id.first_path(), Some(Path::new("dir1/dir2")));
+        assert_eq!(dir2_id.first_path(), Some(PathBuf::from("dir1/dir2")));
 
         // Test add_children
         let grandchildren = vec![
@@ -556,7 +544,7 @@ mod tests {
             let child_path = resolver.resolve_id(*ino);
             assert_eq!(
                 child_path.first_path(),
-                Some(Path::new("dir1/dir2").join(name).as_path())
+                Some(PathBuf::from("dir1/dir2").join(name))
             );
         }
 
@@ -573,7 +561,7 @@ mod tests {
         let renamed_grandchild_path = resolver.resolve_id(added_grandchildren[1].1);
         assert_eq!(
             renamed_grandchild_path.first_path(),
-            Some(Path::new("dir1/dir2/grandchild2_renamed"))
+            Some(PathBuf::from("dir1/dir2/grandchild2_renamed"))
         );
 
         // Test rename to a different directory
@@ -587,7 +575,7 @@ mod tests {
         let renamed_grandchild_path = resolver.resolve_id(added_grandchildren[1].1);
         assert_eq!(
             renamed_grandchild_path.first_path(),
-            Some(Path::new("dir3/grandchild2_renamed"))
+            Some(PathBuf::from("dir3/grandchild2_renamed"))
         );
 
         // Test lookup for non-existent file
@@ -597,13 +585,13 @@ mod tests {
         let non_existent_path = resolver.resolve_id(non_existent_ino);
         assert_eq!(
             non_existent_path.first_path(),
-            Some(Path::new("non_existent"))
+            Some(PathBuf::from("non_existent"))
         );
 
         // Test lookup for a file with existing backing ID
         let hard_link_ino = resolver.lookup(root_ino, OsStr::new("hard_link"), Some(7), true);
         let hard_link_id = resolver.resolve_id(hard_link_ino);
-        assert_eq!(hard_link_id.first_path(), Some(Path::new("hard_link")));
+        assert_eq!(hard_link_id.first_path(), Some(PathBuf::from("hard_link")));
 
         let hard_link_ino_2 = resolver.lookup(dir2_ino, OsStr::new("hard_linked"), Some(7), true);
         let hard_link_id_2 = resolver.resolve_id(hard_link_ino_2);
@@ -628,7 +616,10 @@ mod tests {
 
         // Test path resolution after overriding a location with a new backing ID
         let paths = hard_link_id_2.paths(100);
-        assert!(!paths.contains(&PathBuf::from("dir1/dir2/hard_linked")), "the path list should no longer contain the overridden location");
+        assert!(
+            !paths.contains(&PathBuf::from("dir1/dir2/hard_linked")),
+            "the path list should no longer contain the overridden location"
+        );
         assert!(paths.contains(&PathBuf::from("hard_link")));
         assert!(paths.contains(&PathBuf::from("dir1/hard_linked_2")));
     }

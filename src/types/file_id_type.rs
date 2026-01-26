@@ -169,7 +169,6 @@ where
     BackingId: Clone + Eq + std::hash::Hash + Debug,
 {
     inode: Inode,
-    first_path: Option<PathBuf>,
     mapper: Arc<RwLock<InodeMultiMapper<AtomicU64, BackingId>>>,
 }
 
@@ -177,20 +176,23 @@ impl<BackingId> HybridId<BackingId>
 where
     BackingId: Clone + Eq + std::hash::Hash + Debug,
 {
-    pub fn new(
-        inode: Inode,
-        first_path: Option<PathBuf>,
-        mapper: Arc<RwLock<InodeMultiMapper<AtomicU64, BackingId>>>,
-    ) -> Self {
-        Self {
-            inode,
-            first_path,
-            mapper,
-        }
+    pub fn new(inode: Inode, mapper: Arc<RwLock<InodeMultiMapper<AtomicU64, BackingId>>>) -> Self {
+        Self { inode, mapper }
     }
 
-    pub fn first_path(&self) -> Option<&Path> {
-        self.first_path.as_deref()
+    pub fn first_path(&self) -> Option<PathBuf> {
+        let mapper = self
+            .mapper
+            .read()
+            .expect("failed to acquire read lock on mapper");
+        let path = mapper.resolve(&self.inode).map(|components| {
+            components
+                .iter()
+                .map(|component| component.name.as_ref())
+                .rev()
+                .collect::<PathBuf>()
+        });
+        path
     }
 
     pub fn inode(&self) -> &Inode {
@@ -246,7 +248,7 @@ where
             f,
             "HybridId({:?}, {})",
             self.inode,
-            match &self.first_path {
+            match &self.first_path() {
                 Some(path) => path.display().to_string(),
                 None => "<orphaned inode>".to_string(),
             }
@@ -266,7 +268,7 @@ where
         format!(
             "HybridId({:?}, {})",
             self.inode,
-            match &self.first_path {
+            match &self.first_path() {
                 Some(path) => path.display().to_string(),
                 None => "<orphaned inode>".to_string(),
             }
