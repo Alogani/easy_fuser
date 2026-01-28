@@ -131,20 +131,13 @@ mod parallel {
         pub fn new(handler: THandler, num_threads: usize) -> FuseDriver<TId, THandler> {
             #[cfg(feature = "deadlock_detection")]
             spawn_deadlock_checker();
-            // FIXME: This is a general estimation, we should allow user to set the number of reply threads through an API,
-            // possibly through the spawn_mount method, or make a breaking change that modifies this method
-            let parallelism = thread::available_parallelism();
-            let estimated_num_reply_threads = num_threads * 3;
-            let adjusted_num_reply_threads = parallelism
-                .map(|p: std::num::NonZero<usize>| (p.get() * 2).min(estimated_num_reply_threads))
-                .unwrap_or(estimated_num_reply_threads);
             FuseDriver {
                 handler: Arc::new(handler),
                 resolver: Arc::new(TId::create_resolver()),
                 dirmap_iter: Arc::new(Mutex::new(HashMap::new())),
                 dirmapplus_iter: Arc::new(Mutex::new(HashMap::new())),
                 threadpool: ThreadPool::new(num_threads),
-                reply_threadpool: ThreadPool::new(adjusted_num_reply_threads),
+                reply_threadpool: ThreadPool::new(num_threads),
             }
         }
 
