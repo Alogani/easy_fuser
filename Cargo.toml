@@ -42,4 +42,4 @@ features = ["parallel"]
 
 [patch.crates-io]
 # Bleeding edge patch for FUSE create() passthrough, will be removed when patch is merged
-fuser = { git = "https://github.com/khanhtranngoccva/fuser", branch = "passthrough" }
+fuser = { git = "https://github.com/khanhtranngoccva/fuser", branch = "bleeding-edge" }
