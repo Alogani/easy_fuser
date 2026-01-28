@@ -16,6 +16,12 @@ mod serial {
     use super::*;
 
     use std::cell::RefCell;
+    use std::sync::Arc;
+
+    #[cfg(feature = "deadlock_detection")]
+    use parking_lot::{Mutex, MutexGuard};
+    #[cfg(not(feature = "deadlock_detection"))]
+    use std::sync::{Mutex, MutexGuard};
 
     pub(crate) struct FuseDriver<TId, THandler>
     where
@@ -24,8 +30,8 @@ mod serial {
     {
         handler: THandler,
         resolver: TId::Resolver,
-        dirmap_iter: RefCell<DirIter<FileKind>>,
-        dirmapplus_iter: RefCell<DirIter<FileAttribute>>,
+        dirmap_iter: Arc<Mutex<DirIter<FileKind>>>,
+        dirmapplus_iter: Arc<Mutex<DirIter<FileAttribute>>>,
     }
 
     impl<TId, THandler> FuseDriver<TId, THandler>
@@ -38,8 +44,8 @@ mod serial {
             FuseDriver {
                 handler,
                 resolver: TId::Resolver::new(),
-                dirmap_iter: RefCell::new(HashMap::new()),
-                dirmapplus_iter: RefCell::new(HashMap::new()),
+                dirmap_iter: Arc::new(Mutex::new(HashMap::new())),
+                dirmapplus_iter: Arc::new(Mutex::new(HashMap::new())),
             }
         }
 
@@ -51,12 +57,12 @@ mod serial {
             &self.resolver
         }
 
-        pub fn get_dirmap_iter(&self) -> &RefCell<DirIter<FileKind>> {
-            &self.dirmap_iter
+        pub fn get_dirmap_iter(&self) -> Arc<Mutex<DirIter<FileKind>>> {
+            self.dirmap_iter.clone()
         }
 
-        pub fn get_dirmapplus_iter(&self) -> &RefCell<DirIter<FileAttribute>> {
-            &self.dirmapplus_iter
+        pub fn get_dirmapplus_iter(&self) -> Arc<Mutex<DirIter<FileAttribute>>> {
+            self.dirmapplus_iter.clone()
         }
     }
 
@@ -208,19 +214,21 @@ fn spawn_deadlock_checker() {
     use std::time::Duration;
 
     // Create a background thread which checks for deadlocks every 10s
-    thread::spawn(move || loop {
-        thread::sleep(Duration::from_secs(10));
-        let deadlocks = deadlock::check_deadlock();
-        if deadlocks.is_empty() {
-            info!("# No deadlock");
-            continue;
-        }
+    thread::spawn(move || {
+        loop {
+            thread::sleep(Duration::from_secs(10));
+            let deadlocks = deadlock::check_deadlock();
+            if deadlocks.is_empty() {
+                info!("# No deadlock");
+                continue;
+            }
 
-        eprintln!("# {} deadlocks detected", deadlocks.len());
-        for (i, threads) in deadlocks.iter().enumerate() {
-            error!("Deadlock #{}", i);
-            for t in threads {
-                error!("Thread Id {:#?}\n, {:#?}", t.thread_id(), t.backtrace());
+            eprintln!("# {} deadlocks detected", deadlocks.len());
+            for (i, threads) in deadlocks.iter().enumerate() {
+                error!("Deadlock #{}", i);
+                for t in threads {
+                    error!("Thread Id {:#?}\n, {:#?}", t.thread_id(), t.backtrace());
+                }
             }
         }
     });

@@ -1,12 +1,13 @@
 use log::{info, warn};
 use std::{
     ffi::OsStr,
+    io,
     path::Path,
     time::{Instant, SystemTime},
 };
 
 use fuser::{
-    self, AccessFlags, Errno, FileHandle, FopenFlags, Generation, INodeNo, IoctlFlags,
+    self, AccessFlags, BsdFileFlags, FileHandle, FopenFlags, Generation, INodeNo, IoctlFlags,
     KernelConfig, LockOwner, ReadFlags, ReplyAttr, ReplyBmap, ReplyCreate, ReplyData,
     ReplyDirectory, ReplyDirectoryPlus, ReplyEmpty, ReplyEntry, ReplyIoctl, ReplyLock, ReplyLseek,
     ReplyOpen, ReplyStatfs, ReplyWrite, ReplyXattr, Request, TimeOrNow, WriteFlags,
@@ -29,13 +30,13 @@ where
     TId: FileIdType,
     THandler: FuseHandler<TId>,
 {
-    fn init(&mut self, req: &Request, config: &mut KernelConfig) -> Result<(), Errno> {
+    fn init(&mut self, req: &Request, config: &mut KernelConfig) -> io::Result<()> {
         let req = RequestInfo::from(req);
         match self.get_handler().init(&req, config) {
             Ok(()) => Ok(()),
             Err(e) => {
                 warn!("[{}] init {:?}", e, req);
-                Err(e.into())
+                Err(io::Error::from_raw_os_error(e.raw_error()))
             }
         }
     }
@@ -618,7 +619,10 @@ where
                     }
                     _ => {
                         let response_flags = response_flags & !FUSEOpenResponseFlags::PASSTHROUGH;
-                        reply.opened(file_handle.as_fuser_file_handle(), FopenFlags::from(response_flags))
+                        reply.opened(
+                            file_handle.as_fuser_file_handle(),
+                            FopenFlags::from(response_flags),
+                        )
                     }
                 },
                 Err(e) => {
@@ -763,7 +767,7 @@ where
         req: &Request,
         ino: INodeNo,
         fh: FileHandle,
-        flags: i32,
+        flags: fuser::OpenFlags,
         lock_owner: Option<LockOwner>,
         _flush: bool,
         reply: ReplyEmpty,
@@ -776,7 +780,7 @@ where
                 &req,
                 resolver.resolve_id(ino),
                 unsafe { OwnedFileHandle::from_fuser_file_handle(fh) },
-                OpenFlags::from_bits_retain(flags),
+                OpenFlags::from(flags),
                 lock_owner,
                 _flush,
             ) {
@@ -794,7 +798,7 @@ where
         req: &Request,
         ino: INodeNo,
         fh: FileHandle,
-        flags: i32,
+        flags: fuser::OpenFlags,
         reply: ReplyEmpty,
     ) {
         let req = RequestInfo::from(req);
@@ -805,7 +809,7 @@ where
                 &req,
                 resolver.resolve_id(ino),
                 unsafe { OwnedFileHandle::from_fuser_file_handle(fh) },
-                OpenFlags::from_bits_retain(flags),
+                OpenFlags::from(flags),
             ) {
                 Ok(()) => reply.ok(),
                 Err(e) => {
@@ -899,7 +903,7 @@ where
         crtime: Option<SystemTime>,
         chgtime: Option<SystemTime>,
         bkuptime: Option<SystemTime>,
-        _flags: Option<u32>,
+        _flags: Option<BsdFileFlags>,
         reply: ReplyAttr,
     ) {
         let req = RequestInfo::from(req);
@@ -1064,7 +1068,7 @@ where
         offset: i64,
         data: &[u8],
         write_flags: WriteFlags,
-        flags: i32,
+        flags: fuser::OpenFlags,
         lock_owner: Option<LockOwner>,
         reply: ReplyWrite,
     ) {
@@ -1080,7 +1084,7 @@ where
                 seek_from_raw(None, offset),
                 data,
                 FUSEWriteFlags::from(write_flags),
-                OpenFlags::from_bits_retain(flags),
+                OpenFlags::from(flags),
                 lock_owner,
             ) {
                 Ok(bytes_written) => reply.written(bytes_written),

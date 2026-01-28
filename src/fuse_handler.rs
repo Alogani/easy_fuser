@@ -99,9 +99,9 @@ mod private {
     #[cfg(not(feature = "serial"))]
     impl<T: Sync + Send> OptionalSendSync for T {}
     #[cfg(feature = "serial")]
-    pub trait OptionalSendSync {}
+    pub trait OptionalSendSync: Sync + Send {}
     #[cfg(feature = "serial")]
-    impl<T> OptionalSendSync for T {}
+    impl<T: Send + Sync> OptionalSendSync for T {}
 }
 use fuser::LockOwner;
 use private::OptionalSendSync;

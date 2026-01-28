@@ -11,14 +11,40 @@ pub(crate) trait SafeBorrowable {
 #[cfg(feature = "serial")]
 mod safe_borrowable_impl {
     use super::*;
-
     use std::cell::{RefCell, RefMut};
 
     impl<T> SafeBorrowable for RefCell<T> {
-        type Guard<'a> = RefMut<'a, T> where Self: 'a;
+        type Guard<'a>
+            = RefMut<'a, T>
+        where
+            Self: 'a;
 
         fn safe_borrow_mut(&self) -> Self::Guard<'_> {
             self.borrow_mut()
+        }
+    }
+
+    #[cfg(not(feature = "deadlock_detection"))]
+    impl<T> SafeBorrowable for std::sync::Mutex<T> {
+        type Guard<'a>
+            = std::sync::MutexGuard<'a, T>
+        where
+            Self: 'a;
+
+        fn safe_borrow_mut(&self) -> Self::Guard<'_> {
+            self.lock().unwrap()
+        }
+    }
+
+    #[cfg(feature = "deadlock_detection")]
+    impl<T> SafeBorrowable for parking_lot::Mutex<T> {
+        type Guard<'a>
+            = parking_lot::MutexGuard<'a, T>
+        where
+            Self: 'a;
+
+        fn safe_borrow_mut(&self) -> Self::Guard<'_> {
+            self.lock()
         }
     }
 }
@@ -30,7 +56,10 @@ mod safe_borrowable_impl {
     use std::sync::{Mutex, MutexGuard};
 
     impl<T> SafeBorrowable for Mutex<T> {
-        type Guard<'a> = MutexGuard<'a, T> where Self: 'a;
+        type Guard<'a>
+            = MutexGuard<'a, T>
+        where
+            Self: 'a;
 
         fn safe_borrow_mut(&self) -> Self::Guard<'_> {
             self.lock().unwrap()
@@ -45,7 +74,10 @@ mod safe_borrowable_impl {
     use parking_lot::{Mutex, MutexGuard};
 
     impl<T> SafeBorrowable for Mutex<T> {
-        type Guard<'a> = MutexGuard<'a, T> where Self: 'a;
+        type Guard<'a>
+            = MutexGuard<'a, T>
+        where
+            Self: 'a;
 
         fn safe_borrow_mut(&self) -> Self::Guard<'_> {
             self.lock()
@@ -60,7 +92,10 @@ mod safe_borrowable_impl {
     use tokio::sync::{Mutex, MutexGuard};
 
     impl<T> SafeBorrowable for Mutex<T> {
-        type Guard<'a> = MutexGuard<'a, T> where Self: 'a;
+        type Guard<'a>
+            = MutexGuard<'a, T>
+        where
+            Self: 'a;
 
         async fn safe_borrow_mut(&self) -> Self::Guard<'_> {
             self.lock().await
