@@ -678,7 +678,7 @@ where
         offset: u64,
         size: u32,
         read_flags: ReadFlags,
-        flags: u32,
+        flags: fuser::OpenFlags,
         lock_owner: Option<LockOwner>,
         reply: ReplyData,
     ) {
@@ -693,7 +693,7 @@ where
                 SeekFrom::Start(offset),
                 size,
                 FUSEReadFlags::from(read_flags),
-                OpenFlags::from_bits_retain(flags as i32),
+                OpenFlags::from(flags),
                 lock_owner,
             ) {
                 Ok(data_reply) => reply.data(&data_reply),
