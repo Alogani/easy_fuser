@@ -1,4 +1,5 @@
 use std::{
+    collections::HashSet,
     ffi::{OsStr, OsString},
     path::PathBuf,
     sync::atomic::Ordering,
@@ -63,6 +64,7 @@ pub trait FileIdResolver: Send + Sync + 'static {
         increment: bool,
     ) -> Vec<(OsString, u64)>;
     fn forget(&self, ino: u64, nlookup: u64);
+    fn prune(&self, keep: &HashSet<Self::ResolvedType>);
     fn rename(&self, parent: u64, name: &OsStr, newparent: u64, newname: &OsStr);
 }
 
@@ -97,6 +99,8 @@ impl FileIdResolver for InodeResolver {
     }
 
     fn forget(&self, _ino: u64, _nlookup: u64) {}
+
+    fn prune(&self, _keep: &HashSet<Self::ResolvedType>) {}
 
     fn rename(&self, _parent: u64, _name: &OsStr, _newparent: u64, _newname: &OsStr) {}
 }
@@ -198,6 +202,10 @@ impl FileIdResolver for ComponentsResolver {
         self.mapper.write().unwrap().remove(&inode).unwrap();
     }
 
+    fn prune(&self, keep: &HashSet<Self::ResolvedType>) {
+        self.mapper.write().expect("Failed to acquire write lock").prune(keep);
+    }
+
     fn rename(&self, parent: u64, name: &OsStr, newparent: u64, newname: &OsStr) {
         let parent_inode = Inode::from(parent);
         let newparent_inode = Inode::from(newparent);
@@ -256,6 +264,14 @@ impl FileIdResolver for PathResolver {
 
     fn forget(&self, ino: u64, nlookup: u64) {
         self.resolver.forget(ino, nlookup);
+    }
+
+    fn prune(&self, keep: &HashSet<Self::ResolvedType>) {
+        let resolver_keep: HashSet<Vec<OsString>> = keep
+            .iter()
+            .map(|path| path.iter().map(|s| s.to_os_string()).collect())
+            .collect();
+        self.resolver.prune(&resolver_keep);
     }
 
     fn rename(&self, parent: u64, name: &OsStr, newparent: u64, newname: &OsStr) {
