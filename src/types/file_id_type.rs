@@ -253,7 +253,7 @@ where
 {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.inode.hash(state);
-        // Resolver is not immutable (it can expire and be regenerated)
+        Arc::as_ptr(&self.mapper).hash(state);
     }
 }
 
