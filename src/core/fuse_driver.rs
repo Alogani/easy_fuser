@@ -217,6 +217,7 @@ where
         let resolver = self.get_resolver();
         handler.forget(&req, resolver.resolve_id(ino), nlookup);
         resolver.forget(ino, nlookup);
+        handler.prune_resolver(&self.get_resolver());
     }
 
     fn fsync(&mut self, req: &Request, ino: u64, fh: u64, datasync: bool, reply: ReplyEmpty) {

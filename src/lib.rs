@@ -27,6 +27,7 @@ pub mod templates;
 pub mod types;
 pub mod unix_fs;
 
+pub use core::{FileIdResolver, InodeResolvable};
 pub use fuse_handler::FuseHandler;
 use fuser::{BackgroundSession, MountOption};
 

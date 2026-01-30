@@ -5,4 +5,5 @@ mod macros;
 mod thread_mode;
 
 pub(crate) use fuse_driver_types::FuseDriver;
-pub(crate) use inode_mapping::{InodeResolvable, ROOT_INO};
+pub use inode_mapping::{FileIdResolver, InodeResolvable};
+pub(crate) use inode_mapping::ROOT_INO;
