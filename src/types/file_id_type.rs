@@ -176,10 +176,12 @@ impl<BackingId> HybridId<BackingId>
 where
     BackingId: Clone + Eq + std::hash::Hash + Debug,
 {
+    /// Creates a new hybrid ID.
     pub fn new(inode: Inode, mapper: Arc<RwLock<InodeMultiMapper<AtomicU64, BackingId>>>) -> Self {
         Self { inode, mapper }
     }
 
+    /// Retrieves the first path to the inode.
     pub fn first_path(&self) -> Option<PathBuf> {
         let mapper = self
             .mapper
@@ -195,10 +197,12 @@ where
         path
     }
 
+    /// Retrieves the inode of the hybrid ID.
     pub fn inode(&self) -> &Inode {
         &self.inode
     }
 
+    /// Retrieves all paths to the inode, up to a given limit.
     pub fn paths(&self, limit: usize) -> Vec<PathBuf> {
         let mapper = self
             .mapper
@@ -215,6 +219,20 @@ where
                     .collect::<PathBuf>()
             })
             .collect()
+    }
+
+    /// Retrieves the backing ID of the inode.
+    ///
+    /// This is useful for comparing to the backing ID of the actual underlying
+    /// file that a filesystem handler opened, which mitigates the risk of a race 
+    /// condition, in which case another backing path could be tried, or an error
+    /// could be returned. 
+    pub fn backing_id(&self) -> Option<BackingId> {
+        let mapper = self
+            .mapper
+            .read()
+            .expect("failed to acquire read lock on mapper");
+        mapper.get_backing_id(&self.inode).cloned()
     }
 }
 
