@@ -62,7 +62,7 @@ pub trait FileIdType:
     ///
     /// For PathBuf-based: FileAttribute
     /// - User only needs to provide FileAttribute; Inode is managed internally.
-    type Metadata;
+    type Metadata: Send;
 
     /// Minimal metadata type for the file system.
     ///
@@ -71,7 +71,7 @@ pub trait FileIdType:
     ///
     /// For PathBuf-based: FileKind
     /// - User only needs to provide FileKind; Inode is managed internally.
-    type MinimalMetadata;
+    type MinimalMetadata: Send;
     #[doc(hidden)]
     type _Id;
 
