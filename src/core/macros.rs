@@ -1,5 +1,5 @@
 macro_rules! handle_fuse_reply_entry {
-    ($handler:expr, $resolver:expr, $req:expr, $parent:expr, $name:expr, $reply:expr,
+    ($reply_executor:expr, $handler:expr, $resolver:expr, $req:expr, $parent:expr, $name:expr, $reply:expr,
     $function:ident, ($($args:expr),*)) => {
         macro_rules! if_lookup {
             (lookup, $choice1:tt, $choice2:tt) => {
@@ -14,13 +14,18 @@ macro_rules! handle_fuse_reply_entry {
         match handler.$function($($args),*) {
             Ok(metadata) => {
                 let default_ttl = handler.get_default_ttl();
-                let (id, file_attr) = TId::extract_metadata(metadata);
-                let ino = $resolver.lookup($parent, $name, id, true);
-                let (fuse_attr, ttl, generation) = file_attr.to_fuse(ino);
-                $reply.entry(
-                    &ttl.unwrap_or(default_ttl),
-                    &fuse_attr,
-                    generation.unwrap_or(get_random_generation()),
+                execute_reply_task!(
+                    $reply_executor,
+                    {
+                        let (id, file_attr) = TId::extract_metadata(metadata);
+                        let ino = $resolver.lookup($parent, $name, id, true);
+                        let (fuse_attr, ttl, generation) = file_attr.to_fuse(ino);
+                        $reply.entry(
+                            &ttl.unwrap_or(default_ttl),
+                            &fuse_attr,
+                            generation.unwrap_or(get_random_generation()),
+                        );
+                    }
                 );
             }
             Err(e) => {
@@ -35,24 +40,39 @@ macro_rules! handle_fuse_reply_entry {
                 }, {
                     warn!("{}: parent_ino {:x?}, [{}], {:?}", stringify!($function), $parent, e, $req);
                 });
-                $reply.error(e.raw_error())
+                execute_reply_task!(
+                    $reply_executor,
+                    {
+                        $reply.error(e.raw_error())
+                    }
+                );
             }
         }
     };
 }
 
 macro_rules! handle_fuse_reply_attr {
-    ($handler:expr, $resolve:expr, $req:expr, $ino:expr, $reply:expr,
+    ($reply_executor:expr, $handler:expr, $resolve:expr, $req:expr, $ino:expr, $reply:expr,
         $function:ident, ($($args:expr),*)) => {
         match $handler.$function($($args),*) {
             Ok(file_attr) => {
                 let default_ttl = $handler.get_default_ttl();
-                let (fuse_attr, ttl, _) = file_attr.to_fuse($ino);
-                $reply.attr(&ttl.unwrap_or(default_ttl), &fuse_attr);
+                execute_reply_task!(
+                    $reply_executor,
+                    {
+                        let (fuse_attr, ttl, _) = file_attr.to_fuse($ino);
+                        $reply.attr(&ttl.unwrap_or(default_ttl), &fuse_attr);
+                    }
+                );
             }
             Err(e) => {
                 warn!("{}: ino {:x?}, [{}], {:?}", stringify!($function), $ino, e, $req);
-                $reply.error(e.raw_error())
+                execute_reply_task!(
+                    $reply_executor,
+                    {
+                        $reply.error(e.raw_error())
+                    }
+                );
             }
         }
     };
@@ -97,12 +117,16 @@ macro_rules! handle_dir_read {
         let handler = $self.get_handler();
         let resolver = $self.get_resolver();
         let dirmap_iter = $self.$get_iter_method();
+        #[cfg_attr(feature = "serial", allow(unused_variables))]
+        let reply_executor = reply_executor!($self);
 
         execute_task!($self, {
             // Validate offset
             if $offset < 0 {
                 error!("readdir called with a negative offset");
-                $reply.error(ErrorKind::InvalidArgument.into());
+                execute_reply_task!(reply_executor, {
+                    $reply.error(ErrorKind::InvalidArgument.into());
+                });
                 return;
             }
 
@@ -142,7 +166,9 @@ macro_rules! handle_dir_read {
                     }
                     Err(e) => {
                         warn!("readdir {:?}: {:?}", req_info, e);
-                        $reply.error(e.raw_error());
+                        execute_reply_task!(reply_executor, {
+                            $reply.error(e.raw_error());
+                        });
                         return;
                     }
                 },
@@ -151,7 +177,9 @@ macro_rules! handle_dir_read {
                     Some(dirmap_iter) => dirmap_iter,
                     None => {
                         // Case when fuse tries to read again after the final item
-                        $reply.ok();
+                        execute_reply_task!(reply_executor, {
+                            $reply.ok();
+                        });
                         return;
                     }
                 },
@@ -160,46 +188,48 @@ macro_rules! handle_dir_read {
             let mut new_offset = $offset;
 
             // ### Process directory entries
-            if_readdir!(
-                $handler_method,
-                {
-                    // readdir: Add entries until buffer is full
-                    while let Some((name, ino, kind)) = dir_iter.pop_front() {
-                        if $reply.add(ino, new_offset, kind, &name) {
-                            dir_iter.push_front((name, ino, kind));
-                            dirmap_iter
-                                .safe_borrow_mut()
-                                .insert(($ino, new_offset - 1), dir_iter);
-                            break;
+            execute_reply_task!(reply_executor, {
+                if_readdir!(
+                    $handler_method,
+                    {
+                        // readdir: Add entries until buffer is full
+                        while let Some((name, ino, kind)) = dir_iter.pop_front() {
+                            if $reply.add(ino, new_offset, kind, &name) {
+                                dir_iter.push_front((name, ino, kind));
+                                dirmap_iter
+                                    .safe_borrow_mut()
+                                    .insert(($ino, new_offset - 1), dir_iter);
+                                break;
+                            }
+                            new_offset += 1;
                         }
-                        new_offset += 1;
-                    }
-                    $reply.ok();
-                },
-                {
-                    // readdirplus: Add entries with extended attributes
-                    let default_ttl = handler.get_default_ttl();
-                    while let Some((name, ino, file_attr)) = dir_iter.pop_front() {
-                        let (fuse_attr, ttl, generation) = file_attr.clone().to_fuse(ino);
-                        if $reply.add(
-                            ino,
-                            new_offset,
-                            &name,
-                            &ttl.unwrap_or(default_ttl),
-                            &fuse_attr,
-                            generation.unwrap_or(get_random_generation()),
-                        ) {
-                            dir_iter.push_front((name, ino, file_attr.clone()));
-                            dirmap_iter
-                                .safe_borrow_mut()
-                                .insert((ino, new_offset - 1), dir_iter);
-                            break;
+                        $reply.ok();
+                    },
+                    {
+                        // readdirplus: Add entries with extended attributes
+                        let default_ttl = handler.get_default_ttl();
+                        while let Some((name, ino, file_attr)) = dir_iter.pop_front() {
+                            let (fuse_attr, ttl, generation) = file_attr.clone().to_fuse(ino);
+                            if $reply.add(
+                                ino,
+                                new_offset,
+                                &name,
+                                &ttl.unwrap_or(default_ttl),
+                                &fuse_attr,
+                                generation.unwrap_or(get_random_generation()),
+                            ) {
+                                dir_iter.push_front((name, ino, file_attr.clone()));
+                                dirmap_iter
+                                    .safe_borrow_mut()
+                                    .insert((ino, new_offset - 1), dir_iter);
+                                break;
+                            }
+                            new_offset += 1;
                         }
-                        new_offset += 1;
+                        $reply.ok();
                     }
-                    $reply.ok();
-                }
-            );
+                );
+            });
         });
     }};
 }
