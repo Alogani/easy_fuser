@@ -17,7 +17,7 @@ use std::{
 
 use super::arguments::FileAttribute;
 use super::inode::*;
-use crate::{core::InodeResolvable, inode_multi_mapper::InodeMultiMapper};
+use crate::{fuse_common::InodeResolvable, inode_multi_mapper::InodeMultiMapper};
 use fuser::FileType as FileKind;
 
 /// Represents the type used to identify files in the file system.

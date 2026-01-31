@@ -1,6 +1,6 @@
 //! Inode number in a FUSE (Filesystem in Userspace) filesystem.
 
-use crate::core::ROOT_INO;
+use crate::fuse_common::ROOT_INO;
 
 /// Represents the mountpoint folder in a FuseFilesystem
 /// Its value is 1 and should not be modified.

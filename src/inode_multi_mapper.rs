@@ -969,8 +969,7 @@ mod tests {
     use std::collections::HashSet;
     use std::ffi::OsString;
 
-    use crate::ROOT_INODE;
-    use crate::types::Inode;
+    use crate::types::{Inode, ROOT_INODE};
 
     #[test]
     fn test_insert_child_returns_old_inode() {
