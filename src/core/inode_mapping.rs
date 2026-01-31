@@ -149,11 +149,13 @@ impl FileIdResolver for ComponentsResolver {
                 return u64::from(lookup_result.inode.clone());
             }
         }
+        // This scenario happens if the child node does not exist or the backing ID does not match
         u64::from(
             self.mapper
                 .write()
                 .expect("Failed to acquire write lock")
                 .insert_child(&parent, child.to_os_string(), |_| {
+                    // If the child node already exists, use the existing reference count
                     AtomicU64::new(if increment { 1 } else { 0 })
                 })
                 .expect("Failed to insert child"),
@@ -308,14 +310,15 @@ where
                 .mapper
                 .read()
                 .expect("cannot acquire read lock")
-                .lookup(&parent, child) &&
-                // Backing ID must match to use the hot path 
-                lookup_result.backing_id.cloned() == id
+                .lookup(&parent, child)
             {
-                if increment {
-                    lookup_result.data.fetch_add(1, Ordering::SeqCst);
+                // Backing ID must match to use the hot path
+                if lookup_result.backing_id.cloned() == id {
+                    if increment {
+                        lookup_result.data.fetch_add(1, Ordering::SeqCst);
+                    }
+                    return u64::from(lookup_result.inode.clone());
                 }
-                return u64::from(lookup_result.inode.clone());
             }
         }
         // This scenario happens if the child node does not exist or the backing ID does not match
@@ -336,23 +339,6 @@ where
                 })
                 .expect("Failed to insert child"),
         )
-    }
-
-    fn forget(&self, ino: u64, nlookup: u64) {
-        let inode = Inode::from(ino);
-        {
-            // Optimistically assume we don't have to remove yet
-            let guard = self.mapper.read().expect("Failed to acquire read lock");
-            let inode_info = guard.get(&inode).expect("Failed to find inode");
-            if inode_info.data.fetch_sub(nlookup, Ordering::SeqCst) > 0 {
-                return;
-            }
-        }
-        self.mapper
-            .write()
-            .expect("Failed to acquire write lock")
-            .remove(&inode)
-            .unwrap();
     }
 
     fn add_children(
@@ -385,6 +371,23 @@ where
             .zip(children)
             .map(|(inode, (name, _))| (name, u64::from(inode)))
             .collect()
+    }
+
+    fn forget(&self, ino: u64, nlookup: u64) {
+        let inode = Inode::from(ino);
+        {
+            // Optimistically assume we don't have to remove yet
+            let guard = self.mapper.read().expect("Failed to acquire read lock");
+            let inode_info = guard.get(&inode).expect("Failed to find inode");
+            if inode_info.data.fetch_sub(nlookup, Ordering::SeqCst) > 0 {
+                return;
+            }
+        }
+        self.mapper
+            .write()
+            .expect("Failed to acquire write lock")
+            .remove(&inode)
+            .unwrap();
     }
 
     fn rename(&self, parent: u64, name: &OsStr, newparent: u64, newname: &OsStr) {
