@@ -714,14 +714,14 @@ where
     pub fn resolve_all<'a>(
         &'a self,
         inode: &Inode,
-        limit: usize,
+        limit: Option<usize>,
     ) -> Vec<Vec<InodeResolveItem<'a, Data>>> {
         let mut result = vec![];
 
         fn scoped_resolve<'a, Data, BackingId>(
             mapper: &'a InodeMultiMapper<Data, BackingId>,
             result: &mut Vec<Vec<InodeResolveItem<'a, Data>>>,
-            limit: usize,
+            limit: Option<usize>,
             current_inode: &Inode,
             resolve_item_stack: &mut Vec<InodeResolveItem<'a, Data>>,
             visited_stack: &mut HashSet<Inode>,
@@ -732,7 +732,7 @@ where
         {
             let is_root_inode = *current_inode == ROOT_INODE;
             if is_root_inode {
-                if result.len() < limit {
+                if limit.map_or(true, |limit| result.len() < limit) {
                     // Freeze the result
                     result.push(resolve_item_stack.to_vec());
                 }
@@ -745,7 +745,7 @@ where
             };
             visited_stack.insert(current_inode.clone());
             'scan_loop: for (parent, names) in current_info.links.iter() {
-                if result.len() >= limit {
+                if limit.map_or(false, |limit| result.len() >= limit) {
                     break 'scan_loop;
                 }
                 if visited_stack.contains(parent) {
@@ -755,7 +755,7 @@ where
                     continue;
                 }
                 for name in names.iter() {
-                    if result.len() >= limit {
+                    if limit.map_or(false, |limit| result.len() >= limit) {
                         break 'scan_loop;
                     }
                     resolve_item_stack.push(InodeResolveItem {

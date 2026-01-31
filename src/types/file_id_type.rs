@@ -182,6 +182,11 @@ where
     }
 
     /// Retrieves the first path to the inode.
+    /// 
+    /// # Notes
+    /// - Due to the nature of an inode being able to have multiple links, there can be multiple combinations of path components
+    /// that resolve to the same inode. This method only returns the first combination of path components that
+    /// resolves to the inode.
     pub fn first_path(&self) -> Option<PathBuf> {
         let mapper = self
             .mapper
@@ -203,7 +208,7 @@ where
     }
 
     /// Retrieves all paths to the inode, up to a given limit.
-    pub fn paths(&self, limit: usize) -> Vec<PathBuf> {
+    pub fn all_paths(&self, limit: Option<usize>) -> Vec<PathBuf> {
         let mapper = self
             .mapper
             .read()

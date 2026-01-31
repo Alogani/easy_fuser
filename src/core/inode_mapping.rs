@@ -604,7 +604,7 @@ mod tests {
         );
 
         resolver.lookup(dir1_ino, OsStr::new("hard_linked_2"), Some(7), true);
-        let paths = hard_link_id_2.paths(100);
+        let paths = hard_link_id_2.all_paths(Some(100));
         assert!(paths.contains(&PathBuf::from("dir1/dir2/hard_linked")));
         assert!(paths.contains(&PathBuf::from("hard_link")));
         assert!(paths.contains(&PathBuf::from("dir1/hard_linked_2")));
@@ -618,7 +618,7 @@ mod tests {
         );
 
         // Test path resolution after overriding a location with a new backing ID
-        let paths = hard_link_id_2.paths(100);
+        let paths = hard_link_id_2.all_paths(Some(100));
         assert!(
             !paths.contains(&PathBuf::from("dir1/dir2/hard_linked")),
             "the path list should no longer contain the overridden location"
