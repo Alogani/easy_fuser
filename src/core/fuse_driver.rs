@@ -14,7 +14,7 @@ use fuser::{
 };
 
 use super::{
-    fuse_driver_types::{execute_task, FuseDriver},
+    fuse_driver_types::{FuseDriver, execute_task},
     inode_mapping::FileIdResolver,
     macros::*,
     thread_mode::*,

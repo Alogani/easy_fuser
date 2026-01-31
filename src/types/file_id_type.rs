@@ -182,7 +182,7 @@ where
     }
 
     /// Retrieves the first path to the inode.
-    /// 
+    ///
     /// # Notes
     /// - Due to the nature of an inode being able to have multiple links, there can be multiple combinations of path components
     /// that resolve to the same inode. This method only returns the first combination of path components that
@@ -229,9 +229,9 @@ where
     /// Retrieves the backing ID of the inode.
     ///
     /// This is useful for comparing to the backing ID of the actual underlying
-    /// file that a filesystem handler opened, which mitigates the risk of a race 
+    /// file that a filesystem handler opened, which mitigates the risk of a race
     /// condition, in which case another backing path could be tried, or an error
-    /// could be returned. 
+    /// could be returned.
     pub fn backing_id(&self) -> Option<BackingId> {
         let mapper = self
             .mapper
