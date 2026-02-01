@@ -24,34 +24,41 @@ use fuser::FileType as FileKind;
 ///
 /// This trait allows different approaches to file identification:
 ///
-/// 1. `Inode`: The user provides their own unique inode numbers.
-///    - Pros: Direct control over inode assignment.
-///    - Cons: Requires manual management of inode uniqueness.
-///    - Root: Represented by the constant ROOT_INODE with a value of 1.
-///
-/// 2. `PathBuf`: Uses file paths for identification.
+/// 1. `PathBuf`: Uses file paths for identification.
 ///    - Pros: Automatic inode-to-path mapping and caching.
 ///    - Cons: May have performance overhead for large file systems.
 ///    - Root: Represented by an empty string. Paths are relative and never begin with a forward slash.
 ///
-/// 3. `Vec<OsString>`: Uses a vector of path components for identification.
+/// 2. `Vec<OsString>`: Uses a vector of path components for identification.
 ///    - Pros: Slightly lower overhead than PathBuf, allows path to be divided into parts.
 ///    - Cons: Path components are stored in reverse order, which may require additional handling.
 ///    - Root: Represented by an empty vector.
+/// 
+/// 3. `Inode`: The user provides their own unique inode numbers.
+///    - Pros: Direct control over inode assignment.
+///    - Cons: Requires manual management of inode uniqueness.
+///    - Root: Represented by the constant ROOT_INODE with a value of 1.
+///    - Usage:
+///      - The user should provide an inode value for each operation requiring as a return value `<Inode as TId>::Metadata` or `<Inode as TId>::MinimalMetadata` (eg: lookup, create, link, etc.)
+///      - Then for subsequent operations concerning the same file, Fuse system will return the provided inode as argument `Inode as TId` (eg: access, getattr, lookup _to reference parent_, etc.)
 ///
 /// 4. `HybridId<BackingId>`: Uses inode for identification; however, file paths are also provided for use.
 ///     - Pros:
 ///         - Supports automatic inode-to-path mapping, similar to PathBuf.
 ///         - User can supply an optional backing ID to accurately reuse an existing inode and model a hard link
 ///         if the underlying file system uses hard links, and allows for retrieving multiple paths to the same inode.
-///         - Hard links persist after unmounting and remounting the file system.
+///         - Hard link relationships and inode values persist after unmounting and remounting the file system.
 ///     - Cons:
 ///         - May have more overhead compared to PathBuf.
 ///         - May lead to performance degradation or service denial if the user tries to exhaustively search all paths
 ///         to an inode, and hard links were extensively used.
-///         - The pre-supplied PathBuf can change over multiple requests to the same inode, so it should not be used as a
+///         - When using first_path method, the pre-supplied PathBuf can change over multiple requests to the same inode, so it should not be used as a
 ///         comparison method.
 ///     - Root: Represented by the constant ROOT_INODE with a value of 1 and an empty string.
+///     - Usage: (see https://github.com/Alogani/easy_fuser/pull/77#issuecomment-3830951142)
+///       - If two paths represents hardlinks, the user will return the same inode to the fuse filesystem
+///       - The user can use the hardlinks of the current filesystem by using `libc::fstat(...).f_fsid` (Persistent) or libc::fstatfs(...).f_dev` (Ephemeral)
+///       - When a Fuse operation provides an inode, the user can use `BackingId::all_paths()` to retrieve all the paths associated to that inode
 pub trait FileIdType:
     'static + Debug + Clone + PartialEq + Eq + std::hash::Hash + InodeResolvable
 {
@@ -232,6 +239,7 @@ where
     /// file that a filesystem handler opened, which mitigates the risk of a race
     /// condition, in which case another backing path could be tried, or an error
     /// could be returned.
+    #[deprecated = "Unstable: need sanity check to resist TOCTOU bugs. _marked temporarly as deprecated_"]
     pub fn backing_id(&self) -> Option<BackingId> {
         let mapper = self
             .mapper
