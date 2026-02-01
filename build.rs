@@ -37,14 +37,20 @@ fn main() -> std::io::Result<()> {
 
     let out_dir = env::var_os("OUT_DIR").expect("OUT_DIR not set");
 
-    for (mode, send_sync) in [(Modes::Serial, false), (Modes::Parallel, true)] {
+    for mode in [Modes::Serial, Modes::Parallel] {
         let mode = mode.as_str();
         let mode_dir = Path::new(&out_dir).join(mode);
         fs::create_dir_all(&mode_dir)?;
 
-        let content = FuseDriverTemplate { mode, send_sync }.render()?;
+        let content = FuseDriverTemplate { mode }.render()?;
         fs::write(
             mode_dir.join("fuse_driver.rs"),
+            content
+        )?;
+
+        let content = FuseHandlerTemplate { mode }.render()?;
+        fs::write(
+            mode_dir.join("fuse_handler.rs"),
             content
         )?;
     }
