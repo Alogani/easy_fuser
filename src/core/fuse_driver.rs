@@ -6,7 +6,6 @@ mod serial {
 #[cfg(feature = "parallel")]
 mod parallel {
     include!(concat!(env!("OUT_DIR"), "/parallel/fuse_driver.rs"));
-
 }
 
 #[cfg(feature = "async")]
@@ -22,4 +21,3 @@ pub(crate) use parallel::*;
 
 #[cfg(feature = "async")]
 pub(crate) use async_task::*;
-

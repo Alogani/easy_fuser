@@ -69,6 +69,8 @@ If you intend to enforce read-only at the fuse level,
 prefer the usage of option `MountOption::RO` instead of `FdHandlerHelperReadOnly`.
 */
 
+use std::marker::PhantomData;
+
 use crate::prelude::*;
 use crate::unix_fs;
 
@@ -184,43 +186,35 @@ macro_rules! fd_handler_readwrite_methods {
 
 /// Specific documentation is located in parent module documentation.
 pub struct FdHandlerHelper<TId: FileIdType> {
-    inner: Box<dyn FuseHandler<TId>>,
+    phantom: PhantomData<TId>,
 }
 
 impl<TId: FileIdType> FdHandlerHelper<TId> {
-    pub fn new<THandler: FuseHandler<TId>>(inner: THandler) -> Self {
+    pub fn new<THandler: FuseHandler<TId>>() -> Self {
         Self {
-            inner: Box::new(inner),
+            phantom: PhantomData,
         }
     }
 }
 
 impl<TId: FileIdType> FuseHandler<TId> for FdHandlerHelper<TId> {
-    fn get_inner(&self) -> &dyn FuseHandler<TId> {
-        self.inner.as_ref()
-    }
-
     fd_handler_readonly_methods!();
     fd_handler_readwrite_methods!();
 }
 
 /// Specific documentation is located in parent module documentation.
 pub struct FdHandlerHelperReadOnly<TId: FileIdType> {
-    inner: Box<dyn FuseHandler<TId>>,
+    phantom: PhantomData<TId>,
 }
 
 impl<TId: FileIdType> FdHandlerHelperReadOnly<TId> {
     pub fn new<THandler: FuseHandler<TId>>(inner: THandler) -> Self {
         Self {
-            inner: Box::new(inner),
+            phantom: PhantomData,
         }
     }
 }
 
 impl<TId: FileIdType> FuseHandler<TId> for FdHandlerHelperReadOnly<TId> {
-    fn get_inner(&self) -> &dyn FuseHandler<TId> {
-        self.inner.as_ref()
-    }
-
     fd_handler_readonly_methods!();
 }

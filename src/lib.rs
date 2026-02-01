@@ -24,7 +24,7 @@ mod fuse_handler;
 
 pub mod inode_mapper;
 pub mod inode_multi_mapper;
-pub mod templates;
+//pub mod templates;
 pub mod types;
 pub mod unix_fs;
 

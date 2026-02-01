@@ -1,10 +1,7 @@
 use std::{
     ffi::{OsStr, OsString},
     path::Path,
-    time::Duration,
 };
-
-use fuser::KernelConfig;
 
 use crate::prelude::*;
 
@@ -86,20 +83,6 @@ impl DefaultFuseHandler {
 }
 
 impl<TId: FileIdType> FuseHandler<TId> for DefaultFuseHandler {
-    fn get_inner(&self) -> &dyn FuseHandler<TId> {
-        panic!("Base Fuse don't have inner type")
-    }
-
-    fn get_default_ttl(&self) -> Duration {
-        Duration::from_secs(1)
-    }
-
-    fn init(&self, _req: &RequestInfo, _config: &mut KernelConfig) -> FuseResult<()> {
-        Ok(())
-    }
-
-    fn destroy(&self) {}
-
     fn access(&self, _req: &RequestInfo, file_id: TId, mask: AccessMask) -> FuseResult<()> {
         match self.handling {
             HandlingMethod::Error(kind) => Err(PosixError::new(

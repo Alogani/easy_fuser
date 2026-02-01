@@ -33,7 +33,7 @@ use fuser::FileType as FileKind;
 ///    - Pros: Slightly lower overhead than PathBuf, allows path to be divided into parts.
 ///    - Cons: Path components are stored in reverse order, which may require additional handling.
 ///    - Root: Represented by an empty vector.
-/// 
+///
 /// 3. `Inode`: The user provides their own unique inode numbers.
 ///    - Pros: Direct control over inode assignment.
 ///    - Cons: Requires manual management of inode uniqueness.

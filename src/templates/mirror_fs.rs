@@ -285,7 +285,7 @@ macro_rules! mirror_fs_readwrite_methods {
 }
 
 pub trait MirrorFsTrait: FuseHandler<PathBuf> {
-    fn new<U: FuseHandler<PathBuf>>(source_path: PathBuf, inner: U) -> Self;
+    fn new(source_path: PathBuf) -> Self;
 
     fn source_dir(&self) -> &Path;
 }
@@ -293,15 +293,11 @@ pub trait MirrorFsTrait: FuseHandler<PathBuf> {
 /// Specific documentation is located in parent module documentation.
 pub struct MirrorFs {
     source_path: PathBuf,
-    inner: Box<FdHandlerHelper<PathBuf>>,
 }
 
 impl MirrorFsTrait for MirrorFs {
-    fn new<U: FuseHandler<PathBuf>>(source_path: PathBuf, inner: U) -> Self {
-        Self {
-            source_path,
-            inner: Box::new(FdHandlerHelper::new(inner)),
-        }
+    fn new(source_path: PathBuf) -> Self {
+        Self { source_path }
     }
 
     fn source_dir(&self) -> &Path {
@@ -310,10 +306,6 @@ impl MirrorFsTrait for MirrorFs {
 }
 
 impl FuseHandler<PathBuf> for MirrorFs {
-    fn get_inner(&self) -> &dyn FuseHandler<PathBuf> {
-        self.inner.as_ref()
-    }
-
     mirror_fs_readonly_methods!();
     mirror_fs_readwrite_methods!();
 }
@@ -321,15 +313,11 @@ impl FuseHandler<PathBuf> for MirrorFs {
 /// Specific documentation is located in parent module documentation.
 pub struct MirrorFsReadOnly {
     source_path: PathBuf,
-    inner: Box<FdHandlerHelperReadOnly<PathBuf>>,
 }
 
 impl MirrorFsTrait for MirrorFsReadOnly {
-    fn new<THandler: FuseHandler<PathBuf>>(source_path: PathBuf, inner: THandler) -> Self {
-        Self {
-            source_path,
-            inner: Box::new(FdHandlerHelperReadOnly::new(inner)),
-        }
+    fn new(source_path: PathBuf) -> Self {
+        Self { source_path }
     }
 
     fn source_dir(&self) -> &Path {
