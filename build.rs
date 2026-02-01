@@ -37,7 +37,18 @@ fn main() -> std::io::Result<()> {
 
     let out_dir = env::var_os("OUT_DIR").expect("OUT_DIR not set");
 
-    for mode in [Modes::Serial, Modes::Parallel] {
+    let mut modes = vec![];
+    if env::var("CARGO_FEATURE_SERIAL").is_ok() {
+        modes.push(Modes::Serial);
+    }
+    if env::var("CARGO_FEATURE_PARALLEL").is_ok() {
+        modes.push(Modes::Parallel);
+    }
+    if env::var("CARGO_FEATURE_ASYNC").is_ok() {
+        modes.push(Modes::Async);
+    }
+
+    for mode in modes {
         let mode = mode.as_str();
         let mode_dir = Path::new(&out_dir).join(mode);
         fs::create_dir_all(&mode_dir)?;
