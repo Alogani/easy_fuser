@@ -1,3 +1,5 @@
+{% let send_sync = mode != "serial" %}
+
 use std::{
     collections::{HashMap, VecDeque},
     ffi::{OsStr, OsString},
