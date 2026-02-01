@@ -1,0 +1,172 @@
+use std::{
+    collections::{HashMap, VecDeque},
+    ffi::{OsStr, OsString},
+};
+
+use crate::fuse_handler::FuseHandler;
+use crate::types::*;
+use crate::core::inode_mapping::FileIdResolver;
+
+type DirIter<TAttr> = HashMap<(u64, i64), VecDeque<(OsString, u64, TAttr)>>;
+
+{% if mode == "serial" %}
+    use std::cell::RefCell;
+
+{% elif mode == "parallel" %}
+    use std::sync::Arc;
+    use std::thread::{self, available_parallelism};
+    use threadpool::ThreadPool;
+
+    #[cfg(feature = "deadlock_detection")]
+    use parking_lot::{Mutex, MutexGuard};
+    #[cfg(not(feature = "deadlock_detection"))]
+    use std::sync::{Mutex, MutexGuard};
+
+{% elif mode == "async" %}
+    use std::sync::Arc;
+    use tokio::runtime::Runtime;
+    use tokio::sync::Mutex;
+{% endif %}
+
+pub(crate) struct FuseDriver<TId, THandler>
+where
+    TId: FileIdType,
+    THandler: FuseHandler<TId>,
+{
+    {% if !send_sync %}
+        handler: THandler,
+        resolver: TId::Resolver,
+        dirmap_iter: RefCell<DirIter<FileKind>>,
+        dirmapplus_iter: RefCell<DirIter<FileAttribute>>,
+    {% else %}
+        handler: Arc<THandler>,
+        resolver: Arc<TId::Resolver>,
+        dirmap_iter: Arc<Mutex<DirIter<FileKind>>>,
+        dirmapplus_iter: Arc<Mutex<DirIter<FileAttribute>>>,
+    {% endif %}
+
+    {% if mode == "parallel" %}
+        pub threadpool: ThreadPool,
+        pub reply_threadpool: ThreadPool,
+    {% elif mode == "async" %}
+        pub runtime: Arc<Runtime>,
+    {% endif %}
+}
+
+{% if mode == "parallel" %}
+    impl<TId, THandler> Drop for FuseDriver<TId, THandler>
+    where
+        TId: FileIdType,
+        THandler: FuseHandler<TId>,
+    {
+        fn drop(&mut self) {
+            self.threadpool.join();
+            self.reply_threadpool.join();
+        }
+    }
+{% endif %}
+
+impl<TId, THandler> FuseDriver<TId, THandler>
+where
+    TId: FileIdType,
+    THandler: FuseHandler<TId>,
+{
+    pub fn new(
+        handler: THandler,
+        {% if send_sync %}
+            num_threads: usize
+        {% else %}
+            _num_threads: usize
+        {% endif %}
+    ) -> FuseDriver<TId, THandler> {
+        {% if mode == "parallel" %}
+            #[cfg(feature = "deadlock_detection")]
+            spawn_deadlock_checker();
+        {% endif %}
+
+        FuseDriver {
+            {% if mode == "serial" %}
+                handler,
+                resolver: TId::Resolver::new(),
+                dirmap_iter: RefCell::new(HashMap::new()),
+                dirmapplus_iter: RefCell::new(HashMap::new()),
+            {% else %}
+                handler: Arc::new(handler),
+                resolver: Arc::new(TId::create_resolver()),
+                dirmap_iter: Arc::new(Mutex::new(HashMap::new())),
+                dirmapplus_iter: Arc::new(Mutex::new(HashMap::new())),
+            {% endif %}
+
+            {% if mode == "parallel" %}
+                threadpool: ThreadPool::new(num_threads),
+                reply_threadpool: ThreadPool::new(num_threads),
+            {% elif mode == "async" %}
+                runtime: Arc::new(Runtime::new().unwrap()),
+            {% endif %}
+        }
+    }
+
+    {% if !send_sync %}
+        pub fn get_handler(&self) -> &THandler {
+            &self.handler
+        }
+
+        pub fn get_resolver(&self) -> &TId::Resolver {
+            &self.resolver
+        }
+
+        pub fn get_dirmap_iter(&self) -> &RefCell<DirIter<FileKind>> {
+            &self.dirmap_iter
+        }
+
+        pub fn get_dirmapplus_iter(&self) -> &RefCell<DirIter<FileAttribute>> {
+            &self.dirmapplus_iter
+        }
+    {% else %}
+        pub fn get_handler(&self) -> Arc<THandler> {
+            self.handler.clone()
+        }
+
+        pub fn get_resolver(&self) -> Arc<TId::Resolver> {
+            self.resolver.clone()
+        }
+
+        pub fn get_dirmap_iter(&self) -> Arc<Mutex<DirIter<FileKind>>> {
+            self.dirmap_iter.clone()
+        }
+
+        pub fn get_dirmapplus_iter(&self) -> Arc<Mutex<DirIter<FileAttribute>>> {
+            self.dirmapplus_iter.clone()
+        }
+    {% endif %}
+}
+
+{% if mode == "parallel" %}
+    #[cfg(feature = "deadlock_detection")]
+    fn spawn_deadlock_checker() {
+        use log::{error, info};
+        use parking_lot::deadlock;
+        use std::thread;
+        use std::time::Duration;
+
+        // Create a background thread which checks for deadlocks every 10s
+        thread::spawn(move || {
+            loop {
+                thread::sleep(Duration::from_secs(10));
+                let deadlocks = deadlock::check_deadlock();
+                if deadlocks.is_empty() {
+                    info!("# No deadlock");
+                    continue;
+                }
+
+                eprintln!("# {} deadlocks detected", deadlocks.len());
+                for (i, threads) in deadlocks.iter().enumerate() {
+                    error!("Deadlock #{}", i);
+                    for t in threads {
+                        error!("Thread Id {:#?}\n, {:#?}", t.thread_id(), t.backtrace());
+                    }
+                }
+            }
+        });
+    }
+{% endif %}

@@ -13,52 +13,7 @@ type DirIter<TAttr> = HashMap<(u64, i64), VecDeque<(OsString, u64, TAttr)>>;
 
 #[cfg(feature = "serial")]
 mod serial {
-    use super::*;
-
-    use std::cell::RefCell;
-
-    pub(crate) struct FuseDriver<TId, THandler>
-    where
-        TId: FileIdType,
-        THandler: FuseHandler<TId>,
-    {
-        handler: THandler,
-        resolver: TId::Resolver,
-        dirmap_iter: RefCell<DirIter<FileKind>>,
-        dirmapplus_iter: RefCell<DirIter<FileAttribute>>,
-    }
-
-    impl<TId, THandler> FuseDriver<TId, THandler>
-    where
-        TId: FileIdType,
-        THandler: FuseHandler<TId>,
-    {
-        /// num_thread is ignored in serial mode, it is kept for consistency with other modes
-        pub fn new(handler: THandler, _num_threads: usize) -> FuseDriver<TId, THandler> {
-            FuseDriver {
-                handler,
-                resolver: TId::Resolver::new(),
-                dirmap_iter: RefCell::new(HashMap::new()),
-                dirmapplus_iter: RefCell::new(HashMap::new()),
-            }
-        }
-
-        pub fn get_handler(&self) -> &THandler {
-            &self.handler
-        }
-
-        pub fn get_resolver(&self) -> &TId::Resolver {
-            &self.resolver
-        }
-
-        pub fn get_dirmap_iter(&self) -> &RefCell<DirIter<FileKind>> {
-            &self.dirmap_iter
-        }
-
-        pub fn get_dirmapplus_iter(&self) -> &RefCell<DirIter<FileAttribute>> {
-            &self.dirmapplus_iter
-        }
-    }
+    include!(concat!(env!("OUT_DIR"), "/serial/fuse_driver.rs"));
 
     macro_rules! execute_task {
         ($self:expr, $block:block) => {
@@ -85,78 +40,7 @@ mod serial {
 
 #[cfg(feature = "parallel")]
 mod parallel {
-    use super::*;
-
-    use std::{
-        sync::Arc,
-        thread::{self, available_parallelism},
-    };
-
-    use threadpool::ThreadPool;
-
-    #[cfg(feature = "deadlock_detection")]
-    use parking_lot::{Mutex, MutexGuard};
-    #[cfg(not(feature = "deadlock_detection"))]
-    use std::sync::{Mutex, MutexGuard};
-
-    pub(crate) struct FuseDriver<TId, THandler>
-    where
-        TId: FileIdType,
-        THandler: FuseHandler<TId>,
-    {
-        handler: Arc<THandler>,
-        resolver: Arc<TId::Resolver>,
-        dirmap_iter: Arc<Mutex<DirIter<FileKind>>>,
-        dirmapplus_iter: Arc<Mutex<DirIter<FileAttribute>>>,
-        pub threadpool: ThreadPool,
-        pub reply_threadpool: ThreadPool,
-    }
-
-    impl<TId, THandler> Drop for FuseDriver<TId, THandler>
-    where
-        TId: FileIdType,
-        THandler: FuseHandler<TId>,
-    {
-        fn drop(&mut self) {
-            self.threadpool.join();
-            self.reply_threadpool.join();
-        }
-    }
-
-    impl<TId, THandler> FuseDriver<TId, THandler>
-    where
-        TId: FileIdType,
-        THandler: FuseHandler<TId>,
-    {
-        pub fn new(handler: THandler, num_threads: usize) -> FuseDriver<TId, THandler> {
-            #[cfg(feature = "deadlock_detection")]
-            spawn_deadlock_checker();
-            FuseDriver {
-                handler: Arc::new(handler),
-                resolver: Arc::new(TId::create_resolver()),
-                dirmap_iter: Arc::new(Mutex::new(HashMap::new())),
-                dirmapplus_iter: Arc::new(Mutex::new(HashMap::new())),
-                threadpool: ThreadPool::new(num_threads),
-                reply_threadpool: ThreadPool::new(num_threads),
-            }
-        }
-
-        pub fn get_handler(&self) -> Arc<THandler> {
-            self.handler.clone()
-        }
-
-        pub fn get_resolver(&self) -> Arc<TId::Resolver> {
-            self.resolver.clone()
-        }
-
-        pub fn get_dirmap_iter(&self) -> Arc<Mutex<DirIter<FileKind>>> {
-            self.dirmap_iter.clone()
-        }
-
-        pub fn get_dirmapplus_iter(&self) -> Arc<Mutex<DirIter<FileAttribute>>> {
-            self.dirmapplus_iter.clone()
-        }
-    }
+    include!(concat!(env!("OUT_DIR"), "/parallel/fuse_driver.rs"));
 
     macro_rules! execute_task {
         ($self:expr, $block:block) => {
@@ -183,57 +67,7 @@ mod parallel {
 
 #[cfg(feature = "async")]
 mod async_task {
-    use super::*;
-
-    use std::sync::Arc;
-    use tokio::runtime::Runtime;
-    use tokio::sync::Mutex;
-
-    pub(crate) struct FuseDriver<TId, THandler>
-    where
-        TId: FileIdType,
-        THandler: FuseHandler<TId>,
-    {
-        handler: Arc<THandler>,
-        resolver: Arc<TId::Resolver>,
-        dirmap_iter: Arc<Mutex<DirIter<FileKind>>>,
-        dirmapplus_iter: Arc<Mutex<DirIter<FileAttribute>>>,
-        pub runtime: Arc<Runtime>,
-    }
-
-    impl<TId, THandler> FuseDriver<TId, THandler>
-    where
-        TId: FileIdType,
-        THandler: FuseHandler<TId>,
-    {
-        pub fn new(handler: THandler, _num_threads: usize) -> FuseDriver<TId, THandler> {
-            #[cfg(feature = "deadlock_detection")]
-            spawn_deadlock_checker();
-            FuseDriver {
-                handler: Arc::new(handler),
-                resolver: Arc::new(TId::create_resolver()),
-                dirmap_iter: Arc::new(Mutex::new(HashMap::new())),
-                dirmapplus_iter: Arc::new(Mutex::new(HashMap::new())),
-                runtime: Arc::new(Runtime::new().unwrap()),
-            }
-        }
-
-        pub fn get_handler(&self) -> Arc<THandler> {
-            self.handler.clone()
-        }
-
-        pub fn get_resolver(&self) -> Arc<TId::Resolver> {
-            self.resolver.clone()
-        }
-
-        pub fn get_dirmap_iter(&self) -> Arc<Mutex<DirIter<FileKind>>> {
-            self.dirmap_iter.clone()
-        }
-
-        pub fn get_dirmapplus_iter(&self) -> Arc<Mutex<DirIter<FileAttribute>>> {
-            self.dirmapplus_iter.clone()
-        }
-    }
+    include!(concat!(env!("OUT_DIR"), "/async/fuse_driver.rs"));
 
     macro_rules! execute_task {
         ($self:expr, $block:block) => {
@@ -275,7 +109,7 @@ fn spawn_deadlock_checker() {
                 continue;
             }
 
-            eprintln!("# {} deadlocks detected", deadlocks.len());
+            eprintln!("# {} deadlocks detected", deadlocks.len());
             for (i, threads) in deadlocks.iter().enumerate() {
                 error!("Deadlock #{}", i);
                 for t in threads {
