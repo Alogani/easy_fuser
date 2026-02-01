@@ -15,7 +15,10 @@ mod safe_borrowable_impl {
     use std::cell::{RefCell, RefMut};
 
     impl<T> SafeBorrowable for RefCell<T> {
-        type Guard<'a> = RefMut<'a, T> where Self: 'a;
+        type Guard<'a>
+            = RefMut<'a, T>
+        where
+            Self: 'a;
 
         fn safe_borrow_mut(&self) -> Self::Guard<'_> {
             self.borrow_mut()
@@ -30,7 +33,10 @@ mod safe_borrowable_impl {
     use std::sync::{Mutex, MutexGuard};
 
     impl<T> SafeBorrowable for Mutex<T> {
-        type Guard<'a> = MutexGuard<'a, T> where Self: 'a;
+        type Guard<'a>
+            = MutexGuard<'a, T>
+        where
+            Self: 'a;
 
         fn safe_borrow_mut(&self) -> Self::Guard<'_> {
             self.lock().unwrap()
@@ -45,7 +51,10 @@ mod safe_borrowable_impl {
     use parking_lot::{Mutex, MutexGuard};
 
     impl<T> SafeBorrowable for Mutex<T> {
-        type Guard<'a> = MutexGuard<'a, T> where Self: 'a;
+        type Guard<'a>
+            = MutexGuard<'a, T>
+        where
+            Self: 'a;
 
         fn safe_borrow_mut(&self) -> Self::Guard<'_> {
             self.lock()
@@ -60,7 +69,10 @@ mod safe_borrowable_impl {
     use tokio::sync::{Mutex, MutexGuard};
 
     impl<T> SafeBorrowable for Mutex<T> {
-        type Guard<'a> = MutexGuard<'a, T> where Self: 'a;
+        type Guard<'a>
+            = MutexGuard<'a, T>
+        where
+            Self: 'a;
 
         async fn safe_borrow_mut(&self) -> Self::Guard<'_> {
             self.lock().await

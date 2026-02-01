@@ -1,5 +1,5 @@
 use easy_fuser::prelude::*;
-use easy_fuser::templates::{mirror_fs::*, DefaultFuseHandler};
+use easy_fuser::templates::{DefaultFuseHandler, mirror_fs::*};
 
 use std::fs::{self, File};
 use std::io::{Read, Seek, SeekFrom, Write};

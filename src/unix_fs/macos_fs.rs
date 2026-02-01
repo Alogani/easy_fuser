@@ -3,10 +3,10 @@ use std::os::fd::*;
 
 use std::ffi::c_void;
 
-use super::{cstring_from_path, StatFs};
+use super::{StatFs, cstring_from_path};
 use crate::PosixError;
 use libc::{self, c_char, c_int, size_t, ssize_t};
-use libc::{fcntl, fstore_t, ftruncate, off_t, ENOTSUP, F_ALLOCATECONTIG, F_PREALLOCATE};
+use libc::{ENOTSUP, F_ALLOCATECONTIG, F_PREALLOCATE, fcntl, fstore_t, ftruncate, off_t};
 use std::path::Path;
 
 // Define FALLOC_FL_KEEP_SIZE constant

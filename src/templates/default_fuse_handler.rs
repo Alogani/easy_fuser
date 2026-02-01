@@ -155,8 +155,9 @@ impl<TId: FileIdType> FuseHandler<TId> for DefaultFuseHandler {
         flags: u32, // Not implemented yet in standard
     ) -> FuseResult<u32> {
         match self.handling {
-            HandlingMethod::Error(kind) => Err(
-                PosixError::new(kind, if cfg!(debug_assertions) {
+            HandlingMethod::Error(kind) => Err(PosixError::new(
+                kind,
+                if cfg!(debug_assertions) {
                     format!(
                         "copy_file_range(file_in: {}, file_handle_in: {:?}, offset_in: {}, file_out: {}, file_handle_out: {:?}, offset_out: {}, len: {}, flags: {})",
                         file_in.display(),
@@ -170,8 +171,8 @@ impl<TId: FileIdType> FuseHandler<TId> for DefaultFuseHandler {
                     )
                 } else {
                     String::new()
-                })
-            ),
+                },
+            )),
             HandlingMethod::Panic => panic!(
                 "[Not Implemented] copy_file_range(file_in: {}, file_handle_in: {:?}, offset_in: {}, file_out: {}, file_handle_out: {:?}, offset_out: {}, len: {}, flags: {})",
                 file_in.display(),
@@ -232,8 +233,9 @@ impl<TId: FileIdType> FuseHandler<TId> for DefaultFuseHandler {
         mode: FallocateFlags,
     ) -> FuseResult<()> {
         match self.handling {
-            HandlingMethod::Error(kind) => Err(
-                PosixError::new(kind, if cfg!(debug_assertions) {
+            HandlingMethod::Error(kind) => Err(PosixError::new(
+                kind,
+                if cfg!(debug_assertions) {
                     format!(
                         "fallocate(file_id: {}, file_handle: {:?}, offset: {}, length: {}, mode: {:?})",
                         file_id.display(),
@@ -244,8 +246,8 @@ impl<TId: FileIdType> FuseHandler<TId> for DefaultFuseHandler {
                     )
                 } else {
                     String::new()
-                })
-            ),
+                },
+            )),
             HandlingMethod::Panic => panic!(
                 "[Not Implemented] fallocate(file_id: {}, file_handle: {:?}, offset: {}, length: {}, mode: {:?})",
                 file_id.display(),
@@ -365,20 +367,21 @@ impl<TId: FileIdType> FuseHandler<TId> for DefaultFuseHandler {
         lock_info: LockInfo,
     ) -> FuseResult<LockInfo> {
         match self.handling {
-            HandlingMethod::Error(kind) => Err(
-                PosixError::new(kind, if cfg!(debug_assertions) {
+            HandlingMethod::Error(kind) => Err(PosixError::new(
+                kind,
+                if cfg!(debug_assertions) {
                     format!(
-                    "getlk(file_id: {}, file_handle: {:?}, lock_owner: {}, lock_info: {:?})",
-                    file_id.display(),
-                    file_handle,
-                    lock_owner,
-                    lock_info
-                )
-        } else {
-            String::new()
-        })
-    ),
-    HandlingMethod::Panic => panic!(
+                        "getlk(file_id: {}, file_handle: {:?}, lock_owner: {}, lock_info: {:?})",
+                        file_id.display(),
+                        file_handle,
+                        lock_owner,
+                        lock_info
+                    )
+                } else {
+                    String::new()
+                },
+            )),
+            HandlingMethod::Panic => panic!(
                 "[Not Implemented] getlk(file_id: {}, file_handle: {:?}, lock_owner: {}, lock_info: {:?})",
                 file_id.display(),
                 file_handle,
@@ -601,21 +604,22 @@ impl<TId: FileIdType> FuseHandler<TId> for DefaultFuseHandler {
         rdev: DeviceType,
     ) -> FuseResult<TId::Metadata> {
         match self.handling {
-            HandlingMethod::Error(kind) => Err(
-                PosixError::new(kind, if cfg!(debug_assertions) {
+            HandlingMethod::Error(kind) => Err(PosixError::new(
+                kind,
+                if cfg!(debug_assertions) {
                     format!(
-                    "mknod(parent_id: {}, name: {:?}, mode: {}, umask: {}, rdev: {:?})",
-                    parent_id.display(),
-                    Path::new(name),
-                    mode,
-                    umask,
-                    rdev
-                )
-        } else {
-            String::new()
-        })
-    ),
-    HandlingMethod::Panic => panic!(
+                        "mknod(parent_id: {}, name: {:?}, mode: {}, umask: {}, rdev: {:?})",
+                        parent_id.display(),
+                        Path::new(name),
+                        mode,
+                        umask,
+                        rdev
+                    )
+                } else {
+                    String::new()
+                },
+            )),
+            HandlingMethod::Panic => panic!(
                 "[Not Implemented] mknod(parent_id: {}, name: {:?}, mode: {}, umask: {}, rdev: {:?})",
                 parent_id.display(),
                 Path::new(name),
@@ -673,22 +677,23 @@ impl<TId: FileIdType> FuseHandler<TId> for DefaultFuseHandler {
         lock_owner: Option<u64>,
     ) -> FuseResult<Vec<u8>> {
         match self.handling {
-            HandlingMethod::Error(kind) => Err(
-                PosixError::new(kind, if cfg!(debug_assertions) {
+            HandlingMethod::Error(kind) => Err(PosixError::new(
+                kind,
+                if cfg!(debug_assertions) {
                     format!(
-                    "read(file_id: {}, file_handle: {:?}, seek: {:?}, size: {}, flags: {:?}, lock_owner: {:?})",
-                    file_id.display(),
-                    file_handle,
-                    seek,
-                    size,
-                    flags,
-                    lock_owner
-                )
-        } else {
-            String::new()
-        })
-    ),
-    HandlingMethod::Panic => panic!(
+                        "read(file_id: {}, file_handle: {:?}, seek: {:?}, size: {}, flags: {:?}, lock_owner: {:?})",
+                        file_id.display(),
+                        file_handle,
+                        seek,
+                        size,
+                        flags,
+                        lock_owner
+                    )
+                } else {
+                    String::new()
+                },
+            )),
+            HandlingMethod::Panic => panic!(
                 "[Not Implemented] read(file_id: {}, file_handle: {:?}, seek: {:?}, size: {}, flags: {:?}, lock_owner: {:?})",
                 file_id.display(),
                 file_handle,
@@ -780,21 +785,22 @@ impl<TId: FileIdType> FuseHandler<TId> for DefaultFuseHandler {
         flush: bool,
     ) -> FuseResult<()> {
         match self.handling {
-            HandlingMethod::Error(kind) => Err(
-                PosixError::new(kind, if cfg!(debug_assertions) {
+            HandlingMethod::Error(kind) => Err(PosixError::new(
+                kind,
+                if cfg!(debug_assertions) {
                     format!(
-                    "release(file_id: {}, file_handle: {:?}, flags: {:?}, lock_owner: {:?}, flush: {})",
-                    file_id.display(),
-                    file_handle,
-                    flags,
-                    lock_owner,
-                    flush
-                )
-        } else {
-            String::new()
-        })
-    ),
-    HandlingMethod::Panic => panic!(
+                        "release(file_id: {}, file_handle: {:?}, flags: {:?}, lock_owner: {:?}, flush: {})",
+                        file_id.display(),
+                        file_handle,
+                        flags,
+                        lock_owner,
+                        flush
+                    )
+                } else {
+                    String::new()
+                },
+            )),
+            HandlingMethod::Panic => panic!(
                 "[Not Implemented] release(file_id: {}, file_handle: {:?}, flags: {:?}, lock_owner: {:?}, flush: {})",
                 file_id.display(),
                 file_handle,
@@ -847,21 +853,22 @@ impl<TId: FileIdType> FuseHandler<TId> for DefaultFuseHandler {
         flags: RenameFlags,
     ) -> FuseResult<()> {
         match self.handling {
-            HandlingMethod::Error(kind) => Err(
-                PosixError::new(kind, if cfg!(debug_assertions) {
+            HandlingMethod::Error(kind) => Err(PosixError::new(
+                kind,
+                if cfg!(debug_assertions) {
                     format!(
-                    "rename(parent_id: {}, name: {:?}, newparent: {}, newname: {:?}, flags: {:?})",
-                    parent_id.display(),
-                    Path::new(name),
-                    newparent.display(),
-                    Path::new(newname),
-                    flags
-                )
-        } else {
-            String::new()
-        })
-    ),
-    HandlingMethod::Panic => panic!(
+                        "rename(parent_id: {}, name: {:?}, newparent: {}, newname: {:?}, flags: {:?})",
+                        parent_id.display(),
+                        Path::new(name),
+                        newparent.display(),
+                        Path::new(newname),
+                        flags
+                    )
+                } else {
+                    String::new()
+                },
+            )),
+            HandlingMethod::Panic => panic!(
                 "[Not Implemented] rename(parent_id: {}, name: {:?}, newparent: {}, newname: {:?}, flags: {:?})",
                 parent_id.display(),
                 Path::new(name),
@@ -931,21 +938,22 @@ impl<TId: FileIdType> FuseHandler<TId> for DefaultFuseHandler {
         sleep: bool,
     ) -> FuseResult<()> {
         match self.handling {
-            HandlingMethod::Error(kind) => Err(
-                PosixError::new(kind, if cfg!(debug_assertions) {
+            HandlingMethod::Error(kind) => Err(PosixError::new(
+                kind,
+                if cfg!(debug_assertions) {
                     format!(
-                    "setlk(file_id: {}, file_handle: {:?}, lock_owner: {}, lock_info: {:?}, sleep: {})",
-                    file_id.display(),
-                    file_handle,
-                    lock_owner,
-                    lock_info,
-                    sleep
-                )
-        } else {
-            String::new()
-        })
-    ),
-    HandlingMethod::Panic => panic!(
+                        "setlk(file_id: {}, file_handle: {:?}, lock_owner: {}, lock_info: {:?}, sleep: {})",
+                        file_id.display(),
+                        file_handle,
+                        lock_owner,
+                        lock_info,
+                        sleep
+                    )
+                } else {
+                    String::new()
+                },
+            )),
+            HandlingMethod::Panic => panic!(
                 "[Not Implemented] setlk(file_id: {}, file_handle: {:?}, lock_owner: {}, lock_info: {:?}, sleep: {})",
                 file_id.display(),
                 file_handle,
@@ -1058,23 +1066,24 @@ impl<TId: FileIdType> FuseHandler<TId> for DefaultFuseHandler {
         lock_owner: Option<u64>,
     ) -> FuseResult<u32> {
         match self.handling {
-            HandlingMethod::Error(kind) => Err(
-                PosixError::new(kind, if cfg!(debug_assertions) {
+            HandlingMethod::Error(kind) => Err(PosixError::new(
+                kind,
+                if cfg!(debug_assertions) {
                     format!(
-                    "write(file_id: {}, file_handle: {:?}, seek: {:?}, data_len: {}, write_flags: {:?}, flags: {:?}, lock_owner: {:?})",
-                    file_id.display(),
-                    file_handle,
-                    seek,
-                    data.len(),
-                    write_flags,
-                    flags,
-                    lock_owner
-                )
-        } else {
-            String::new()
-        })
-    ),
-    HandlingMethod::Panic => panic!(
+                        "write(file_id: {}, file_handle: {:?}, seek: {:?}, data_len: {}, write_flags: {:?}, flags: {:?}, lock_owner: {:?})",
+                        file_id.display(),
+                        file_handle,
+                        seek,
+                        data.len(),
+                        write_flags,
+                        flags,
+                        lock_owner
+                    )
+                } else {
+                    String::new()
+                },
+            )),
+            HandlingMethod::Panic => panic!(
                 "[Not Implemented] write(file_id: {}, file_handle: {:?}, seek: {:?}, data_len: {}, write_flags: {:?}, flags: {:?}, lock_owner: {:?})",
                 file_id.display(),
                 file_handle,

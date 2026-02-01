@@ -1,5 +1,5 @@
 use easy_fuser::prelude::*;
-use easy_fuser::templates::{mirror_fs::*, DefaultFuseHandler};
+use easy_fuser::templates::{DefaultFuseHandler, mirror_fs::*};
 use std::path::PathBuf;
 use std::thread;
 use std::time::Duration;
