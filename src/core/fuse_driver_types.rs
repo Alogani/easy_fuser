@@ -66,14 +66,31 @@ mod serial {
         };
     }
 
+    macro_rules! reply_executor {
+        ($self:expr) => {
+            ()
+        };
+    }
+
+    macro_rules! execute_reply_task {
+        ($reply_executor:expr, $block:block) => {
+            $block
+        };
+    }
+
+    pub(crate) use execute_reply_task;
     pub(crate) use execute_task;
+    pub(crate) use reply_executor;
 }
 
 #[cfg(feature = "parallel")]
 mod parallel {
     use super::*;
 
-    use std::sync::Arc;
+    use std::{
+        sync::Arc,
+        thread::{self, available_parallelism},
+    };
 
     use threadpool::ThreadPool;
 
@@ -92,6 +109,18 @@ mod parallel {
         dirmap_iter: Arc<Mutex<DirIter<FileKind>>>,
         dirmapplus_iter: Arc<Mutex<DirIter<FileAttribute>>>,
         pub threadpool: ThreadPool,
+        pub reply_threadpool: ThreadPool,
+    }
+
+    impl<TId, THandler> Drop for FuseDriver<TId, THandler>
+    where
+        TId: FileIdType,
+        THandler: FuseHandler<TId>,
+    {
+        fn drop(&mut self) {
+            self.threadpool.join();
+            self.reply_threadpool.join();
+        }
     }
 
     impl<TId, THandler> FuseDriver<TId, THandler>
@@ -108,6 +137,7 @@ mod parallel {
                 dirmap_iter: Arc::new(Mutex::new(HashMap::new())),
                 dirmapplus_iter: Arc::new(Mutex::new(HashMap::new())),
                 threadpool: ThreadPool::new(num_threads),
+                reply_threadpool: ThreadPool::new(num_threads),
             }
         }
 
@@ -130,11 +160,25 @@ mod parallel {
 
     macro_rules! execute_task {
         ($self:expr, $block:block) => {
-            $self.threadpool.execute(move || $block);
+            $self.threadpool.execute(move || $block)
         };
     }
 
+    macro_rules! reply_executor {
+        ($self:expr) => {
+            $self.reply_threadpool.clone()
+        };
+    }
+
+    macro_rules! execute_reply_task {
+        ($reply_executor:expr, $block:block) => {
+            $reply_executor.execute(move || $block);
+        };
+    }
+
+    pub(crate) use execute_reply_task;
     pub(crate) use execute_task;
+    pub(crate) use reply_executor;
 }
 
 #[cfg(feature = "async")]
@@ -154,7 +198,7 @@ mod async_task {
         resolver: Arc<TId::Resolver>,
         dirmap_iter: Arc<Mutex<DirIter<FileKind>>>,
         dirmapplus_iter: Arc<Mutex<DirIter<FileAttribute>>>,
-        pub runtime: Runtime,
+        pub runtime: Arc<Runtime>,
     }
 
     impl<TId, THandler> FuseDriver<TId, THandler>
@@ -170,7 +214,7 @@ mod async_task {
                 resolver: Arc::new(TId::create_resolver()),
                 dirmap_iter: Arc::new(Mutex::new(HashMap::new())),
                 dirmapplus_iter: Arc::new(Mutex::new(HashMap::new())),
-                runtime: Runtime::new().unwrap(),
+                runtime: Arc::new(Runtime::new().unwrap()),
             }
         }
 
@@ -193,11 +237,25 @@ mod async_task {
 
     macro_rules! execute_task {
         ($self:expr, $block:block) => {
-            $self.runtime.spawn(async move { $block });
+            $self.runtime.spawn(async move { $block })
         };
     }
 
+    macro_rules! reply_executor {
+        ($self:expr) => {
+            $self.runtime.clone()
+        };
+    }
+
+    macro_rules! execute_reply_task {
+        ($reply_executor:expr, $block:block) => {
+            $reply_executor.spawn(async move { $block })
+        };
+    }
+
+    pub(crate) use execute_reply_task;
     pub(crate) use execute_task;
+    pub(crate) use reply_executor;
 }
 
 #[cfg(feature = "deadlock_detection")]
