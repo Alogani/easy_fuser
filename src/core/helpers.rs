@@ -1,7 +1,7 @@
 use std::time::Instant;
 
 #[cfg(feature = "deadlock_detection")]
-pub (super) fn spawn_deadlock_checker() {
+pub(super) fn spawn_deadlock_checker() {
     use log::{error, info};
     use parking_lot::deadlock;
     use std::thread;

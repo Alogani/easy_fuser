@@ -168,16 +168,14 @@ impl FileIdResolver for ComponentsResolver {
         children: Vec<(OsString, ())>,
         increment: bool,
     ) -> Vec<(OsString, u64)> {
-        let value_creator =
-            |value_creator: inode_mapper::ValueCreatorParams<AtomicU64>| match value_creator
-                .existing_data
-            {
-                Some(nlookup) => {
-                    let count = nlookup.load(Ordering::Relaxed);
-                    AtomicU64::new(if increment { count + 1 } else { count })
-                }
-                None => AtomicU64::new(if increment { 1 } else { 0 }),
-            };
+        let value_creator = |value_creator: inode_mapper::ValueCreatorParams<AtomicU64>| {
+            if let Some(nlookup) = value_creator.existing_data {
+                let count = nlookup.load(Ordering::Relaxed);
+                AtomicU64::new(if increment { count + 1 } else { count })
+            } else {
+                AtomicU64::new(if increment { 1 } else { 0 })
+            }
+        };
         let children_with_creator: Vec<_> = children
             .iter()
             .map(|(name, _)| (name.clone(), value_creator))
@@ -347,14 +345,14 @@ where
         children: Vec<(OsString, <Self::ResolvedType as FileIdType>::_Id)>,
         increment: bool,
     ) -> Vec<(OsString, u64)> {
-        let value_creator =
-            |value_creator: ValueCreatorParams<AtomicU64>| match value_creator.existing_data {
-                Some(nlookup) => {
-                    let count = nlookup.load(Ordering::Relaxed);
-                    AtomicU64::new(if increment { count + 1 } else { count })
-                }
-                None => AtomicU64::new(if increment { 1 } else { 0 }),
-            };
+        let value_creator = |value_creator: ValueCreatorParams<AtomicU64>| {
+            if let Some(nlookup) = value_creator.existing_data {
+                let count = nlookup.load(Ordering::Relaxed);
+                AtomicU64::new(if increment { count + 1 } else { count })
+            } else {
+                AtomicU64::new(if increment { 1 } else { 0 })
+            }
+        };
         let children_with_creator: Vec<_> = children
             .iter()
             .map(|(name, id)| (name.clone(), id.clone(), value_creator))

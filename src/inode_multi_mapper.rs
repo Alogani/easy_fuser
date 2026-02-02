@@ -448,7 +448,7 @@ where
                             .backing
                             .insert(target_child_inode.clone(), backing_id);
                     }
-                        target_child_inode
+                    target_child_inode
                 }
             }
             (Some(backing_inode), None) => {

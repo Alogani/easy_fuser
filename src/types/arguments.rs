@@ -28,16 +28,14 @@ pub use std::io::SeekFrom;
 
 pub fn seek_from_raw(whence: Option<i32>, offset: i64) -> SeekFrom {
     match whence {
-        Some(w) => match w {
-            libc::SEEK_SET => SeekFrom::Start(
-                offset
-                    .try_into()
-                    .expect("Invalid negative seek offset for file start"),
-            ),
-            libc::SEEK_CUR => SeekFrom::Current(offset),
-            libc::SEEK_END => SeekFrom::End(offset),
-            _ => panic!("Invalid seek code"),
-        },
+        Some(libc::SEEK_SET) => SeekFrom::Start(
+            offset
+                .try_into()
+                .expect("Invalid negative seek offset for file start"),
+        ),
+        Some(libc::SEEK_CUR) => SeekFrom::Current(offset),
+        Some(libc::SEEK_END) => SeekFrom::End(offset),
+        Some(_) => panic!("Invalid seek code"),
         None => SeekFrom::Start(
             offset
                 .try_into()
