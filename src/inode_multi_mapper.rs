@@ -386,76 +386,69 @@ where
                     .inodes
                     .get_mut(&target_child_inode)
                     .expect("target child inode not found");
-                match (backing_id.clone(), target_child_inode_backing_id) {
-                    (Some(desired_backing_id), Some(_target_child_inode_backing_id)) => {
-                        #[cfg(debug_assertions)]
-                        assert_ne!(
-                            desired_backing_id, _target_child_inode_backing_id,
-                            "the desired backing ID should not match because it is not yet recognized"
-                        );
-
-                        // Deassociate parent from target child
-                        let links = target_child_inode_data
-                            .links
-                            .entry(parent.clone())
-                            .or_insert_with(HashSet::new);
-                        links.remove(&child_name);
-                        if links.is_empty() {
-                            target_child_inode_data.links.remove(&parent);
-                        }
-
-                        // Create new inode
-                        let new_inode = self.compute_or_allocate_inode(Some(&desired_backing_id));
-
-                        // Associate parent to new child and initialize data
-                        self.data.inodes.insert(
-                            new_inode.clone(),
-                            InodeValue {
-                                links: HashMap::from([(
-                                    parent.clone(),
-                                    HashSet::from([child_name.clone()]),
-                                )]),
-                                data: value_creator(ValueCreatorParams {
-                                    parent: &parent,
-                                    new_inode: &new_inode,
-                                    child_name: child_name.as_ref(),
-                                    existing_data: None,
-                                }),
-                            },
-                        );
-
+                if let Some(desired_backing_id) = backing_id.clone()
+                    && let Some(_target_child_inode_backing_id) = target_child_inode_backing_id
+                {
+                    #[cfg(debug_assertions)]
+                    assert_ne!(
+                        desired_backing_id, _target_child_inode_backing_id,
+                        "the desired backing ID should not match because it is not yet recognized"
+                    );
+                    // Deassociate parent from target child
+                    let links = target_child_inode_data
+                        .links
+                        .entry(parent.clone())
+                        .or_insert_with(HashSet::new);
+                    links.remove(&child_name.clone());
+                    if links.is_empty() {
+                        target_child_inode_data.links.remove(&parent.clone());
+                    }
+                    // Create new inode
+                    let new_inode = self.compute_or_allocate_inode(Some(&desired_backing_id));
+                    // Associate parent to new child and initialize data
+                    self.data.inodes.insert(
+                        new_inode.clone(),
+                        InodeValue {
+                            links: HashMap::from([(
+                                parent.clone(),
+                                HashSet::from([child_name.clone()]),
+                            )]),
+                            data: value_creator(ValueCreatorParams {
+                                parent: &parent,
+                                new_inode: &new_inode,
+                                child_name: &child_name.as_ref(),
+                                existing_data: None,
+                            }),
+                        },
+                    );
+                    // Associate new child to parent
+                    self.data
+                        .backing
+                        .insert(new_inode.clone(), desired_backing_id);
+                    new_inode
+                } else {
+                    // Associate parent to target child
+                    target_child_inode_data
+                        .links
+                        .entry(parent.clone())
+                        .or_insert_with(HashSet::new)
+                        .insert(child_name.clone());
+                    // Associate target child to parent
+                    parent_children.insert(child_name.clone(), target_child_inode.clone());
+                    // Update data
+                    target_child_inode_data.data = value_creator(ValueCreatorParams {
+                        parent: &parent,
+                        new_inode: &target_child_inode,
+                        child_name: &child_name.as_ref(),
+                        existing_data: Some(&target_child_inode_data.data),
+                    });
+                    // Associate target child to backing ID
+                    if let Some(backing_id) = backing_id {
                         self.data
                             .backing
-                            .insert(new_inode.clone(), desired_backing_id);
-
-                        new_inode
+                            .insert(target_child_inode.clone(), backing_id);
                     }
-
-                    _ => {
-                        // Associate parent to target child
-                        target_child_inode_data
-                            .links
-                            .entry(parent.clone())
-                            .or_insert_with(HashSet::new)
-                            .insert(child_name.clone());
-
-                        parent_children.insert(child_name.clone(), target_child_inode.clone());
-
-                        target_child_inode_data.data = value_creator(ValueCreatorParams {
-                            parent: &parent,
-                            new_inode: &target_child_inode,
-                            child_name: child_name.as_ref(),
-                            existing_data: Some(&target_child_inode_data.data),
-                        });
-
-                        if let Some(backing_id) = backing_id {
-                            self.data
-                                .backing
-                                .insert(target_child_inode.clone(), backing_id);
-                        }
-
                         target_child_inode
-                    }
                 }
             }
             (Some(backing_inode), None) => {
