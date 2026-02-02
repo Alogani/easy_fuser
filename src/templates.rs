@@ -76,11 +76,10 @@ struct TestFs {
 }
 
 impl FuseHandler<PathBuf> for TestFs {
-    delegate_mirror_fs!(mirror_fs, ["write"])
+    delegate_fs!(mirror_fs, ["write"])
     /* Equivalent to
     fn write(&self, req: &RequestInfo, file_id: TId, file_handle: BorrowedFileHandle, seek: SeekFrom, data: Vec<u8>,
-        write_flags: FUSEWriteFlags, flags: OpenFlags, lock_owner: Option<u64>,) -> FuseResult<u32>
-    where Self: MirrorFs {
+        write_flags: FUSEWriteFlags, flags: OpenFlags, lock_owner: Option<u64>,) -> FuseResult<u32> {
         self.#mirror_fs.write(...)
     }
      */

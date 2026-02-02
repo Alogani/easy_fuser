@@ -2,13 +2,18 @@ extern crate proc_macro;
 
 mod fuse_handlers_signatures;
 
+use either::Either;
 use proc_macro::TokenStream;
 use quote::quote;
 use syn::{
-    Attribute, ExprBlock, Ident, LitStr, Result, Token, parse::{Parse, ParseStream}, parse_macro_input,
-    token::{FatArrow, Group, Semi}
+    Attribute, ExprBlock, Ident, Result, Token,
+    parse::{Parse, ParseStream},
+    parse_macro_input,
+    punctuated::Punctuated,
+    token::{Comma, FatArrow, Semi},
 };
-use either::Either;
+
+use fuse_handlers_signatures::*;
 
 struct FnSigInput {
     attrs: Vec<Attribute>,
@@ -36,14 +41,9 @@ impl Parse for FnSigInput {
             Either::Right(input.parse::<ExprBlock>()?)
         };
 
-        Ok(FnSigInput {
-            attrs,
-            name,
-            tail,
-        })
+        Ok(FnSigInput { attrs, name, tail })
     }
 }
-
 
 /// Usage:
 /// 1. ```fuse_handler_fnsig!{
@@ -63,47 +63,61 @@ pub fn fuse_handler_fnsig(input: TokenStream) -> TokenStream {
     let tail_tokens: proc_macro2::TokenStream = match input.tail {
         Either::Left(semi) => quote!( #semi ),
         Either::Right(block) => {
-            quote!( #block )   // reconstruct braced block
+            quote!( #block ) // reconstruct braced block
         }
     };
 
-    let fun_impl = fuse_handlers_signatures::get_fuse_handler_fn_impl(
+    let fun_impl = get_fuse_handler_fn_impl(
         &input.name.to_string(),
-            Some(tail_tokens),
     );
     quote!(
         #(#attrs)*
-        #fun_impl
-    ).into()
+        #fun_impl #tail_tokens
+    )
+    .into()
 }
 
-/*
+struct DelegateFsInput {
+    target: Ident,
+    _comma: Comma,
+    methods: Punctuated<Ident, Comma>,
+}
+
+impl Parse for DelegateFsInput {
+    fn parse(input: ParseStream) -> Result<Self> {
+        let target = input.parse::<Ident>()?;
+        let _comma = input.parse::<Comma>()?;
+
+        let content;
+        syn::braced!(content in input);
+
+        let methods = Punctuated::<Ident, Comma>::parse_terminated(&content)?;
+
+        Ok(Self {
+            target,
+            _comma,
+            methods,
+        })
+    }
+}
+
 #[proc_macro]
-pub fn delegate(input: TokenStream) -> TokenStream {
-    let parsed: syn::ExprTuple = parse_macro_input!(input);
-    let field_expr: Expr = parsed.elems[0].clone(); // self.fuse_handler
-    let methods_vec: syn::ExprVec = syn::parse2(parsed.elems[1].to_token_stream()).unwrap();
+pub fn delegate_fs(input: TokenStream) -> TokenStream {
+    let args = syn::parse_macro_input!(input as DelegateFsInput);
 
-    let mut delegations = vec![];
-    for method in methods_vec.elems {
-        let method_ident = if let syn::Expr::Path(p) = method { p.path.get_ident().unwrap().clone() } else { panic!("Expected ident") };
-        let method_str = method_ident.to_string();
+    let target = args.target;
 
-        // Find matching signature
-        let sig = METHODS.iter().find(|(name, _)| *name == method_str).map(|(_, sig)| sig).unwrap_or_else(|| panic!("Unknown method: {}", method_str));
-        let sig_parsed: syn::Signature = syn::parse_str(sig).unwrap();
+    let mut expanded = quote! {};
 
-        // Generate delegation
-        let args: Vec<Ident> = sig_parsed.inputs.iter().skip(1).map(|arg| if let syn::FnArg::Typed(t) = arg { t.pat.as_ref().clone() } else { panic!() }).collect(); // Skip &self
-        let arg_idents: Vec<_> = args.iter().map(|pat| if let syn::Pat::Ident(i) = pat { i.ident.clone() } else { panic!() }).collect();
-
-        delegations.push(quote! {
-            #sig_parsed {
-                #field_expr.#method_ident(#(#arg_idents),*)
+    for method in &args.methods {
+        let fn_impl = get_fuse_handler_fn_impl(&method.to_string());
+        let method_expr = make_method_call_expr(&fn_impl);
+        expanded.extend(quote! {
+            #fn_impl {
+                self.#target.#method_expr
             }
         });
     }
 
-    quote!(#(#delegations)*).into()
+    expanded.into()
 }
-    */
