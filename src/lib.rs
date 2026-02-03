@@ -24,11 +24,11 @@ mod fuse_handler;
 
 pub mod inode_mapper;
 pub mod session;
+pub mod inode_multi_mapper;
 pub mod templates;
 pub mod types;
 pub mod unix_fs;
 
-pub use core::{FileIdResolver, InodeResolvable};
 pub use fuse_handler::FuseHandler;
 pub use session::{FusePruner, FuseSession};
 use fuser::MountOption;

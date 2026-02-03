@@ -7,7 +7,7 @@ use std::{
 use crate::PosixError;
 use libc::{self, c_char, c_int, c_uint, off_t, size_t, ssize_t};
 
-use super::{cstring_from_path, StatFs};
+use super::{StatFs, cstring_from_path};
 
 pub(crate) fn get_errno() -> i32 {
     unsafe { *libc::__errno_location() }

@@ -8,7 +8,7 @@
 use bitflags::bitflags;
 
 bitflags! {
-    #[derive(Debug, Copy, Clone)]
+    #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
     /// Flags used to check file accessibility.
     pub struct AccessMask: i32 {
         /// Check if the file exists.
@@ -24,7 +24,7 @@ bitflags! {
 }
 
 bitflags! {
-    #[derive(Debug, Copy, Clone)]
+    #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
     /// Flags used in fallocate calls.
     pub struct FallocateFlags: i32 {
         /// Retain file size; don't extend even if offset + len is greater
@@ -50,7 +50,7 @@ bitflags! {
 }
 
 bitflags! {
-    #[derive(Debug, Copy, Clone)]
+    #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
     pub struct FUSEAttrFlags: u32 {
         const SUBMOUNT = 1 << 0;
         const DAX = 1 << 1;
@@ -59,7 +59,7 @@ bitflags! {
 }
 
 bitflags! {
-    #[derive(Debug, Copy, Clone)]
+    #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
     pub struct FUSEGetAttrFlags: i32 {
         const GETATTR_FH = 1 << 0;
         const _ = !0;
@@ -67,7 +67,7 @@ bitflags! {
 }
 
 bitflags! {
-    #[derive(Debug, Copy, Clone)]
+    #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
     pub struct FUSEOpenFlags: i32 {
         const KILL_SUIDGID = 1 << 0;
         const _ = !0;
@@ -75,7 +75,7 @@ bitflags! {
 }
 
 bitflags! {
-    #[derive(Debug, Copy, Clone)]
+    #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
     /// Flags used in the response to a FUSE open operation.
     pub struct FUSEOpenResponseFlags: u32 {
         /// Bypass page cache for this file.
@@ -99,7 +99,7 @@ bitflags! {
 }
 
 bitflags! {
-    #[derive(Debug, Copy, Clone)]
+    #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
     pub struct FUSEIoctlFlags: u32 {
         const COMPAT = 1 << 0;
         const UNRESTRICTED = 1 << 1;
@@ -112,7 +112,7 @@ bitflags! {
 }
 
 bitflags! {
-    #[derive(Debug, Copy, Clone)]
+    #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
     pub struct FUSEReadFlags: i32 {
         const LOCKOWNER = 1 << 0;
         const _ = !0;
@@ -120,7 +120,7 @@ bitflags! {
 }
 
 bitflags! {
-    #[derive(Debug, Copy, Clone)]
+    #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
     pub struct FUSEReleaseFlags: i32 {
         const FLUSH = 1 << 0;
         const FLOCK_UNLOCK = 1 << 1;
@@ -129,7 +129,7 @@ bitflags! {
 }
 
 bitflags! {
-    #[derive(Debug, Copy, Clone)]
+    #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
     pub struct FUSEFsyncFlags: u32 {
         const FDATASYNC = 1 << 0;
         const _ = !0;
@@ -137,7 +137,7 @@ bitflags! {
 }
 
 bitflags! {
-    #[derive(Debug, Copy, Clone)]
+    #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
     pub struct FUSESetXAttrFlags: i32 {
         const ACL_KILL_SGID = 1 << 0;
         const _ = !0;
@@ -145,7 +145,7 @@ bitflags! {
 }
 
 bitflags! {
-    #[derive(Debug, Copy, Clone)]
+    #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
     pub struct FUSEWriteFlags: u32 {
         const CACHE = 1 << 0;
         const LOCKOWNER = 1 << 1;
@@ -155,7 +155,7 @@ bitflags! {
 }
 
 bitflags! {
-    #[derive(Debug, Copy, Clone)]
+    #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
     pub struct IOCtlFlags: u32 {
         // Placeholder for future flags
         const _ = !0;
@@ -163,7 +163,7 @@ bitflags! {
 }
 
 bitflags! {
-    #[derive(Debug, Copy, Clone)]
+    #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
     // c_short in BSD, c_int in linux
     /// Flags representing different types of file locks.
     pub struct LockType: i32 {
@@ -178,7 +178,7 @@ bitflags! {
 }
 
 bitflags! {
-    #[derive(Debug, Copy, Clone)]
+    #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
     /// Flags used when opening files.
     pub struct OpenFlags: i32 {
         /// Open for reading only.
@@ -220,7 +220,7 @@ bitflags! {
 }
 
 bitflags! {
-    #[derive(Debug, Copy, Clone)]
+    #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
     /// Flags used in rename operations.
     pub struct RenameFlags: u32 {
         /// Atomically exchange the old and new pathnames. (Linux only)

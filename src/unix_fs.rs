@@ -312,7 +312,7 @@ pub fn setattr(path: &Path, attrs: SetAttrRequest) -> Result<FileAttribute, Posi
                 return Err(PosixError::new(
                     ErrorKind::InvalidArgument,
                     "Could not convert timespec to TimeOrNow in setattr",
-                ))
+                ));
             }
         };
         let result = unsafe {
@@ -939,13 +939,7 @@ pub fn create(
     };
 
     // Open the file with O_CREAT (create if it does not exist)
-    let fd = unsafe {
-        libc::open(
-            c_path.as_ptr(),
-            open_flags | libc::O_CREAT,
-            final_mode,
-        )
-    };
+    let fd = unsafe { libc::open(c_path.as_ptr(), open_flags | libc::O_CREAT, final_mode) };
 
     if fd == -1 {
         return Err(PosixError::last_error(format!(
