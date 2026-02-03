@@ -92,7 +92,6 @@ use std::path::Path;
 use std::time::Duration;
 
 use crate::types::*;
-use crate::core::InodeResolvable;
 
 mod private {
     #[cfg(not(feature = "serial"))]
@@ -109,9 +108,6 @@ use private::OptionalSendSync;
 pub trait FuseHandler<TId: FileIdType>: OptionalSendSync + 'static {
     /// Delegate unprovided methods to another FuseHandler, enabling composition
     fn get_inner(&self) -> &dyn FuseHandler<TId>;
-
-    /// Prune the resolver by removing unreferenced inodes
-    fn prune_resolver(&self, _resolver: &<TId as InodeResolvable>::Resolver) {}
 
     /// Provide a default Time-To-Live for file metadata
     ///

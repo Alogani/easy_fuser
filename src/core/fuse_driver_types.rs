@@ -16,6 +16,7 @@ mod serial {
     use super::*;
 
     use std::cell::RefCell;
+    use std::sync::Arc;
 
     pub(crate) struct FuseDriver<TId, THandler>
     where
@@ -23,7 +24,7 @@ mod serial {
         THandler: FuseHandler<TId>,
     {
         handler: THandler,
-        resolver: TId::Resolver,
+        resolver: Arc<TId::Resolver>,
         dirmap_iter: RefCell<DirIter<FileKind>>,
         dirmapplus_iter: RefCell<DirIter<FileAttribute>>,
     }
@@ -37,7 +38,7 @@ mod serial {
         pub fn new(handler: THandler, _num_threads: usize) -> FuseDriver<TId, THandler> {
             FuseDriver {
                 handler,
-                resolver: TId::Resolver::new(),
+                resolver: Arc::new(TId::create_resolver()),
                 dirmap_iter: RefCell::new(HashMap::new()),
                 dirmapplus_iter: RefCell::new(HashMap::new()),
             }
@@ -47,8 +48,8 @@ mod serial {
             &self.handler
         }
 
-        pub fn get_resolver(&self) -> &TId::Resolver {
-            &self.resolver
+        pub fn get_resolver(&self) -> Arc<TId::Resolver> {
+            self.resolver.clone()
         }
 
         pub fn get_dirmap_iter(&self) -> &RefCell<DirIter<FileKind>> {

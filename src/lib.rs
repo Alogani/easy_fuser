@@ -23,17 +23,20 @@ mod core;
 mod fuse_handler;
 
 pub mod inode_mapper;
+pub mod session;
 pub mod templates;
 pub mod types;
 pub mod unix_fs;
 
 pub use core::{FileIdResolver, InodeResolvable};
 pub use fuse_handler::FuseHandler;
-use fuser::{BackgroundSession, MountOption};
+pub use session::{FusePruner, FuseSession};
+use fuser::MountOption;
 
 pub mod prelude {
     //! Re-exports the necessary types and functions from the `easy_fuser` crate.
     pub use super::fuse_handler::FuseHandler;
+    pub use super::session::{FusePruner, FuseSession};
     pub use super::types::*;
     pub use super::{mount, spawn_mount};
 
@@ -84,14 +87,16 @@ pub fn spawn_mount<T, FS, P>(
     mountpoint: P,
     options: &[MountOption],
     num_threads: usize,
-) -> io::Result<BackgroundSession>
+) -> io::Result<FuseSession<T>>
 where
     T: FileIdType,
     FS: FuseHandler<T> + Send,
     P: AsRef<Path>,
 {
     let driver = FuseDriver::new(filesystem, num_threads);
-    spawn_mount2(driver, mountpoint, options)
+    let resolver = driver.get_resolver();
+    let session = spawn_mount2(driver, mountpoint, options)?;
+    Ok(FuseSession::new(session, resolver))
 }
 
 #[doc = include_str!("../docs/spawn_mount.md")]
@@ -100,7 +105,7 @@ pub fn spawn_mount<T, FS, P>(
     filesystem: FS,
     mountpoint: P,
     options: &[MountOption],
-) -> io::Result<BackgroundSession>
+) -> io::Result<FuseSession<T>>
 where
     T: FileIdType,
     FS: FuseHandler<T> + Send,
@@ -108,5 +113,7 @@ where
 {
     // num_thread argument will not be taken into account in this function due to feature serial
     let driver = FuseDriver::new(filesystem, 1);
-    spawn_mount2(driver, mountpoint, options)
+    let resolver = driver.get_resolver();
+    let session = spawn_mount2(driver, mountpoint, options)?;
+    Ok(FuseSession::new(session, resolver))
 }
