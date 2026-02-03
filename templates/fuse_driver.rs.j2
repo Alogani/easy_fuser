@@ -1,6 +1,7 @@
 {% let send_sync = mode != "serial" %}
 
 use std::{
+    sync::Arc,
     collections::{HashMap, VecDeque},
     ffi::{OsStr, OsString},
     path::Path,
@@ -28,7 +29,6 @@ type DirIter<TAttr> = HashMap<(u64, i64), VecDeque<(OsString, u64, TAttr)>>;
     use std::cell::RefCell;
 
 {% elif mode == "parallel" %}
-    use std::sync::Arc;
     use threadpool::ThreadPool;
 
     #[cfg(feature = "deadlock_detection")]
@@ -37,7 +37,6 @@ type DirIter<TAttr> = HashMap<(u64, i64), VecDeque<(OsString, u64, TAttr)>>;
     use std::sync::Mutex;
 
 {% elif mode == "async" %}
-    use std::sync::Arc;
     use tokio::runtime::Runtime;
     use tokio::sync::Mutex;
 {% endif %}
@@ -47,14 +46,14 @@ where
     TId: FileIdType,
     THandler: FuseHandler<TId>,
 {
+    pub resolver: Arc<TId::Resolver>,
+
     {% if !send_sync %}
         handler: THandler,
-        resolver: TId::Resolver,
         dirmap_iter: RefCell<DirIter<FileKind>>,
         dirmapplus_iter: RefCell<DirIter<FileAttribute>>,
     {% else %}
         handler: Arc<THandler>,
-        resolver: Arc<TId::Resolver>,
         dirmap_iter: Arc<Mutex<DirIter<FileKind>>>,
         dirmapplus_iter: Arc<Mutex<DirIter<FileAttribute>>>,
     {% endif %}
@@ -99,14 +98,13 @@ where
         {% endif %}
 
         FuseDriver {
+            resolver: Arc::new(TId::create_resolver()),
             {% if mode == "serial" %}
                 handler,
-                resolver: TId::Resolver::new(),
                 dirmap_iter: RefCell::new(HashMap::new()),
                 dirmapplus_iter: RefCell::new(HashMap::new()),
             {% else %}
                 handler: Arc::new(handler),
-                resolver: Arc::new(TId::create_resolver()),
                 dirmap_iter: Arc::new(Mutex::new(HashMap::new())),
                 dirmapplus_iter: Arc::new(Mutex::new(HashMap::new())),
             {% endif %}
@@ -125,10 +123,6 @@ where
             &self.handler
         }
 
-        pub fn get_resolver(&self) -> &TId::Resolver {
-            &self.resolver
-        }
-
         pub fn get_dirmap_iter(&self) -> &RefCell<DirIter<FileKind>> {
             &self.dirmap_iter
         }
@@ -139,10 +133,6 @@ where
     {% else %}
         pub fn get_handler(&self) -> Arc<THandler> {
             self.handler.clone()
-        }
-
-        pub fn get_resolver(&self) -> Arc<TId::Resolver> {
-            self.resolver.clone()
         }
 
         pub fn get_dirmap_iter(&self) -> Arc<Mutex<DirIter<FileKind>>> {
@@ -243,7 +233,7 @@ where
     fn access(&mut self, req: &Request, ino: u64, mask: i32, reply: ReplyEmpty) {
         let req = RequestInfo::from(req);
         let handler = self.get_handler();
-        let resolver = self.get_resolver();
+        let resolver = self.resolver.clone();
         {% call spawn() %}
             match handler.access(
                 &req,
@@ -263,7 +253,7 @@ where
     fn bmap(&mut self, req: &Request<'_>, ino: u64, blocksize: u32, idx: u64, reply: ReplyBmap) {
         let req = RequestInfo::from(req);
         let handler = self.get_handler();
-        let resolver = self.get_resolver();
+        let resolver = self.resolver.clone();
         {% call spawn() %}
             match handler.bmap(&req, resolver.resolve_id(ino), blocksize, idx) {
                 Ok(block) => { {% call spawn_reply() %}reply.bmap(block);{% endcall %} }
@@ -290,7 +280,7 @@ where
     ) {
         let req = RequestInfo::from(req);
         let handler = self.get_handler();
-        let resolver = self.get_resolver();
+        let resolver = self.resolver.clone();
         {% call spawn() %}
             match handler.copy_file_range(
                 &req,
@@ -324,7 +314,7 @@ where
     ) {
         let req = RequestInfo::from(req);
         let handler = self.get_handler();
-        let resolver = self.get_resolver();
+        let resolver = self.resolver.clone();
         let name = name.to_owned();
         {% call spawn() %}
             match handler.create(
@@ -370,7 +360,7 @@ where
     ) {
         let req = RequestInfo::from(req);
         let handler = self.get_handler();
-        let resolver = self.get_resolver();
+        let resolver = self.resolver.clone();
         {% call spawn() %}
             match handler.fallocate(
                 &req,
@@ -392,7 +382,7 @@ where
     fn flush(&mut self, req: &Request, ino: u64, fh: u64, lock_owner: u64, reply: ReplyEmpty) {
         let req = RequestInfo::from(req);
         let handler = self.get_handler();
-        let resolver = self.get_resolver();
+        let resolver = self.resolver.clone();
         {% call spawn() %}
             match handler.flush(
                 &req,
@@ -412,7 +402,7 @@ where
     fn forget(&mut self, req: &Request, ino: u64, nlookup: u64) {
         let req = RequestInfo::from(req);
         let handler = self.get_handler();
-        let resolver = self.get_resolver();
+        let resolver = self.resolver.clone();
         handler.forget(&req, resolver.resolve_id(ino), nlookup);
         resolver.forget(ino, nlookup);
     }
@@ -420,7 +410,7 @@ where
     fn fsync(&mut self, req: &Request, ino: u64, fh: u64, datasync: bool, reply: ReplyEmpty) {
         let req = RequestInfo::from(req);
         let handler = self.get_handler();
-        let resolver = self.get_resolver();
+        let resolver = self.resolver.clone();
         {% call spawn() %}
             match handler.fsync(
                 &req,
@@ -440,7 +430,7 @@ where
     fn fsyncdir(&mut self, req: &Request, ino: u64, fh: u64, datasync: bool, reply: ReplyEmpty) {
         let req = RequestInfo::from(req);
         let handler = self.get_handler();
-        let resolver = self.get_resolver();
+        let resolver = self.resolver.clone();
         {% call spawn() %}
             match handler.fsyncdir(
                 &req,
@@ -460,7 +450,7 @@ where
     fn getattr(&mut self, req: &Request, ino: u64, fh: Option<u64>, reply: ReplyAttr) {
         let req = RequestInfo::from(req);
         let handler = self.get_handler();
-        let resolver = self.get_resolver();
+        let resolver = self.resolver.clone();
         {% call spawn() %}
             match handler.getattr(
                 &req,
@@ -490,7 +480,7 @@ where
     ) {
         let req = RequestInfo::from(req);
         let handler = self.get_handler();
-        let resolver = self.get_resolver();
+        let resolver = self.resolver.clone();
         {% call spawn() %}
             let lock_info = LockInfo {
                 start,
@@ -524,7 +514,7 @@ where
     fn getxattr(&mut self, req: &Request, ino: u64, name: &OsStr, size: u32, reply: ReplyXattr) {
         let req = RequestInfo::from(req);
         let handler = self.get_handler();
-        let resolver = self.get_resolver();
+        let resolver = self.resolver.clone();
         let name = name.to_owned();
         {% call spawn() %}
             match handler.getxattr(&req, resolver.resolve_id(ino), &name, size) {
@@ -558,7 +548,7 @@ where
     ) {
         let req = RequestInfo::from(req);
         let handler = self.get_handler();
-        let resolver = self.get_resolver();
+        let resolver = self.resolver.clone();
         let in_data = in_data.to_owned();
         {% call spawn() %}
             match handler.ioctl(
@@ -589,7 +579,7 @@ where
     ) {
         let req = RequestInfo::from(req);
         let handler = self.get_handler();
-        let resolver = self.get_resolver();
+        let resolver = self.resolver.clone();
         let newname = newname.to_owned();
         {% call spawn() %}
             match handler.link(&req,
@@ -609,7 +599,7 @@ where
     fn listxattr(&mut self, req: &Request, ino: u64, size: u32, reply: ReplyXattr) {
         let req = RequestInfo::from(req);
         let handler = self.get_handler();
-        let resolver = self.get_resolver();
+        let resolver = self.resolver.clone();
         {% call spawn() %}
             match handler.listxattr(&req, resolver.resolve_id(ino), size) {
                 Ok(xattr_data) => { {% call spawn_reply() %}
@@ -632,7 +622,7 @@ where
     fn lookup(&mut self, req: &Request, parent: u64, name: &OsStr, reply: ReplyEntry) {
         let req = RequestInfo::from(req);
         let handler = self.get_handler();
-        let resolver = self.get_resolver();
+        let resolver = self.resolver.clone();
         let name = name.to_owned();
         {% call spawn() %}
             match handler.lookup(&req, resolver.resolve_id(parent), &name) {
@@ -657,7 +647,7 @@ where
     ) {
         let req = RequestInfo::from(req);
         let handler = self.get_handler();
-        let resolver = self.get_resolver();
+        let resolver = self.resolver.clone();
         {% call spawn() %}
             match handler.lseek(
                 &req,
@@ -685,7 +675,7 @@ where
     ) {
         let req = RequestInfo::from(req);
         let handler = self.get_handler();
-        let resolver = self.get_resolver();
+        let resolver = self.resolver.clone();
         let name = name.to_owned();
         {% call spawn() %}
             match handler.mkdir(&req,
@@ -715,7 +705,7 @@ where
     ) {
         let req = RequestInfo::from(req);
         let handler = self.get_handler();
-        let resolver = self.get_resolver();
+        let resolver = self.resolver.clone();
         let name = name.to_owned();
         {% call spawn() %}
             match handler.mknod(
@@ -738,7 +728,7 @@ where
     fn open(&mut self, req: &Request, ino: u64, _flags: i32, reply: ReplyOpen) {
         let req = RequestInfo::from(req);
         let handler = self.get_handler();
-        let resolver = self.get_resolver();
+        let resolver = self.resolver.clone();
         {% call spawn() %}
             match handler.open(
                 &req,
@@ -759,7 +749,7 @@ where
     fn opendir(&mut self, req: &Request, ino: u64, _flags: i32, reply: ReplyOpen) {
         let req = RequestInfo::from(req);
         let handler = self.get_handler();
-        let resolver = self.get_resolver();
+        let resolver = self.resolver.clone();
         {% call spawn() %}
             match handler.opendir(
                 &req,
@@ -790,7 +780,7 @@ where
     ) {
         let req = RequestInfo::from(req);
         let handler = self.get_handler();
-        let resolver = self.get_resolver();
+        let resolver = self.resolver.clone();
         {% call spawn() %}
             match handler.read(
                 &req,
@@ -813,7 +803,7 @@ where
     {% macro readdir_impl(is_extended_readdir) -%}
         let req_info = RequestInfo::from(req);
         let handler = self.get_handler();
-        let resolver = self.get_resolver();
+        let resolver = self.resolver.clone();
         let dirmap_iter = {% if is_extended_readdir %}
             self.get_dirmapplus_iter(){% else %}
             self.get_dirmap_iter(){% endif %};
@@ -953,7 +943,7 @@ where
     fn readlink(&mut self, req: &Request, ino: u64, reply: ReplyData) {
         let req = RequestInfo::from(req);
         let handler = self.get_handler();
-        let resolver = self.get_resolver();
+        let resolver = self.resolver.clone();
         {% call spawn() %}
             match handler.readlink(&req, resolver.resolve_id(ino)) {
                 Ok(link) => { {% call spawn_reply() %} reply.data(&link); {% endcall %} }
@@ -977,7 +967,7 @@ where
     ) {
         let req = RequestInfo::from(req);
         let handler = self.get_handler();
-        let resolver = self.get_resolver();
+        let resolver = self.resolver.clone();
         {% call spawn() %}
             match handler.release(
                 &req,
@@ -999,7 +989,7 @@ where
     fn releasedir(&mut self, req: &Request, ino: u64, fh: u64, flags: i32, reply: ReplyEmpty) {
         let req = RequestInfo::from(req);
         let handler = self.get_handler();
-        let resolver = self.get_resolver();
+        let resolver = self.resolver.clone();
         {% call spawn() %}
             match handler.releasedir(
                 &req,
@@ -1019,7 +1009,7 @@ where
     fn removexattr(&mut self, req: &Request, ino: u64, name: &OsStr, reply: ReplyEmpty) {
         let req = RequestInfo::from(req);
         let handler = self.get_handler();
-        let resolver = self.get_resolver();
+        let resolver = self.resolver.clone();
         let name = name.to_owned();
         {% call spawn() %}
             match handler.removexattr(&req, resolver.resolve_id(ino), &name) {
@@ -1044,7 +1034,7 @@ where
     ) {
         let req = RequestInfo::from(req);
         let handler = self.get_handler();
-        let resolver = self.get_resolver();
+        let resolver = self.resolver.clone();
         let name = name.to_owned();
         let newname = newname.to_owned();
         {% call spawn() %}
@@ -1070,7 +1060,7 @@ where
     fn rmdir(&mut self, req: &Request, parent: u64, name: &OsStr, reply: ReplyEmpty) {
         let req = RequestInfo::from(req);
         let handler = self.get_handler();
-        let resolver = self.get_resolver();
+        let resolver = self.resolver.clone();
         let name = name.to_owned();
         {% call spawn() %}
             match handler.rmdir(&req, resolver.resolve_id(parent), &name) {
@@ -1103,7 +1093,7 @@ where
     ) {
         let req = RequestInfo::from(req);
         let handler = self.get_handler();
-        let resolver = self.get_resolver();
+        let resolver = self.resolver.clone();
         let attrs = SetAttrRequest {
             mode,
             uid,
@@ -1148,7 +1138,7 @@ where
     ) {
         let req = RequestInfo::from(req);
         let handler = self.get_handler();
-        let resolver = self.get_resolver();
+        let resolver = self.resolver.clone();
         {% call spawn() %}
             let lock_info = LockInfo {
                 start,
@@ -1185,7 +1175,7 @@ where
     ) {
         let req = RequestInfo::from(req);
         let handler = self.get_handler();
-        let resolver = self.get_resolver();
+        let resolver = self.resolver.clone();
         let name = name.to_owned();
         let value = value.to_owned();
         {% call spawn() %}
@@ -1209,7 +1199,7 @@ where
     fn statfs(&mut self, req: &Request, ino: u64, reply: ReplyStatfs) {
         let req = RequestInfo::from(req);
         let handler = self.get_handler();
-        let resolver = self.get_resolver();
+        let resolver = self.resolver.clone();
         {% call spawn() %}
             match handler.statfs(&req, resolver.resolve_id(ino)) {
                 Ok(statfs) => { {% call spawn_reply() %}
@@ -1242,7 +1232,7 @@ where
     ) {
         let req = RequestInfo::from(req);
         let handler = self.get_handler();
-        let resolver = self.get_resolver();
+        let resolver = self.resolver.clone();
         let link_name = link_name.to_owned();
         let target = target.to_owned();
         {% call spawn() %}
@@ -1270,7 +1260,7 @@ where
     ) {
         let req = RequestInfo::from(req);
         let handler = self.get_handler();
-        let resolver = self.get_resolver();
+        let resolver = self.resolver.clone();
         let data = data.to_owned();
         {% call spawn() %}
             match handler.write(
@@ -1295,7 +1285,7 @@ where
     fn unlink(&mut self, req: &Request, parent: u64, name: &OsStr, reply: ReplyEmpty) {
         let req = RequestInfo::from(req);
         let handler = self.get_handler();
-        let resolver = self.get_resolver();
+        let resolver = self.resolver.clone();
         let name = name.to_owned();
         {% call spawn() %}
             match handler.unlink(&req, resolver.resolve_id(parent), &name) {

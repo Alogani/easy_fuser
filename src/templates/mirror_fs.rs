@@ -93,9 +93,7 @@ macro_rules! mirror_fs_readonly_methods {
             _file_handle: Option<BorrowedFileHandle>,
         ) -> FuseResult<FileAttribute> {
             let file_path = self.source_path.join(file_id);
-            let fd = unix_fs::open(file_path.as_ref(), OpenFlags::empty())?;
-            let result = unix_fs::getattr(fd.as_fd());
-            result
+            unix_fs::lookup(&file_path)
         }
 
         fn getxattr(

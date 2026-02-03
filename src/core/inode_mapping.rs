@@ -1,4 +1,5 @@
 use std::{
+    collections::HashSet,
     ffi::{OsStr, OsString},
     fmt::Debug,
     hash::Hash,
@@ -76,6 +77,7 @@ pub trait FileIdResolver: Send + Sync + 'static {
         increment: bool,
     ) -> Vec<(OsString, u64)>;
     fn forget(&self, ino: u64, nlookup: u64);
+    fn prune(&self, keep: &HashSet<Self::ResolvedType>);
     fn rename(&self, parent: u64, name: &OsStr, newparent: u64, newname: &OsStr);
 }
 
@@ -110,6 +112,8 @@ impl FileIdResolver for InodeResolver {
     }
 
     fn forget(&self, _ino: u64, _nlookup: u64) {}
+
+    fn prune(&self, _keep: &HashSet<Self::ResolvedType>) {}
 
     fn rename(&self, _parent: u64, _name: &OsStr, _newparent: u64, _newname: &OsStr) {}
 }
@@ -168,16 +172,14 @@ impl FileIdResolver for ComponentsResolver {
         children: Vec<(OsString, ())>,
         increment: bool,
     ) -> Vec<(OsString, u64)> {
-        let value_creator =
-            |value_creator: inode_mapper::ValueCreatorParams<AtomicU64>| match value_creator
-                .existing_data
-            {
-                Some(nlookup) => {
-                    let count = nlookup.load(Ordering::Relaxed);
-                    AtomicU64::new(if increment { count + 1 } else { count })
-                }
-                None => AtomicU64::new(if increment { 1 } else { 0 }),
-            };
+        let value_creator = |value_creator: inode_mapper::ValueCreatorParams<AtomicU64>| {
+            if let Some(nlookup) = value_creator.existing_data {
+                let count = nlookup.load(Ordering::Relaxed);
+                AtomicU64::new(if increment { count + 1 } else { count })
+            } else {
+                AtomicU64::new(if increment { 1 } else { 0 })
+            }
+        };
         let children_with_creator: Vec<_> = children
             .iter()
             .map(|(name, _)| (name.clone(), value_creator))
@@ -207,6 +209,10 @@ impl FileIdResolver for ComponentsResolver {
             }
         }
         self.mapper.write().unwrap().remove(&inode).unwrap();
+    }
+
+    fn prune(&self, keep: &HashSet<Self::ResolvedType>) {
+        self.mapper.write().expect("Failed to acquire write lock").prune(keep);
     }
 
     fn rename(&self, parent: u64, name: &OsStr, newparent: u64, newname: &OsStr) {
@@ -267,6 +273,14 @@ impl FileIdResolver for PathResolver {
 
     fn forget(&self, ino: u64, nlookup: u64) {
         self.resolver.forget(ino, nlookup);
+    }
+
+    fn prune(&self, keep: &HashSet<Self::ResolvedType>) {
+        let resolver_keep: HashSet<Vec<OsString>> = keep
+            .iter()
+            .map(|path| path.iter().map(|s| s.to_os_string()).collect())
+            .collect();
+        self.resolver.prune(&resolver_keep);
     }
 
     fn rename(&self, parent: u64, name: &OsStr, newparent: u64, newname: &OsStr) {
@@ -347,14 +361,14 @@ where
         children: Vec<(OsString, <Self::ResolvedType as FileIdType>::_Id)>,
         increment: bool,
     ) -> Vec<(OsString, u64)> {
-        let value_creator =
-            |value_creator: ValueCreatorParams<AtomicU64>| match value_creator.existing_data {
-                Some(nlookup) => {
-                    let count = nlookup.load(Ordering::Relaxed);
-                    AtomicU64::new(if increment { count + 1 } else { count })
-                }
-                None => AtomicU64::new(if increment { 1 } else { 0 }),
-            };
+        let value_creator = |value_creator: ValueCreatorParams<AtomicU64>| {
+            if let Some(nlookup) = value_creator.existing_data {
+                let count = nlookup.load(Ordering::Relaxed);
+                AtomicU64::new(if increment { count + 1 } else { count })
+            } else {
+                AtomicU64::new(if increment { 1 } else { 0 })
+            }
+        };
         let children_with_creator: Vec<_> = children
             .iter()
             .map(|(name, id)| (name.clone(), id.clone(), value_creator))
@@ -388,6 +402,10 @@ where
             .expect("Failed to acquire write lock")
             .remove(&inode)
             .unwrap();
+    }
+
+    fn prune(&self, _keep: &HashSet<Self::ResolvedType>) {
+        // TODO
     }
 
     fn rename(&self, parent: u64, name: &OsStr, newparent: u64, newname: &OsStr) {
@@ -445,6 +463,28 @@ mod tests {
 
         let renamed_path = resolver.resolve_id(child_ino);
         assert_eq!(renamed_path, vec![OsString::from("renamed_child")]);
+
+        // Test prune
+        let keep = HashSet::new();
+        resolver.prune(&keep);
+        
+        // child_ino should be gone now because refcount was 0 (decremented by earlier forget) and we pruned it.
+        // We can verify it's gone by trying to resolve it and expecting panic (as per other test) or just by knowing prune works.
+        // But calling forget again is definitely wrong if it's gone.
+        
+        // If we want to test that prune actually removed it, we should check existence.
+        // But since we can't easily check existence without internal access, we rely on the fact that subsequent operations might fail or the other test.
+    }
+
+    #[test]
+    #[should_panic(expected = "Failed to resolve inode")]
+    fn test_components_resolver_prune_panics_on_resolved_deleted() {
+        let resolver = ComponentsResolver::new();
+        let parent_ino = ROOT_INO;
+        let child_ino = resolver.lookup(parent_ino, OsStr::new("child"), (), true);
+        resolver.forget(child_ino, 1);
+        resolver.prune(&HashSet::new());
+        resolver.resolve_id(child_ino);
     }
 
     #[test]
