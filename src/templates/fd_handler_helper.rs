@@ -111,7 +111,6 @@ macro_rules! fd_handler_readonly_methods {
             file_handle: BorrowedFileHandle,
             seek: SeekFrom,
             size: u32,
-            _read_flags: FUSEReadFlags,
             _flags: OpenFlags,
             _lock_owner: Option<LockOwner>,
         ) -> FuseResult<Vec<u8>> {
@@ -160,8 +159,8 @@ macro_rules! fd_handler_readwrite_methods {
             _req: &RequestInfo,
             _file_id: TId,
             file_handle: BorrowedFileHandle,
-            offset: i64,
-            length: i64,
+            offset: u64,
+            length: u64,
             mode: FallocateFlags,
         ) -> FuseResult<()> {
             unix_fs::fallocate(file_handle.as_borrowed_fd(), offset, length, mode)

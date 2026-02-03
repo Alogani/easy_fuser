@@ -19,14 +19,16 @@ use super::{Inode, ROOT_INODE};
 /// # Note
 /// - T is the type of data associated with each inode.
 /// - Maintains a next_inode counter for generating unique inode values.
-pub struct InodeMapper<T> {
-    data: InodeData<T>,
+pub struct InodeMapper<Data> {
+    data: InodeData<Data>,
     root_inode: Inode,
     next_inode: Inode,
 }
 
 struct InodeData<T> {
+    /// A map of inodes' internal data
     inodes: HashMap<Inode, InodeValue<T>>,
+    /// A map of inodes' child nodes.
     children: HashMap<Inode, HashMap<OsStringWrapper, Inode>>,
 }
 
@@ -96,12 +98,12 @@ impl Borrow<OsStr> for OsStringWrapper {
     }
 }
 
-impl<T: Send + Sync + 'static> InodeMapper<T> {
+impl<Data: Send + Sync + 'static> InodeMapper<Data> {
     /// Creates a new `InodeMapper` instance with the root inode initialized.
     ///
     /// This function initializes the `InodeMapper` with an empty structure and sets up the root inode
     /// with the provided data. The root inode is assigned an empty name and its parent is set to itself.
-    pub fn new(data: T) -> Self {
+    pub fn new(data: Data) -> Self {
         let mut result = InodeMapper {
             data: InodeData {
                 inodes: HashMap::new(),
@@ -144,7 +146,7 @@ impl<T: Send + Sync + 'static> InodeMapper<T> {
         value_creator: F,
     ) -> Inode
     where
-        F: Fn(ValueCreatorParams<T>) -> T,
+        F: Fn(ValueCreatorParams<Data>) -> Data,
     {
         // Wrap `child` in `OsStringWrapper` for efficient storage and comparison
         let child = OsStringWrapper(Arc::new(child));
@@ -206,7 +208,7 @@ impl<T: Send + Sync + 'static> InodeMapper<T> {
         value_creator: F,
     ) -> Result<Inode, InsertError>
     where
-        F: Fn(ValueCreatorParams<T>) -> T,
+        F: Fn(ValueCreatorParams<Data>) -> Data,
     {
         if self.data.inodes.get(parent).is_none() {
             return Err(InsertError::ParentNotFound);
@@ -233,7 +235,7 @@ impl<T: Send + Sync + 'static> InodeMapper<T> {
         children: Vec<(OsString, F)>,
     ) -> Result<Vec<Inode>, InsertError>
     where
-        F: Fn(ValueCreatorParams<T>) -> T,
+        F: Fn(ValueCreatorParams<Data>) -> Data,
     {
         if self.data.inodes.get(parent).is_none() {
             return Err(InsertError::ParentNotFound);
@@ -284,8 +286,8 @@ impl<T: Send + Sync + 'static> InodeMapper<T> {
         default_parent_creator: G,
     ) -> Result<(), InsertError>
     where
-        F: Fn(ValueCreatorParams<T>) -> T,
-        G: Fn(ValueCreatorParams<T>) -> T,
+        F: Fn(ValueCreatorParams<Data>) -> Data,
+        G: Fn(ValueCreatorParams<Data>) -> Data,
     {
         if !self.data.inodes.contains_key(parent) {
             return Err(InsertError::ParentNotFound);
@@ -312,7 +314,7 @@ impl<T: Send + Sync + 'static> InodeMapper<T> {
         &mut self,
         path_cache: &mut HashMap<Vec<OsString>, Inode>,
         path: &[OsString],
-        default_parent_creator: &impl Fn(ValueCreatorParams<T>) -> T,
+        default_parent_creator: &impl Fn(ValueCreatorParams<Data>) -> Data,
     ) -> Inode {
         let mut current_inode = path_cache[&vec![]].clone();
         for (i, component) in path.iter().enumerate() {
@@ -358,8 +360,8 @@ impl<T: Send + Sync + 'static> InodeMapper<T> {
     /// # Notes
     /// - Returns `None` if any inode in the path is not found, indicating an incomplete or invalid path.
     /// - The root inode is identified when its parent is equal to itself and is never returned
-    pub fn resolve(&self, inode: &Inode) -> Option<Vec<InodeInfo<T>>> {
-        let mut result: Vec<InodeInfo<T>> = Vec::new();
+    pub fn resolve(&self, inode: &Inode) -> Option<Vec<InodeInfo<'_, Data>>> {
+        let mut result: Vec<InodeInfo<Data>> = Vec::new();
         let mut current_info = self.get(inode)?;
         let mut current_inode = inode.clone();
 
@@ -372,7 +374,7 @@ impl<T: Send + Sync + 'static> InodeMapper<T> {
         Some(result)
     }
 
-    pub fn get(&self, inode: &Inode) -> Option<InodeInfo<'_, T>> {
+    pub fn get(&self, inode: &Inode) -> Option<InodeInfo<'_, Data>> {
         self.data.inodes.get(inode).map(|inode_value| InodeInfo {
             parent: &inode_value.parent,
             name: inode_value.name.as_ref(),
@@ -380,7 +382,7 @@ impl<T: Send + Sync + 'static> InodeMapper<T> {
         })
     }
 
-    pub fn get_mut(&mut self, inode: &Inode) -> Option<InodeInfoMut<'_, T>> {
+    pub fn get_mut(&mut self, inode: &Inode) -> Option<InodeInfoMut<'_, Data>> {
         self.data
             .inodes
             .get_mut(inode)
@@ -410,7 +412,7 @@ impl<T: Send + Sync + 'static> InodeMapper<T> {
     }
 
     /// Looks up a child inode by its parent inode and name
-    pub fn lookup(&self, parent: &Inode, name: &OsStr) -> Option<LookupResult<'_, T>> {
+    pub fn lookup(&self, parent: &Inode, name: &OsStr) -> Option<LookupResult<'_, Data>> {
         self.data
             .children
             .get(parent)
@@ -432,7 +434,7 @@ impl<T: Send + Sync + 'static> InodeMapper<T> {
         oldname: &OsStr,
         newparent: &Inode,
         newname: OsString,
-    ) -> Result<Option<(Inode, T)>, RenameError> {
+    ) -> Result<Option<(Inode, Data)>, RenameError> {
         let newname = OsStringWrapper(Arc::new(newname));
 
         // Check if the new parent exists
@@ -509,7 +511,7 @@ impl<T: Send + Sync + 'static> InodeMapper<T> {
     /// - If the inode doesn't exist, the function does nothing.
     /// - If the parent's children map becomes empty after removal, the parent entry
     ///   is also removed from the `children` map to conserve memory.
-    pub fn remove(&mut self, inode: &Inode) -> Option<T> {
+    pub fn remove(&mut self, inode: &Inode) -> Option<Data> {
         #[cfg(debug_assertions)]
         if *inode == ROOT_INODE {
             panic!("Cannot remove ROOT");

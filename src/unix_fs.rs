@@ -312,7 +312,7 @@ pub fn setattr(path: &Path, attrs: SetAttrRequest) -> Result<FileAttribute, Posi
                 return Err(PosixError::new(
                     ErrorKind::InvalidArgument,
                     "Could not convert timespec to TimeOrNow in setattr",
-                ))
+                ));
             }
         };
         let result = unsafe {
@@ -939,13 +939,7 @@ pub fn create(
     };
 
     // Open the file with O_CREAT (create if it does not exist)
-    let fd = unsafe {
-        libc::open(
-            c_path.as_ptr(),
-            open_flags | libc::O_CREAT,
-            final_mode,
-        )
-    };
+    let fd = unsafe { libc::open(c_path.as_ptr(), open_flags | libc::O_CREAT, final_mode) };
 
     if fd == -1 {
         return Err(PosixError::last_error(format!(
@@ -966,10 +960,22 @@ pub fn create(
 /// and extending for the given length.
 pub fn fallocate(
     fd: BorrowedFd,
-    offset: i64,
-    length: i64,
+    offset: u64,
+    length: u64,
     mode: FallocateFlags,
 ) -> Result<(), PosixError> {
+    let offset: i64 = offset.try_into().map_err(|_| {
+        PosixError::new(
+            ErrorKind::InvalidArgument,
+            "Offset too large for i64".to_string(),
+        )
+    })?;
+    let length: i64 = length.try_into().map_err(|_| {
+        PosixError::new(
+            ErrorKind::InvalidArgument,
+            "Length too large for i64".to_string(),
+        )
+    })?;
     let result = unsafe { unix_impl::fallocate(fd.as_raw_fd(), mode.bits(), offset, length) };
     if result == -1 {
         return Err(PosixError::last_error(format!(

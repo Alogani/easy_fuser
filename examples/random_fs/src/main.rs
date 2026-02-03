@@ -171,7 +171,7 @@ impl FuseHandler<Inode> for RandomFS {
         _fh: BorrowedFileHandle,
         offset: SeekFrom,
         size: u32,
-        _flags: FUSEOpenFlags,
+        _flags: OpenFlags,
         _lock_owner: Option<u64>,
     ) -> FuseResult<Vec<u8>> {
         let mut rng = rand::thread_rng();

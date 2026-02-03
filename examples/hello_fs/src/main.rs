@@ -110,7 +110,7 @@ impl FuseHandler<Inode> for HelloFS {
         _file_handle: BorrowedFileHandle,
         seek: SeekFrom,
         size: u32,
-        _flags: FUSEOpenFlags,
+        _flags: OpenFlags,
         _lock_owner: Option<u64>,
     ) -> FuseResult<Vec<u8>> {
         if file_id == HELLO_TXT_ATTR.0 {

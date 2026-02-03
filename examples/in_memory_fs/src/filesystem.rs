@@ -363,7 +363,7 @@ impl FuseHandler<Inode> for InMemoryFS {
         _fh: BorrowedFileHandle,
         offset: SeekFrom,
         size: u32,
-        _flags: FUSEOpenFlags,
+        _flags: OpenFlags,
         _lock_owner: Option<u64>,
     ) -> FuseResult<Vec<u8>> {
         self.access(req, ino.clone(), AccessMask::CAN_READ)?;

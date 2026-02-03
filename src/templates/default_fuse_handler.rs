@@ -234,8 +234,8 @@ impl<TId: FileIdType> FuseHandler<TId> for DefaultFuseHandler {
         _req: &RequestInfo,
         file_id: TId,
         file_handle: BorrowedFileHandle,
-        offset: i64,
-        length: i64,
+        offset: u64,
+        length: u64,
         mode: FallocateFlags,
     ) -> FuseResult<()> {
         match self.handling {
@@ -276,7 +276,7 @@ impl<TId: FileIdType> FuseHandler<TId> for DefaultFuseHandler {
             HandlingMethod::Error(kind) => Err(PosixError::new(
                 kind,
                 if cfg!(debug_assertions) {
-                    format!(
+                    format!( 
                         "flush(file_id: {}, file_handle: {:?}, lock_owner: {:?})",
                         file_id.display(),
                         file_handle,
@@ -690,7 +690,6 @@ impl<TId: FileIdType> FuseHandler<TId> for DefaultFuseHandler {
         file_handle: BorrowedFileHandle,
         seek: SeekFrom,
         size: u32,
-        read_flags: FUSEReadFlags,
         flags: OpenFlags,
         lock_owner: Option<LockOwner>,
     ) -> FuseResult<Vec<u8>> {
@@ -699,12 +698,11 @@ impl<TId: FileIdType> FuseHandler<TId> for DefaultFuseHandler {
                 kind,
                 if cfg!(debug_assertions) {
                     format!(
-                        "read(file_id: {}, file_handle: {:?}, seek: {:?}, size: {}, read_flags: {:?}, flags: {:?}, lock_owner: {:?})",
+                        "read(file_id: {}, file_handle: {:?}, seek: {:?}, size: {}, flags: {:?}, lock_owner: {:?})",
                         file_id.display(),
                         file_handle,
                         seek,
                         size,
-                        read_flags,
                         flags,
                         lock_owner
                     )
@@ -713,12 +711,11 @@ impl<TId: FileIdType> FuseHandler<TId> for DefaultFuseHandler {
                 },
             )),
             HandlingMethod::Panic => panic!(
-                "[Not Implemented] read(file_id: {}, file_handle: {:?}, seek: {:?}, size: {}, read_flags: {:?}, flags: {:?}, lock_owner: {:?})",
+                "[Not Implemented] read(file_id: {}, file_handle: {:?}, seek: {:?}, size: {}, flags: {:?}, lock_owner: {:?})",
                 file_id.display(),
                 file_handle,
                 seek,
                 size,
-                read_flags,
                 flags,
                 lock_owner
             ),

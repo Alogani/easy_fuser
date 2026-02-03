@@ -27,4 +27,6 @@ mod inode;
 pub use self::{
     arguments::*, errors::*, file_handle::*, file_id_type::*, flags::*, helpers::*, inode::*,
 };
-pub use fuser::{FileType as FileKind, Generation, KernelConfig, LockOwner, TimeOrNow};
+pub use fuser::{
+    Config, FileType as FileKind, Generation, IoctlFlags, KernelConfig, LockOwner, TimeOrNow,
+};

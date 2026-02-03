@@ -1,0 +1,1359 @@
+{% let send_sync = mode != "serial" %}
+
+use std::{
+    collections::{HashMap, VecDeque},
+    ffi::{OsStr, OsString},
+    path::Path,
+    time::SystemTime,
+};
+
+use log::{info, warn};
+use fuser::{
+    self, KernelConfig, ReplyAttr, ReplyBmap, ReplyCreate, ReplyData, ReplyDirectory,
+    ReplyDirectoryPlus, ReplyEmpty, ReplyEntry, ReplyIoctl, ReplyLock, ReplyLseek, ReplyOpen,
+    ReplyStatfs, ReplyWrite, ReplyXattr, Request, INodeNo, TimeOrNow, FopenFlags, FileHandle, 
+    WriteFlags, BsdFileFlags
+};
+
+use crate::fuse_handler::FuseHandler;
+use crate::types::*;
+use crate::core::helpers::*;
+use crate::core::thread_mode::*;
+use crate::core::inode_mapping::FileIdResolver;
+
+type DirIter<TAttr> = HashMap<(INodeNo, u64), VecDeque<(OsString, INodeNo, TAttr)>>;
+
+{% if mode == "serial" %}
+    use std::cell::RefCell;
+
+{% elif mode == "parallel" %}
+    use std::sync::Arc;
+    use threadpool::ThreadPool;
+
+    #[cfg(feature = "deadlock_detection")]
+    use parking_lot::Mutex;
+    #[cfg(not(feature = "deadlock_detection"))]
+    use std::sync::Mutex;
+
+{% elif mode == "async" %}
+    use std::sync::Arc;
+    use tokio::runtime::Runtime;
+    use tokio::sync::Mutex;
+{% endif %}
+
+pub(crate) struct FuseDriver<TId, THandler>
+where
+    TId: FileIdType,
+    THandler: FuseHandler<TId>,
+{
+    {% if !send_sync %}
+        handler: THandler,
+        resolver: TId::Resolver,
+        dirmap_iter: RefCell<DirIter<FileKind>>,
+        dirmapplus_iter: RefCell<DirIter<FileAttribute>>,
+    {% else %}
+        handler: Arc<THandler>,
+        resolver: Arc<TId::Resolver>,
+        dirmap_iter: Arc<Mutex<DirIter<FileKind>>>,
+        dirmapplus_iter: Arc<Mutex<DirIter<FileAttribute>>>,
+    {% endif %}
+
+    {% if mode == "parallel" %}
+        pub threadpool: ThreadPool,
+        pub reply_threadpool: ThreadPool,
+    {% elif mode == "async" %}
+        pub runtime: Arc<Runtime>,
+    {% endif %}
+}
+
+{% if mode == "parallel" %}
+    impl<TId, THandler> Drop for FuseDriver<TId, THandler>
+    where
+        TId: FileIdType,
+        THandler: FuseHandler<TId>,
+    {
+        fn drop(&mut self) {
+            self.threadpool.join();
+            self.reply_threadpool.join();
+        }
+    }
+{% endif %}
+
+impl<TId, THandler> FuseDriver<TId, THandler>
+where
+    TId: FileIdType,
+    THandler: FuseHandler<TId>,
+{
+    pub fn new(
+        handler: THandler,
+        {% if send_sync %}
+            num_threads: usize
+        {% else %}
+            _num_threads: usize
+        {% endif %}
+    ) -> FuseDriver<TId, THandler> {
+        {% if mode == "parallel" %}
+            #[cfg(feature = "deadlock_detection")]
+            spawn_deadlock_checker();
+        {% endif %}
+
+        FuseDriver {
+            {% if mode == "serial" %}
+                handler,
+                resolver: TId::Resolver::new(),
+                dirmap_iter: RefCell::new(HashMap::new()),
+                dirmapplus_iter: RefCell::new(HashMap::new()),
+            {% else %}
+                handler: Arc::new(handler),
+                resolver: Arc::new(TId::create_resolver()),
+                dirmap_iter: Arc::new(Mutex::new(HashMap::new())),
+                dirmapplus_iter: Arc::new(Mutex::new(HashMap::new())),
+            {% endif %}
+
+            {% if mode == "parallel" %}
+                threadpool: ThreadPool::new(num_threads),
+                reply_threadpool: ThreadPool::new(num_threads),
+            {% elif mode == "async" %}
+                runtime: Arc::new(Runtime::new().unwrap()),
+            {% endif %}
+        }
+    }
+
+    {% if !send_sync %}
+        pub fn get_handler(&self) -> &THandler {
+            &self.handler
+        }
+
+        pub fn get_resolver(&self) -> &TId::Resolver {
+            &self.resolver
+        }
+
+        pub fn get_dirmap_iter(&self) -> &RefCell<DirIter<FileKind>> {
+            &self.dirmap_iter
+        }
+
+        pub fn get_dirmapplus_iter(&self) -> &RefCell<DirIter<FileAttribute>> {
+            &self.dirmapplus_iter
+        }
+    {% else %}
+        pub fn get_handler(&self) -> Arc<THandler> {
+            self.handler.clone()
+        }
+
+        pub fn get_resolver(&self) -> Arc<TId::Resolver> {
+            self.resolver.clone()
+        }
+
+        pub fn get_dirmap_iter(&self) -> Arc<Mutex<DirIter<FileKind>>> {
+            self.dirmap_iter.clone()
+        }
+
+        pub fn get_dirmapplus_iter(&self) -> Arc<Mutex<DirIter<FileAttribute>>> {
+            self.dirmapplus_iter.clone()
+        }
+    {% endif %}
+}
+
+
+
+impl<TId, THandler> fuser::Filesystem for FuseDriver<TId, THandler>
+where
+    TId: FileIdType,
+    THandler: FuseHandler<TId>,
+{
+    {% macro spawn() -%}
+        {% if mode == "parallel" %}
+            let reply_threadpool = self.reply_threadpool.clone();
+            self.threadpool.execute(move || {
+        {% elif mode == "async" %}
+            let runtime = self.runtime.clone();
+            runtime.spawn(async move {
+        {% endif %}
+        
+        {{ caller() }}
+        
+        {% if mode == "parallel" || mode == "async" %}
+            });
+        {% endif %}
+    {%- endmacro %}
+
+    {% macro spawn_reply() -%}
+        {% if mode == "parallel" %}
+            reply_threadpool.execute(move || {
+        {% elif mode == "async" %}
+            runtime.spawn(async move {
+        {% endif %}
+        
+        {{ caller() }}
+        
+        {% if mode == "parallel" || mode == "async" %}
+            });
+        {% endif %}
+    {%- endmacro %}
+
+    {% macro reply_error() -%}
+        {% call spawn_reply() %}
+            reply.error(e.into());
+        {% endcall %}
+    {%- endmacro %}
+
+    {% macro reply_entry(parent, name) -%}
+        Ok(metadata) => {
+            let default_ttl = handler.get_default_ttl();
+            let (id, file_attr) = TId::extract_metadata(metadata);
+            let ino = resolver.lookup({{ parent }}, &{{ name }}, id, true);
+            let (fuse_attr, ttl, generation) = file_attr.to_fuse(ino);
+            {% call spawn_reply() %}
+                reply.entry(
+                    &ttl.unwrap_or(default_ttl),
+                    &fuse_attr,
+                    generation.unwrap_or(get_random_generation()),
+                );
+            {% endcall %}
+        }
+    {%- endmacro %}
+
+    {% macro reply_attr() -%}
+        Ok(file_attr) => {
+            let default_ttl = handler.get_default_ttl();
+            let (fuse_attr, ttl, _) = file_attr.to_fuse(ino);
+            {% call spawn_reply() %}
+                reply.attr(&ttl.unwrap_or(default_ttl), &fuse_attr);
+            {% endcall %}
+        },
+    {%- endmacro %}
+
+
+    fn init(&mut self, req: &Request, config: &mut KernelConfig) -> Result<(), std::io::Error> {
+        let req = RequestInfo::from(req);
+        match self.get_handler().init(&req, config) {
+            Ok(()) => Ok(()),
+            Err(e) => {
+                warn!("[{}] init {:?}", e, req);
+                Err(std::io::Error::from_raw_os_error(e.raw_error()))
+            }
+        }
+    }
+
+    fn destroy(&mut self) {
+        self.get_handler().destroy();
+    }
+
+    fn access(&self, req: &Request, ino: INodeNo, mask: fuser::AccessFlags, reply: ReplyEmpty) {
+        let req = RequestInfo::from(req);
+        let handler = self.get_handler();
+        let resolver = self.get_resolver();
+        {% call spawn() %}
+            match handler.access(
+                &req,
+                resolver.resolve_id(ino),
+                AccessMask::from(mask),
+            ) {
+                Ok(()) => { {% call spawn_reply() %}reply.ok();{% endcall %} }
+                Err(e) => {
+                    warn!("access: ino {:x?}, [{}], {:?}", ino, e, req);
+                    {{ reply_error() }}
+                }
+                
+            };
+        {% endcall %}
+    }
+
+    fn bmap(&self, req: &Request, ino: INodeNo, blocksize: u32, idx: u64, reply: ReplyBmap) {
+        let req = RequestInfo::from(req);
+        let handler = self.get_handler();
+        let resolver = self.get_resolver();
+        {% call spawn() %}
+            match handler.bmap(&req, resolver.resolve_id(ino), blocksize, idx) {
+                Ok(block) => { {% call spawn_reply() %}reply.bmap(block);{% endcall %} }
+                Err(e) => {
+                    warn!("bmap: ino {:x?}, [{}], {:?}", ino, e, req);
+                    {{ reply_error() }}
+                }
+            };
+        {% endcall %}
+    }
+
+    fn copy_file_range(
+        &self,
+        req: &Request,
+        ino_in: INodeNo,
+        fh_in: FileHandle,
+        offset_in: i64,
+        ino_out: INodeNo,
+        fh_out: FileHandle,
+        offset_out: i64,
+        len: u64,
+        flags: fuser::CopyFileRangeFlags,
+        reply: ReplyWrite,
+    ) {
+        let req = RequestInfo::from(req);
+        let handler = self.get_handler();
+        let resolver = self.get_resolver();
+        {% call spawn() %}
+            match handler.copy_file_range(
+                &req,
+                resolver.resolve_id(ino_in),
+                unsafe { BorrowedFileHandle::from_fuser_file_handle(fh_in) },
+                offset_in,
+                resolver.resolve_id(ino_out),
+                unsafe { BorrowedFileHandle::from_fuser_file_handle(fh_out) },
+                offset_out,
+                len,
+                CopyFileRangeFlags::from(flags),
+            ) {
+                Ok(bytes_written) => { {% call spawn_reply() %} reply.written(bytes_written);{% endcall %} }
+                Err(e) => {
+                    warn!("copy_file_range: ino {:x?}, [{}], {:?}", ino_in, e, req);
+                    {{ reply_error() }}
+                }
+            };
+        {% endcall %}
+    }
+
+    fn create(
+        &self,
+        req: &Request,
+        parent: INodeNo,
+        name: &OsStr,
+        mode: u32,
+        umask: u32,
+        flags: i32,
+        reply: ReplyCreate,
+    ) {
+        let req = RequestInfo::from(req);
+        let handler = self.get_handler();
+        let resolver = self.get_resolver();
+        let name = name.to_owned();
+        {% call spawn() %}
+            let helper = CreateHelper::new(&reply);
+            match handler.create(
+                &req,
+                resolver.resolve_id(parent),
+                &name,
+                mode,
+                umask,
+                OpenFlags::from_bits_retain(flags),
+                helper,
+            ) {
+                Ok((file_handle, metadata, response_flags, passthrough_backing_id)) => {
+                    let default_ttl = handler.get_default_ttl();
+                    let (id, file_attr) = TId::extract_metadata(metadata);
+                    let ino = resolver.lookup(parent, &name, id, true);
+                    let (fuse_attr, ttl, generation) = file_attr.to_fuse(ino);
+                    {% call spawn_reply() %}
+                        match passthrough_backing_id {
+                            #[cfg(feature = "passthrough")]
+                            Some(passthrough_backing_id) => {
+                                let response_flags =
+                                    response_flags | FUSEOpenResponseFlags::PASSTHROUGH;
+                                reply.created_passthrough(
+                                    &ttl.unwrap_or(default_ttl),
+                                    &fuse_attr,
+                                    generation.unwrap_or(get_random_generation()),
+                                    file_handle.as_fuser_file_handle(),
+                                    FopenFlags::from(response_flags),
+                                    passthrough_backing_id.as_ref(),
+                                );
+                            },
+                            _ => {
+                                let response_flags =
+                                    response_flags & !FUSEOpenResponseFlags::PASSTHROUGH;
+                                reply.created(
+                                    &ttl.unwrap_or(default_ttl),
+                                    &fuse_attr,
+                                    generation.unwrap_or(get_random_generation()),
+                                    file_handle.as_fuser_file_handle(),
+                                    FopenFlags::from(response_flags),
+                                );
+                            }
+                        }
+                    {% endcall %}
+                }
+                Err(e) => {
+                    warn!("create: {:?}, parent_ino: {:x?}, {:?}", parent, e, req);
+                    {{ reply_error() }}
+                }
+            };
+        {% endcall %}
+    }
+
+    fn fallocate(
+        &self,
+        req: &Request,
+        ino: INodeNo,
+        fh: FileHandle,
+        offset: u64,
+        length: u64,
+        mode: i32,
+        reply: ReplyEmpty,
+    ) {
+        let req = RequestInfo::from(req);
+        let handler = self.get_handler();
+        let resolver = self.get_resolver();
+        {% call spawn() %}
+            match handler.fallocate(
+                &req,
+                resolver.resolve_id(ino),
+                unsafe { BorrowedFileHandle::from_fuser_file_handle(fh) },
+                offset,
+                length,
+                FallocateFlags::from_bits_retain(mode),
+            ) {
+                Ok(()) => { {% call spawn_reply() %} reply.ok(); {% endcall %} }
+                Err(e) => {
+                    warn!("fallocate: ino {:x?}, [{}], {:?}", ino, e, req);
+                    {{ reply_error() }}
+                }
+            };
+        {% endcall %}
+    }
+
+    fn flush(&self, req: &Request, ino: INodeNo, fh: FileHandle, lock_owner: LockOwner, reply: ReplyEmpty) {
+        let req = RequestInfo::from(req);
+        let handler = self.get_handler();
+        let resolver = self.get_resolver();
+        {% call spawn() %}
+            match handler.flush(
+                &req,
+                resolver.resolve_id(ino),
+                unsafe { BorrowedFileHandle::from_fuser_file_handle(fh) },
+                lock_owner,
+            ) {
+                Ok(()) => { {% call spawn_reply() %} reply.ok(); {% endcall %} }
+                Err(e) => {
+                    warn!("flush: ino {:x?}, [{}], {:?}", ino, e, req);
+                    {{ reply_error() }}
+                }
+            };
+        {% endcall %}
+    }
+
+    fn forget(&self, req: &Request, ino: INodeNo, nlookup: u64) {
+        let req = RequestInfo::from(req);
+        let handler = self.get_handler();
+        let resolver = self.get_resolver();
+        handler.forget(&req, resolver.resolve_id(ino), nlookup);
+        resolver.forget(ino, nlookup);
+    }
+
+    fn fsync(&self, req: &Request, ino: INodeNo, fh: FileHandle, datasync: bool, reply: ReplyEmpty) {
+        let req = RequestInfo::from(req);
+        let handler = self.get_handler();
+        let resolver = self.get_resolver();
+        {% call spawn() %}
+            match handler.fsync(
+                &req,
+                resolver.resolve_id(ino),
+                unsafe { BorrowedFileHandle::from_fuser_file_handle(fh) },
+                datasync,
+            ) {
+                Ok(()) => { {% call spawn_reply() %} reply.ok(); {% endcall %} }
+                Err(e) => {
+                    warn!("fsync: ino {:x?}, [{}], {:?}", ino, e, req);
+                    {{ reply_error() }}
+                }
+            };
+        {% endcall %}
+    }
+
+    fn fsyncdir(&self, req: &Request, ino: INodeNo, fh: FileHandle, datasync: bool, reply: ReplyEmpty) {
+        let req = RequestInfo::from(req);
+        let handler = self.get_handler();
+        let resolver = self.get_resolver();
+        {% call spawn() %}
+            match handler.fsyncdir(
+                &req,
+                resolver.resolve_id(ino),
+                unsafe { BorrowedFileHandle::from_fuser_file_handle(fh) },
+                datasync,
+            ) {
+                Ok(()) => { {% call spawn_reply() %} reply.ok(); {% endcall %} }
+                Err(e) => {
+                    warn!("fsyncdir: ino {:x?}, [{}], {:?}", ino, e, req);
+                    {{ reply_error() }}
+                }
+            };
+        {% endcall %}
+    }
+
+    fn getattr(&self, req: &Request, ino: INodeNo, fh: Option<FileHandle>, reply: ReplyAttr) {
+        let req = RequestInfo::from(req);
+        let handler = self.get_handler();
+        let resolver = self.get_resolver();
+        {% call spawn() %}
+            match handler.getattr(
+                &req,
+                resolver.resolve_id(ino),
+                fh.map(|fh| unsafe { BorrowedFileHandle::from_fuser_file_handle(fh) })
+            ) {
+                {{ reply_attr() }}
+                Err(e) => {
+                    warn!("getattr: ino {:x?}, [{}], {:?}", ino, e, req);
+                    {{ reply_error() }}
+                }
+            };
+        {% endcall %}
+    }
+
+    fn getlk(
+        &self,
+        req: &Request,
+        ino: INodeNo,
+        fh: FileHandle,
+        lock_owner: LockOwner,
+        start: u64,
+        end: u64,
+        typ: i32,
+        pid: u32,
+        reply: ReplyLock,
+    ) {
+        let req = RequestInfo::from(req);
+        let handler = self.get_handler();
+        let resolver = self.get_resolver();
+        {% call spawn() %}
+            let lock_info = LockInfo {
+                start,
+                end,
+                lock_type: LockType::from_bits_retain(typ),
+                pid,
+            };
+            match handler.getlk(
+                &req,
+                resolver.resolve_id(ino),
+                unsafe { BorrowedFileHandle::from_fuser_file_handle(fh) },
+                lock_owner,
+                lock_info,
+            ) {
+                Ok(lock_info) => { {% call spawn_reply() %}
+                    reply.locked(
+                        lock_info.start,
+                        lock_info.end,
+                        lock_info.lock_type.bits(),
+                        lock_info.pid,
+                    )
+                {% endcall %} }
+                Err(e) => {
+                    warn!("getlk: ino {:x?}, [{}], {:?}", ino, e, req);
+                    {{ reply_error() }}
+                }
+            };
+        {% endcall %}
+    }
+
+    fn getxattr(&self, req: &Request, ino: INodeNo, name: &OsStr, size: u32, reply: ReplyXattr) {
+        let req = RequestInfo::from(req);
+        let handler = self.get_handler();
+        let resolver = self.get_resolver();
+        let name = name.to_owned();
+        {% call spawn() %}
+            match handler.getxattr(&req, resolver.resolve_id(ino), &name, size) {
+                Ok(xattr_data) => { {% call spawn_reply() %}
+                    if size == 0 {
+                        reply.size(xattr_data.len() as u32);
+                    } else if size >= xattr_data.len() as u32 {
+                        reply.data(&xattr_data);
+                    } else {
+                        reply.error(PosixError::new(ErrorKind::ResultTooLarge, "Result too large for specified buffer size").into());
+                    }
+                {% endcall %} }
+                Err(e) => {
+                    warn!("getxattr: ino {:x?}, [{}], {:?}", ino, e, req);
+                    {{ reply_error() }}
+                }
+            };
+        {% endcall %}
+    }
+
+    fn ioctl(
+        &self,
+        req: &Request,
+        ino: INodeNo,
+        fh: FileHandle,
+        flags: fuser::IoctlFlags,
+        cmd: u32,
+        in_data: &[u8],
+        out_size: u32,
+        reply: ReplyIoctl,
+    ) {
+        let req = RequestInfo::from(req);
+        let handler = self.get_handler();
+        let resolver = self.get_resolver();
+        let in_data = in_data.to_owned();
+        {% call spawn() %}
+            match handler.ioctl(
+                &req,
+                resolver.resolve_id(ino),
+                unsafe { BorrowedFileHandle::from_fuser_file_handle(fh) },
+                FUSEIoctlFlags::from(flags),
+                cmd,
+                in_data,
+                out_size,
+            ) {
+                Ok((result, data)) => { {% call spawn_reply() %} reply.ioctl(result, &data); {% endcall %} }
+                Err(e) => {
+                    warn!("ioctl: ino {:x?}, [{}], {:?}", ino, e, req);
+                    {{ reply_error() }}
+                }
+            };
+        {% endcall %}
+    }
+
+    fn link(
+        &self,
+        req: &Request,
+        ino: INodeNo,
+        newparent: INodeNo,
+        newname: &OsStr,
+        reply: ReplyEntry,
+    ) {
+        let req = RequestInfo::from(req);
+        let handler = self.get_handler();
+        let resolver = self.get_resolver();
+        let newname = newname.to_owned();
+        {% call spawn() %}
+            match handler.link(&req,
+                resolver.resolve_id(ino),
+                resolver.resolve_id(newparent),
+                &newname
+            ) {
+                {% call reply_entry("newparent", "newname") %}{% endcall %}
+                Err(e) => {
+                    warn!("link: parent_ino {:x?}, [{}], {:?}", ino, e, req);
+                    {{ reply_error() }}
+                }
+            }
+        {% endcall %}
+    }
+
+    fn listxattr(&self, req: &Request, ino: INodeNo, size: u32, reply: ReplyXattr) {
+        let req = RequestInfo::from(req);
+        let handler = self.get_handler();
+        let resolver = self.get_resolver();
+        {% call spawn() %}
+            match handler.listxattr(&req, resolver.resolve_id(ino), size) {
+                Ok(xattr_data) => { {% call spawn_reply() %}
+                    if size == 0 {
+                        reply.size(xattr_data.len() as u32);
+                    } else if size >= xattr_data.len() as u32 {
+                        reply.data(&xattr_data);
+                    } else {
+                        reply.error(PosixError::new(ErrorKind::ResultTooLarge, "Result too large for specified buffer size").into());
+                    }
+                {% endcall %} }
+                Err(e) => {
+                    warn!("listxattr: ino {:x?}, [{}], {:?}", ino, e, req);
+                    {{ reply_error() }}
+                }
+            };
+        {% endcall %}
+    }
+
+    fn lookup(&self, req: &Request, parent: INodeNo, name: &OsStr, reply: ReplyEntry) {
+        let req = RequestInfo::from(req);
+        let handler = self.get_handler();
+        let resolver = self.get_resolver();
+        let name = name.to_owned();
+        {% call spawn() %}
+            match handler.lookup(&req, resolver.resolve_id(parent), &name) {
+                {% call reply_entry("parent", "name") %}{% endcall %}
+                Err(e) => {
+                    // Failure is expected if user try to lookup a nonexistent file, it should not emit a warning
+                    info!("lookup: parent_ino {:x?}, [{}], {:?}", parent, e, req);
+                    {{ reply_error() }}
+                }
+            }
+        {% endcall %}
+    }
+
+    fn lseek(
+        &self,
+        req: &Request,
+        ino: INodeNo,
+        fh: FileHandle,
+        offset: i64,
+        whence: i32,
+        reply: ReplyLseek,
+    ) {
+        let req = RequestInfo::from(req);
+        let handler = self.get_handler();
+        let resolver = self.get_resolver();
+        {% call spawn() %}
+            match handler.lseek(
+                &req,
+                resolver.resolve_id(ino),
+                unsafe { BorrowedFileHandle::from_fuser_file_handle(fh) },
+                seek_from_raw(Some(whence), offset),
+            ) {
+                Ok(new_offset) => { {% call spawn_reply() %} reply.offset(new_offset); {% endcall %} }
+                Err(e) => {
+                    warn!("lseek: ino {:x?}, [{}], {:?}", ino, e, req);
+                    {{ reply_error() }}
+                }
+            };
+        {% endcall %}
+    }
+
+    fn mkdir(
+        &self,
+        req: &Request,
+        parent: INodeNo,
+        name: &OsStr,
+        mode: u32,
+        umask: u32,
+        reply: ReplyEntry,
+    ) {
+        let req = RequestInfo::from(req);
+        let handler = self.get_handler();
+        let resolver = self.get_resolver();
+        let name = name.to_owned();
+        {% call spawn() %}
+            match handler.mkdir(&req,
+                resolver.resolve_id(parent),
+                &name,
+                mode,
+                umask
+            ) {
+                {% call reply_entry("parent", "name") %}{% endcall %}
+                Err(e) => {
+                    warn!("mkdir: parent_ino {:x?}, [{}], {:?}", parent, e, req);
+                    {{ reply_error() }}
+                }
+            }
+        {% endcall %}
+    }
+
+    fn mknod(
+        &self,
+        req: &Request,
+        parent: INodeNo,
+        name: &OsStr,
+        mode: u32,
+        umask: u32,
+        rdev: u32,
+        reply: ReplyEntry,
+    ) {
+        let req = RequestInfo::from(req);
+        let handler = self.get_handler();
+        let resolver = self.get_resolver();
+        let name = name.to_owned();
+        {% call spawn() %}
+            match handler.mknod(
+                &req,
+                resolver.resolve_id(parent),
+                &name,
+                mode,
+                umask,
+                DeviceType::from_rdev(rdev.try_into().unwrap())
+            ) {
+                {% call reply_entry("parent", "name") %}{% endcall %}
+                Err(e) => {
+                    warn!("mknod: parent_ino {:x?}, [{}], {:?}", parent, e, req);
+                    {{ reply_error() }}
+                }
+            }
+        {% endcall %}
+    }
+
+    fn open(&self, req: &Request, ino: INodeNo, flags: fuser::OpenFlags, reply: ReplyOpen) {
+        let req = RequestInfo::from(req);
+        let handler = self.get_handler();
+        let resolver = self.get_resolver();
+        {% call spawn() %}
+            let helper = OpenHelper::new(&reply);
+            match handler.open(
+                &req,
+                resolver.resolve_id(ino),
+                OpenFlags::from(flags),
+                helper,
+            ) {
+                Ok((file_handle, response_flags, passthrough_backing_id)) => { {% call spawn_reply() %}
+                    match passthrough_backing_id {
+                        #[cfg(feature = "passthrough")]
+                        Some(passthrough_backing_id) => {
+                            reply.opened_passthrough(
+                                file_handle.as_fuser_file_handle(), 
+                                FopenFlags::from(response_flags) | FopenFlags::PASSTHROUGH, 
+                                passthrough_backing_id.as_ref()
+                            );
+                        }
+                        _ => {
+                            let response_flags = response_flags & !FUSEOpenResponseFlags::PASSTHROUGH;
+                            reply.opened(
+                                file_handle.as_fuser_file_handle(),
+                                FopenFlags::from(response_flags),
+                            )
+                        }
+                    }
+                {% endcall %} }
+                Err(e) => {
+                    warn!("open: ino {:x?}, [{}], {:?}", ino, e, req);
+                    {{ reply_error() }}
+                }
+            };
+        {% endcall %}
+    }
+
+    fn opendir(&self, req: &Request, ino: INodeNo, flags: fuser::OpenFlags, reply: ReplyOpen) {
+        let req = RequestInfo::from(req);
+        let handler = self.get_handler();
+        let resolver = self.get_resolver();
+        {% call spawn() %}
+            let helper = OpenHelper::new(&reply);
+            match handler.opendir(
+                &req,
+                resolver.resolve_id(ino),
+                OpenFlags::from(flags),
+                helper,
+            ) {
+                Ok((file_handle, response_flags, passthrough_backing_id)) => { {% call spawn_reply() %}
+                    match passthrough_backing_id {
+                        #[cfg(feature = "passthrough")]
+                        Some(passthrough_backing_id) => {
+                            reply.opened_passthrough(
+                                file_handle.as_fuser_file_handle(), 
+                                FopenFlags::from(response_flags) | FopenFlags::PASSTHROUGH, 
+                                passthrough_backing_id.as_ref()
+                            );
+                        }
+                        _ => {
+                            let response_flags = response_flags & !FUSEOpenResponseFlags::PASSTHROUGH;
+                            reply.opened(
+                                file_handle.as_fuser_file_handle(),
+                                FopenFlags::from(response_flags),
+                            )
+                        }
+                    }
+                {% endcall %} }
+                Err(e) => {
+                    warn!("opendir: ino {:x?}, [{}], {:?}", ino, e, req);
+                    {{ reply_error() }}
+                }
+            };
+        {% endcall %}
+    }
+
+    fn read(
+        &self,
+        req: &Request,
+        ino: INodeNo,
+        fh: FileHandle,
+        offset: u64,
+        size: u32,
+        flags: fuser::OpenFlags,
+        lock_owner: Option<LockOwner>,
+        reply: ReplyData,
+    ) {
+        let req = RequestInfo::from(req);
+        let handler = self.get_handler();
+        let resolver = self.get_resolver();
+        {% call spawn() %}
+            match handler.read(
+                &req,
+                resolver.resolve_id(ino),
+                unsafe { BorrowedFileHandle::from_fuser_file_handle(fh) },
+                // The offset is always positive, meaning that whence is 
+                // guaranteed to be SEEK_SET
+                SeekFrom::Start(offset),
+                size,
+                OpenFlags::from(flags),
+                lock_owner,
+            ) {
+                Ok(data_reply) => { {% call spawn_reply() %} reply.data(&data_reply); {% endcall %} }
+                Err(e) => {
+                    warn!("read: ino {:x?}, [{}], {:?}", ino, e, req);
+                    {{ reply_error() }}
+                }
+            };
+        {% endcall %}
+    }
+
+    {% macro readdir_impl(is_extended_readdir) -%}
+        let req_info = RequestInfo::from(req);
+        let handler = self.get_handler();
+        let resolver = self.get_resolver();
+        let dirmap_iter = {% if is_extended_readdir %}
+            self.get_dirmapplus_iter(){% else %}
+            self.get_dirmap_iter(){% endif %};
+
+        {% call spawn() %}
+            // ### Initialize directory iterator
+            let mut dir_iter = match offset {
+                // First read: fetch children from handler
+                0 => match handler.{% if is_extended_readdir %}
+                    readdirplus{% else %}
+                    readdir{% endif %}
+                (&req_info, resolver.resolve_id(ino), unsafe {
+                    BorrowedFileHandle::from_fuser_file_handle(fh)
+                }) {
+                    Ok(children) => {
+                        // Unpack and process children
+                        let (child_list, attr_list): (Vec<_>, Vec<_>) = children
+                            .into_iter()
+                            .map(|item| {
+                                let (child_id, child_attr) = {% if is_extended_readdir %}
+                                    { TId::extract_metadata(item.1) }{% else %}
+                                    { TId::extract_minimal_metadata(item.1) }
+                                {% endif %};
+                                ((item.0, child_id), child_attr)
+                            })
+                            .unzip();
+
+                        // Add children to resolver and create iterator
+                        resolver
+                            .add_children(
+                                ino,
+                                child_list,
+                                {% if is_extended_readdir %}
+                                    true{% else %}
+                                    false
+                                {% endif %}
+                            )
+                            .into_iter()
+                            .zip(attr_list.into_iter())
+                            .map(|((file_name, file_ino), file_attr)| {
+                                (file_name, file_ino, file_attr)
+                            })
+                            .collect()
+                    }
+                    Err(e) => {
+                        warn!("readdir {:?}: {:?}", req_info, e);
+                        {{ reply_error() }}
+                        return;
+                    }
+                },
+                // Subsequent reads: retrieve saved iterator
+                _ => match { dirmap_iter.safe_borrow_mut().remove(&(ino, offset)) } {
+                    Some(dirmap_iter) => dirmap_iter,
+                    None => {
+                        // Case when fuse tries to read again after the final item
+                        {% call spawn_reply() %} reply.ok(); {% endcall %}
+                        return;
+                    }
+                },
+            };
+
+            let mut new_offset = offset;
+
+            // ### Process directory entries
+            {% call spawn_reply() %}
+                {% if is_extended_readdir %}
+                    // readdirplus: Add entries with extended attributes
+                    let default_ttl = handler.get_default_ttl();
+                    while let Some((name, ino, file_attr)) = dir_iter.pop_front() {
+                        let (fuse_attr, ttl, generation) = file_attr.clone().to_fuse(ino);
+                        if reply.add(
+                            ino,
+                            new_offset,
+                            &name,
+                            &ttl.unwrap_or(default_ttl),
+                            &fuse_attr,
+                            generation.unwrap_or(get_random_generation()),
+                        ) {
+                            dir_iter.push_front((name, ino, file_attr.clone()));
+                            dirmap_iter
+                                .safe_borrow_mut()
+                                .insert((ino, new_offset - 1), dir_iter);
+                            break;
+                        }
+                        new_offset += 1;
+                    }
+                    reply.ok();
+                {% else %}
+                    // readdir: Add entries until buffer is full
+                    while let Some((name, ino, kind)) = dir_iter.pop_front() {
+                        if reply.add(ino, new_offset, kind, &name) {
+                            dir_iter.push_front((name, ino, kind));
+                            dirmap_iter
+                                .safe_borrow_mut()
+                                .insert((ino, new_offset - 1), dir_iter);
+                            break;
+                        }
+                        new_offset += 1;
+                    }
+                    reply.ok();
+                {% endif %}
+            {% endcall %}
+        {% endcall %}
+    {%- endmacro %}
+
+    fn readdir(
+        &self,
+        req: &Request,
+        ino: INodeNo,
+        fh: FileHandle,
+        offset: u64,
+        mut reply: ReplyDirectory,
+    ) {
+        {{ readdir_impl(false) }}
+    }
+
+    fn readdirplus(
+        &self,
+        req: &Request,
+        ino: INodeNo,
+        fh: FileHandle,
+        offset: u64,
+        mut reply: ReplyDirectoryPlus,
+    ) {
+        {{ readdir_impl(true) }}
+    }
+
+    fn readlink(&self, req: &Request, ino: INodeNo, reply: ReplyData) {
+        let req = RequestInfo::from(req);
+        let handler = self.get_handler();
+        let resolver = self.get_resolver();
+        {% call spawn() %}
+            match handler.readlink(&req, resolver.resolve_id(ino)) {
+                Ok(link) => { {% call spawn_reply() %} reply.data(&link); {% endcall %} }
+                Err(e) => {
+                    warn!("[{}] readlink, ino: {:x?}, {:?}", ino, e, req);
+                    {{ reply_error() }}
+                }
+            };
+        {% endcall %}
+    }
+
+    fn release(
+        &self,
+        req: &Request,
+        ino: INodeNo,
+        fh: FileHandle,
+        _flags: fuser::OpenFlags,
+        _lock_owner: Option<LockOwner>,
+        _flush: bool,
+        reply: ReplyEmpty,
+    ) {
+        let req = RequestInfo::from(req);
+        let handler = self.get_handler();
+        let resolver = self.get_resolver();
+        {% call spawn() %}
+            match handler.release(
+                &req,
+                resolver.resolve_id(ino),
+                unsafe { OwnedFileHandle::from_fuser_file_handle(fh) },
+                OpenFlags::from(_flags),
+                _lock_owner,
+                _flush,
+            ) {
+                Ok(()) => { {% call spawn_reply() %} reply.ok(); {% endcall %} }
+                Err(e) => {
+                    warn!("release: ino {:x?}, [{}], {:?}", ino, e, req);
+                    {{ reply_error() }}
+                }
+            };
+        {% endcall %}
+    }
+
+    fn releasedir(&self, req: &Request, ino: INodeNo, fh: FileHandle, flags: fuser::OpenFlags, reply: ReplyEmpty) {
+        let req = RequestInfo::from(req);
+        let handler = self.get_handler();
+        let resolver = self.get_resolver();
+        {% call spawn() %}
+            match handler.releasedir(
+                &req,
+                resolver.resolve_id(ino),
+                unsafe { OwnedFileHandle::from_fuser_file_handle(fh) },
+                OpenFlags::from(flags),
+            ) {
+                Ok(()) => { {% call spawn_reply() %} reply.ok(); {% endcall %} }
+                Err(e) => {
+                    warn!("releasedir: ino {:x?}, [{}], {:?}", ino, e, req);
+                    {{ reply_error() }}
+                }
+            };
+        {% endcall %}
+    }
+
+    fn removexattr(&self, req: &Request, ino: INodeNo, name: &OsStr, reply: ReplyEmpty) {
+        let req = RequestInfo::from(req);
+        let handler = self.get_handler();
+        let resolver = self.get_resolver();
+        let name = name.to_owned();
+        {% call spawn() %}
+            match handler.removexattr(&req, resolver.resolve_id(ino), &name) {
+                Ok(()) => { {% call spawn_reply() %} reply.ok(); {% endcall %} }
+                Err(e) => {
+                    warn!("removexattr: ino {:x?}, [{}], {:?}", ino, e, req);
+                    {{ reply_error() }}
+                }
+            };
+        {% endcall %}
+    }
+
+    fn rename(
+        &self,
+        req: &Request,
+        parent: INodeNo,
+        name: &OsStr,
+        newparent: INodeNo,
+        newname: &OsStr,
+        flags: fuser::RenameFlags,
+        reply: ReplyEmpty,
+    ) {
+        let req = RequestInfo::from(req);
+        let handler = self.get_handler();
+        let resolver = self.get_resolver();
+        let name = name.to_owned();
+        let newname = newname.to_owned();
+        {% call spawn() %}
+            match handler.rename(
+                &req,
+                resolver.resolve_id(parent),
+                &name,
+                resolver.resolve_id(newparent),
+                &newname,
+                RenameFlags::from(flags),
+            ) {
+                Ok(()) => {
+                    resolver.rename(parent, &name, newparent, &newname);
+                    {% call spawn_reply() %} reply.ok(); {% endcall %} }
+                Err(e) => {
+                    warn!("[{}] rename: parent_ino: {:x?}, {:?}", parent, e, req);
+                    {{ reply_error() }}
+                }
+            }
+        {% endcall %}
+    }
+
+    fn rmdir(&self, req: &Request, parent: INodeNo, name: &OsStr, reply: ReplyEmpty) {
+        let req = RequestInfo::from(req);
+        let handler = self.get_handler();
+        let resolver = self.get_resolver();
+        let name = name.to_owned();
+        {% call spawn() %}
+            match handler.rmdir(&req, resolver.resolve_id(parent), &name) {
+                Ok(()) => { {% call spawn_reply() %} reply.ok(); {% endcall %} }
+                Err(e) => {
+                    warn!("[{}] rmdir: parent_ino: {:x?}, {:?}", parent, e, req);
+                    {{ reply_error() }}
+                }
+            };
+        {% endcall %}
+    }
+
+    fn setattr(
+        &self,
+        req: &Request,
+        ino: INodeNo,
+        mode: Option<u32>,
+        uid: Option<u32>,
+        gid: Option<u32>,
+        size: Option<u64>,
+        atime: Option<TimeOrNow>,
+        mtime: Option<TimeOrNow>,
+        ctime: Option<SystemTime>,
+        fh: Option<FileHandle>,
+        crtime: Option<SystemTime>,
+        chgtime: Option<SystemTime>,
+        bkuptime: Option<SystemTime>,
+        _flags: Option<BsdFileFlags>,
+        reply: ReplyAttr,
+    ) {
+        let req = RequestInfo::from(req);
+        let handler = self.get_handler();
+        let resolver = self.get_resolver();
+        let attrs = SetAttrRequest {
+            mode,
+            uid,
+            gid,
+            size,
+            atime: atime,
+            mtime: mtime,
+            ctime: ctime,
+            crtime: crtime,
+            chgtime: chgtime,
+            bkuptime: bkuptime,
+            flags: None,
+            file_handle: fh.map(|fh| unsafe { BorrowedFileHandle::from_fuser_file_handle(fh) }),
+        };
+        {% call spawn() %}
+            match handler.setattr(
+                &req,
+                resolver.resolve_id(ino),
+                attrs
+            ) {
+                {{ reply_attr() }}
+                Err(e) => {
+                    warn!("setattr: ino {:x?}, [{}], {:?}", ino, e, req);
+                    {{ reply_error() }}
+                }
+            }
+        {% endcall %}
+    }
+
+    fn setlk(
+        &self,
+        req: &Request,
+        ino: INodeNo,
+        fh: FileHandle,
+        lock_owner: LockOwner,
+        start: u64,
+        end: u64,
+        typ: i32,
+        pid: u32,
+        sleep: bool,
+        reply: ReplyEmpty,
+    ) {
+        let req = RequestInfo::from(req);
+        let handler = self.get_handler();
+        let resolver = self.get_resolver();
+        {% call spawn() %}
+            let lock_info = LockInfo {
+                start,
+                end,
+                lock_type: LockType::from_bits_retain(typ),
+                pid,
+            };
+            match handler.setlk(
+                &req,
+                resolver.resolve_id(ino),
+                unsafe { BorrowedFileHandle::from_fuser_file_handle(fh) },
+                lock_owner,
+                lock_info,
+                sleep,
+            ) {
+                Ok(()) => { {% call spawn_reply() %} reply.ok(); {% endcall %} }
+                Err(e) => {
+                    warn!("setlk: ino {:x?}, [{}], {:?}", ino, e, req);
+                    {{ reply_error() }}
+                }
+            };
+        {% endcall %}
+    }
+
+    fn setxattr(
+        &self,
+        req: &Request,
+        ino: INodeNo,
+        name: &OsStr,
+        value: &[u8],
+        flags: i32,
+        position: u32,
+        reply: ReplyEmpty,
+    ) {
+        let req = RequestInfo::from(req);
+        let handler = self.get_handler();
+        let resolver = self.get_resolver();
+        let name = name.to_owned();
+        let value = value.to_owned();
+        {% call spawn() %}
+            match handler.setxattr(
+                &req,
+                resolver.resolve_id(ino),
+                &name,
+                value,
+                FUSESetXAttrFlags::from_bits_retain(flags),
+                position,
+            ) {
+                Ok(()) => { {% call spawn_reply() %} reply.ok(); {% endcall %} }
+                Err(e) => {
+                    warn!("setxattr: ino {:x?}, [{}], {:?}", ino, e, req);
+                    {{ reply_error() }}
+                }
+            };
+        {% endcall %}
+    }
+
+    fn statfs(&self, req: &Request, ino: INodeNo, reply: ReplyStatfs) {
+        let req = RequestInfo::from(req);
+        let handler = self.get_handler();
+        let resolver = self.get_resolver();
+        {% call spawn() %}
+            match handler.statfs(&req, resolver.resolve_id(ino)) {
+                Ok(statfs) => { {% call spawn_reply() %}
+                    reply.statfs(
+                        statfs.total_blocks,
+                        statfs.free_blocks,
+                        statfs.available_blocks,
+                        statfs.total_files,
+                        statfs.free_files,
+                        statfs.block_size,
+                        statfs.max_filename_length,
+                        statfs.fragment_size,
+                    )
+                {% endcall %} }
+                Err(e) => {
+                    warn!("statfs: ino {:x?}, [{}], {:?}", ino, e, req);
+                    {{ reply_error() }}
+                }
+            };
+        {% endcall %}
+    }
+
+    fn symlink(
+        &self,
+        req: &Request,
+        parent: INodeNo,
+        link_name: &OsStr,
+        target: &Path,
+        reply: ReplyEntry,
+    ) {
+        let req = RequestInfo::from(req);
+        let handler = self.get_handler();
+        let resolver = self.get_resolver();
+        let link_name = link_name.to_owned();
+        let target = target.to_owned();
+        {% call spawn() %}
+            match handler.symlink(&req, resolver.resolve_id(parent), &link_name, &target) {
+                {% call reply_entry("parent", "link_name") %}{% endcall %}
+                Err(e) => {
+                    warn!("symlink: parent_ino {:x?}, [{}], {:?}", parent, e, req);
+                    {{ reply_error() }}
+                }
+            }
+        {% endcall %}
+    }
+
+    fn write(
+        &self,
+        req: &Request,
+        ino: INodeNo,
+        fh: FileHandle,
+        offset: i64,
+        data: &[u8],
+        write_flags: WriteFlags,
+        flags: fuser::OpenFlags,
+        lock_owner: Option<LockOwner>,
+        reply: ReplyWrite,
+    ) {
+        let req = RequestInfo::from(req);
+        let handler = self.get_handler();
+        let resolver = self.get_resolver();
+        let data = data.to_owned();
+        {% call spawn() %}
+            match handler.write(
+                &req,
+                resolver.resolve_id(ino),
+                unsafe { BorrowedFileHandle::from_fuser_file_handle(fh) },
+                seek_from_raw(None, offset),
+                data,
+                FUSEWriteFlags::from(write_flags),
+                OpenFlags::from(flags),
+                lock_owner,
+            ) {
+                Ok(bytes_written) => { {% call spawn_reply() %} reply.written(bytes_written); {% endcall %} }
+                Err(e) => {
+                    warn!("write: ino {:x?}, [{}], {:?}", ino, e, req);
+                    {{ reply_error() }}
+                }
+            };
+        {% endcall %}
+    }
+
+    fn unlink(&self, req: &Request, parent: INodeNo, name: &OsStr, reply: ReplyEmpty) {
+        let req = RequestInfo::from(req);
+        let handler = self.get_handler();
+        let resolver = self.get_resolver();
+        let name = name.to_owned();
+        {% call spawn() %}
+            match handler.unlink(&req, resolver.resolve_id(parent), &name) {
+                Ok(()) => { {% call spawn_reply() %} reply.ok(); {% endcall %} }
+                Err(e) => {
+                    warn!("[{}] unlink: parent_ino: {:x?}, {:?}", parent, e, req);
+                    {{ reply_error() }}
+                }
+            };
+        {% endcall %}
+    }
+}
