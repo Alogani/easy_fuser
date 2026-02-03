@@ -1,8 +1,8 @@
+use crate::core::FileIdResolver;
+use crate::types::FileIdType;
+use fuser::BackgroundSession;
 use std::collections::HashSet;
 use std::sync::Arc;
-use fuser::BackgroundSession;
-use crate::types::FileIdType;
-use crate::core::FileIdResolver;
 
 /// A session for a mounted FUSE filesystem running in the background.
 ///

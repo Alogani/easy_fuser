@@ -46,15 +46,17 @@ impl Parse for FnSigInput {
 }
 
 /// Usage:
-/// 1. ```fuse_handler_fnsig!{
-///        /// doc...
-///        init => { _default_implementation_ }
-///    }
+/// 1. ```rust
+///     fuse_handler_fnsig!{
+///         /// doc...
+///         init => { _default_implementation_ }
+///     }
 /// ```
-/// 1. ```fuse_handler_fnsig!{
-///        /// doc...
-///        access => ;
-///    }
+/// 2. ```rust
+///     fuse_handler_fnsig!{
+///         /// doc...
+///         access => ;
+///     }
 /// ```
 #[proc_macro]
 pub fn fuse_handler_fnsig(input: TokenStream) -> TokenStream {
@@ -63,16 +65,18 @@ pub fn fuse_handler_fnsig(input: TokenStream) -> TokenStream {
     let tail_tokens: proc_macro2::TokenStream = match input.tail {
         Either::Left(semi) => quote!( #semi ),
         Either::Right(block) => {
-            quote!( #block ) // reconstruct braced block
+            quote!( #block )
         }
     };
 
-    let fun_impl = get_fuse_handler_fn_impl(
+    let trait_fn = get_fuse_handler_trait_fn(
         &input.name.to_string(),
     );
+    let fn_sig = trait_fn.sig;
+
     quote!(
         #(#attrs)*
-        #fun_impl #tail_tokens
+        #fn_sig #tail_tokens
     )
     .into()
 }
@@ -82,17 +86,13 @@ struct DelegateFsInput {
     _comma: Comma,
     methods: Punctuated<Ident, Comma>,
 }
-
 impl Parse for DelegateFsInput {
     fn parse(input: ParseStream) -> Result<Self> {
         let target = input.parse::<Ident>()?;
         let _comma = input.parse::<Comma>()?;
-
         let content;
-        syn::braced!(content in input);
-
+        syn::bracketed!(content in input);
         let methods = Punctuated::<Ident, Comma>::parse_terminated(&content)?;
-
         Ok(Self {
             target,
             _comma,
@@ -101,6 +101,15 @@ impl Parse for DelegateFsInput {
     }
 }
 
+/// Usage:
+/// ```rust
+/// struct Test {
+///     mirror_fs: MirrorFs
+/// }
+/// impl MyFuseHandler {
+///     delegate_fs! { mirror_fs, [ read, write ] }
+/// }
+/// ```
 #[proc_macro]
 pub fn delegate_fs(input: TokenStream) -> TokenStream {
     let args = syn::parse_macro_input!(input as DelegateFsInput);
@@ -110,10 +119,11 @@ pub fn delegate_fs(input: TokenStream) -> TokenStream {
     let mut expanded = quote! {};
 
     for method in &args.methods {
-        let fn_impl = get_fuse_handler_fn_impl(&method.to_string());
+        let fn_impl = get_fuse_handler_trait_fn(&method.to_string());
         let method_expr = make_method_call_expr(&fn_impl);
+        let fn_sig = fn_impl.sig;
         expanded.extend(quote! {
-            #fn_impl {
+            #fn_sig {
                 self.#target.#method_expr
             }
         });

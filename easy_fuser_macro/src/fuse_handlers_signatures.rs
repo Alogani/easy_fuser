@@ -1,19 +1,18 @@
-use proc_macro2::TokenStream;
 use syn::{Expr, ExprCall, ExprPath, TraitItemFn, parse_quote};
 
-pub fn get_fuse_handler_fn_impl(func_name: &str) -> TokenStream {
+pub fn get_fuse_handler_trait_fn(func_name: &str) -> TraitItemFn {
     match func_name {
         "get_default_ttl" => parse_quote! {
-            fn get_default_ttl(&self) -> Duration
+            fn get_default_ttl(&self) -> Duration;
         },
         "init" => parse_quote! {
-            fn init(&self, req: &RequestInfo, config: &mut KernelConfig) -> FuseResult<()>
+            fn init(&self, req: &RequestInfo, config: &mut KernelConfig) -> FuseResult<()>;
         },
         "destroy" => parse_quote! {
-            fn destroy(&self)
+            fn destroy(&self);
         },
         "access" => parse_quote! {
-            fn access(&self, req: &RequestInfo, file_id: TId, mask: AccessMask) -> FuseResult<()>
+            fn access(&self, req: &RequestInfo, file_id: TId, mask: AccessMask) -> FuseResult<()>;
         },
         "bmap" => parse_quote! {
             fn bmap(
@@ -22,7 +21,7 @@ pub fn get_fuse_handler_fn_impl(func_name: &str) -> TokenStream {
                 file_id: TId,
                 blocksize: u32,
                 idx: u64,
-            ) -> FuseResult<u64>
+            ) -> FuseResult<u64>;
         },
         "copy_file_range" => parse_quote! {
             fn copy_file_range(
@@ -35,7 +34,7 @@ pub fn get_fuse_handler_fn_impl(func_name: &str) -> TokenStream {
                 file_handle_out: BorrowedFileHandle<'_>,
                 offset_out: i64,
                 len: u64,
-            ) -> FuseResult<u32>
+            ) -> FuseResult<u32>;
         },
         "create" => parse_quote! {
             fn create(
@@ -46,7 +45,7 @@ pub fn get_fuse_handler_fn_impl(func_name: &str) -> TokenStream {
                 mode: u32,
                 umask: u32,
                 flags: OpenFlags,
-            ) -> FuseResult<(OwnedFileHandle, TId::Metadata, FUSEOpenResponseFlags)>
+            ) -> FuseResult<(OwnedFileHandle, TId::Metadata, FUSEOpenResponseFlags)>;
         },
         "fallocate" => parse_quote! {
             fn fallocate(
@@ -57,7 +56,7 @@ pub fn get_fuse_handler_fn_impl(func_name: &str) -> TokenStream {
                 offset: i64,
                 length: i64,
                 mode: FallocateFlags,
-            ) -> FuseResult<()>
+            ) -> FuseResult<()>;
         },
         "flush" => parse_quote! {
             fn flush(
@@ -66,10 +65,10 @@ pub fn get_fuse_handler_fn_impl(func_name: &str) -> TokenStream {
                 file_id: TId,
                 file_handle: BorrowedFileHandle<'_>,
                 lock_owner: u64,
-            ) -> FuseResult<()>
+            ) -> FuseResult<()>;
         },
         "forget" => parse_quote! {
-            fn forget(&self, req: &RequestInfo, file_id: TId, nlookup: u64)
+            fn forget(&self, req: &RequestInfo, file_id: TId, nlookup: u64);
         },
         "fsync" => parse_quote! {
             fn fsync(
@@ -78,7 +77,7 @@ pub fn get_fuse_handler_fn_impl(func_name: &str) -> TokenStream {
                 file_id: TId,
                 file_handle: BorrowedFileHandle<'_>,
                 datasync: bool,
-            ) -> FuseResult<()>
+            ) -> FuseResult<()>;
         },
         "fsyncdir" => parse_quote! {
             fn fsyncdir(
@@ -87,7 +86,7 @@ pub fn get_fuse_handler_fn_impl(func_name: &str) -> TokenStream {
                 file_id: TId,
                 file_handle: BorrowedFileHandle<'_>,
                 datasync: bool,
-            ) -> FuseResult<()>
+            ) -> FuseResult<()>;
         },
         "getattr" => parse_quote! {
             fn getattr(
@@ -95,7 +94,7 @@ pub fn get_fuse_handler_fn_impl(func_name: &str) -> TokenStream {
                 req: &RequestInfo,
                 file_id: TId,
                 file_handle: Option<BorrowedFileHandle<'_>>,
-            ) -> FuseResult<FileAttribute>
+            ) -> FuseResult<FileAttribute>;
         },
         "getlk" => parse_quote! {
             fn getlk(
@@ -105,7 +104,7 @@ pub fn get_fuse_handler_fn_impl(func_name: &str) -> TokenStream {
                 file_handle: BorrowedFileHandle<'_>,
                 lock_owner: u64,
                 lock_info: LockInfo,
-            ) -> FuseResult<LockInfo>
+            ) -> FuseResult<LockInfo>;
         },
         "getxattr" => parse_quote! {
             fn getxattr(
@@ -114,7 +113,7 @@ pub fn get_fuse_handler_fn_impl(func_name: &str) -> TokenStream {
                 file_id: TId,
                 name: &OsStr,
                 size: u32,
-            ) -> FuseResult<Vec<u8>>
+            ) -> FuseResult<Vec<u8>>;
         },
         "ioctl" => parse_quote! {
             fn ioctl(
@@ -126,7 +125,7 @@ pub fn get_fuse_handler_fn_impl(func_name: &str) -> TokenStream {
                 cmd: u32,
                 in_data: Vec<u8>,
                 out_size: u32,
-            ) -> FuseResult<(i32, Vec<u8>)>
+            ) -> FuseResult<(i32, Vec<u8>)>;
         },
         "link" => parse_quote! {
             fn link(
@@ -135,10 +134,10 @@ pub fn get_fuse_handler_fn_impl(func_name: &str) -> TokenStream {
                 file_id: TId,
                 newparent: TId,
                 newname: &OsStr,
-            ) -> FuseResult<TId::Metadata>
+            ) -> FuseResult<TId::Metadata>;
         },
         "listxattr" => parse_quote! {
-            fn listxattr(&self, req: &RequestInfo, file_id: TId, size: u32) -> FuseResult<Vec<u8>>
+            fn listxattr(&self, req: &RequestInfo, file_id: TId, size: u32) -> FuseResult<Vec<u8>>;
         },
         "lookup" => parse_quote! {
             fn lookup(
@@ -146,7 +145,7 @@ pub fn get_fuse_handler_fn_impl(func_name: &str) -> TokenStream {
                 req: &RequestInfo,
                 parent_id: TId,
                 name: &OsStr,
-            ) -> FuseResult<TId::Metadata>
+            ) -> FuseResult<TId::Metadata>;
         },
         "lseek" => parse_quote! {
             fn lseek(
@@ -155,7 +154,7 @@ pub fn get_fuse_handler_fn_impl(func_name: &str) -> TokenStream {
                 file_id: TId,
                 file_handle: BorrowedFileHandle<'_>,
                 seek: SeekFrom,
-            ) -> FuseResult<i64>
+            ) -> FuseResult<i64>;
         },
         "mkdir" => parse_quote! {
             fn mkdir(
@@ -165,7 +164,7 @@ pub fn get_fuse_handler_fn_impl(func_name: &str) -> TokenStream {
                 name: &OsStr,
                 mode: u32,
                 umask: u32,
-            ) -> FuseResult<TId::Metadata>
+            ) -> FuseResult<TId::Metadata>;
         },
         "mknod" => parse_quote! {
             fn mknod(
@@ -176,7 +175,7 @@ pub fn get_fuse_handler_fn_impl(func_name: &str) -> TokenStream {
                 mode: u32,
                 umask: u32,
                 rdev: DeviceType,
-            ) -> FuseResult<TId::Metadata>
+            ) -> FuseResult<TId::Metadata>;
         },
         "open" => parse_quote! {
             fn open(
@@ -184,7 +183,7 @@ pub fn get_fuse_handler_fn_impl(func_name: &str) -> TokenStream {
                 req: &RequestInfo,
                 file_id: TId,
                 flags: OpenFlags,
-            ) -> FuseResult<(OwnedFileHandle, FUSEOpenResponseFlags)>
+            ) -> FuseResult<(OwnedFileHandle, FUSEOpenResponseFlags)>;
         },
         "opendir" => parse_quote! {
             fn opendir(
@@ -192,7 +191,7 @@ pub fn get_fuse_handler_fn_impl(func_name: &str) -> TokenStream {
                 req: &RequestInfo,
                 file_id: TId,
                 flags: OpenFlags,
-            ) -> FuseResult<(OwnedFileHandle, FUSEOpenResponseFlags)>
+            ) -> FuseResult<(OwnedFileHandle, FUSEOpenResponseFlags)>;
         },
         "read" => parse_quote! {
             fn read(
@@ -204,7 +203,7 @@ pub fn get_fuse_handler_fn_impl(func_name: &str) -> TokenStream {
                 size: u32,
                 flags: FUSEOpenFlags,
                 lock_owner: Option<u64>,
-            ) -> FuseResult<Vec<u8>>
+            ) -> FuseResult<Vec<u8>>;
         },
         "readdir" => parse_quote! {
             fn readdir(
@@ -212,7 +211,7 @@ pub fn get_fuse_handler_fn_impl(func_name: &str) -> TokenStream {
                 req: &RequestInfo,
                 file_id: TId,
                 file_handle: BorrowedFileHandle<'_>,
-            ) -> FuseResult<Vec<(OsString, TId::MinimalMetadata)>>
+            ) -> FuseResult<Vec<(OsString, TId::MinimalMetadata)>>;
         },
         "readdirplus" => parse_quote! {
             fn readdirplus(
@@ -220,10 +219,10 @@ pub fn get_fuse_handler_fn_impl(func_name: &str) -> TokenStream {
                 req: &RequestInfo,
                 file_id: TId,
                 file_handle: BorrowedFileHandle,
-            ) -> FuseResult<Vec<(OsString, TId::Metadata)>>
+            ) -> FuseResult<Vec<(OsString, TId::Metadata)>>;
         },
         "readlink" => parse_quote! {
-            fn readlink(&self, req: &RequestInfo, file_id: TId) -> FuseResult<Vec<u8>>
+            fn readlink(&self, req: &RequestInfo, file_id: TId) -> FuseResult<Vec<u8>>;
         },
         "release" => parse_quote! {
             fn release(
@@ -234,7 +233,7 @@ pub fn get_fuse_handler_fn_impl(func_name: &str) -> TokenStream {
                 flags: OpenFlags,
                 lock_owner: Option<u64>,
                 flush: bool,
-            ) -> FuseResult<()>
+            ) -> FuseResult<()>;
         },
         "releasedir" => parse_quote! {
             fn releasedir(
@@ -243,10 +242,10 @@ pub fn get_fuse_handler_fn_impl(func_name: &str) -> TokenStream {
                 file_id: TId,
                 file_handle: OwnedFileHandle,
                 flags: OpenFlags,
-            ) -> FuseResult<()>
+            ) -> FuseResult<()>;
         },
         "removexattr" => parse_quote! {
-            fn removexattr(&self, req: &RequestInfo, file_id: TId, name: &OsStr) -> FuseResult<()>
+            fn removexattr(&self, req: &RequestInfo, file_id: TId, name: &OsStr) -> FuseResult<()>;
         },
         "rename" => parse_quote! {
             fn rename(
@@ -257,10 +256,10 @@ pub fn get_fuse_handler_fn_impl(func_name: &str) -> TokenStream {
                 newparent: TId,
                 newname: &OsStr,
                 flags: RenameFlags,
-            ) -> FuseResult<()>
+            ) -> FuseResult<()>;
         },
         "rmdir" => parse_quote! {
-            fn rmdir(&self, req: &RequestInfo, parent_id: TId, name: &OsStr) -> FuseResult<()>
+            fn rmdir(&self, req: &RequestInfo, parent_id: TId, name: &OsStr) -> FuseResult<()>;
         },
         "setattr" => parse_quote! {
             fn setattr(
@@ -268,7 +267,7 @@ pub fn get_fuse_handler_fn_impl(func_name: &str) -> TokenStream {
                 req: &RequestInfo,
                 file_id: TId,
                 attrs: SetAttrRequest<'_>,
-            ) -> FuseResult<FileAttribute>
+            ) -> FuseResult<FileAttribute>;
         },
         "setlk" => parse_quote! {
             fn setlk(
@@ -279,7 +278,7 @@ pub fn get_fuse_handler_fn_impl(func_name: &str) -> TokenStream {
                 lock_owner: u64,
                 lock_info: LockInfo,
                 sleep: bool,
-            ) -> FuseResult<()>
+            ) -> FuseResult<()>;
         },
         "setxattr" => parse_quote! {
             fn setxattr(
@@ -290,10 +289,10 @@ pub fn get_fuse_handler_fn_impl(func_name: &str) -> TokenStream {
                 value: Vec<u8>,
                 flags: FUSESetXAttrFlags,
                 position: u32,
-            ) -> FuseResult<()>
+            ) -> FuseResult<()>;
         },
         "statfs" => parse_quote! {
-            fn statfs(&self, req: &RequestInfo, file_id: TId) -> FuseResult<StatFs>
+            fn statfs(&self, req: &RequestInfo, file_id: TId) -> FuseResult<StatFs>;
         },
         "symlink" => parse_quote! {
             fn symlink(
@@ -302,7 +301,7 @@ pub fn get_fuse_handler_fn_impl(func_name: &str) -> TokenStream {
                 parent_id: TId,
                 link_name: &OsStr,
                 target: &Path,
-            ) -> FuseResult<TId::Metadata>
+            ) -> FuseResult<TId::Metadata>;
         },
         "write" => parse_quote! {
             fn write(
@@ -315,10 +314,10 @@ pub fn get_fuse_handler_fn_impl(func_name: &str) -> TokenStream {
                 write_flags: FUSEWriteFlags,
                 flags: OpenFlags,
                 lock_owner: Option<u64>,
-            ) -> FuseResult<u32>
+            ) -> FuseResult<u32>;
         },
         "unlink" => parse_quote! {
-            fn unlink(&self, req: &RequestInfo, parent_id: TId, name: &OsStr) -> FuseResult<()>
+            fn unlink(&self, req: &RequestInfo, parent_id: TId, name: &OsStr) -> FuseResult<()>;
         },
         _ => panic!("unknown function signature"),
     }
@@ -327,12 +326,9 @@ pub fn get_fuse_handler_fn_impl(func_name: &str) -> TokenStream {
 /// Given a trait method like:
 ///     fn access(&self, req: &RequestInfo, file_id: TId, mask: AccessMask) -> FuseResult<()>
 /// Returns an expression: `access(req, file_id, mask)`
-pub fn make_method_call_expr(method: &TokenStream) -> Expr {
-    let method: TraitItemFn = parse_quote! { #method; };
-    // Get the method name
+pub fn make_method_call_expr(method: &TraitItemFn) -> Expr {
     let method_name = &method.sig.ident;
 
-    // Collect all parameters except `&self`
     let args: Vec<Expr> = method
         .sig
         .inputs
@@ -348,7 +344,6 @@ pub fn make_method_call_expr(method: &TokenStream) -> Expr {
         })
         .collect();
 
-    // Build the call expression: method_name(arg1, arg2, ...)
     let call = Expr::Call(ExprCall {
         attrs: vec![],
         func: Box::new(Expr::Path(ExprPath {

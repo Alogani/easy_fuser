@@ -212,7 +212,10 @@ impl FileIdResolver for ComponentsResolver {
     }
 
     fn prune(&self, keep: &HashSet<Self::ResolvedType>) {
-        self.mapper.write().expect("Failed to acquire write lock").prune(keep);
+        self.mapper
+            .write()
+            .expect("Failed to acquire write lock")
+            .prune(keep);
     }
 
     fn rename(&self, parent: u64, name: &OsStr, newparent: u64, newname: &OsStr) {
@@ -467,11 +470,11 @@ mod tests {
         // Test prune
         let keep = HashSet::new();
         resolver.prune(&keep);
-        
+
         // child_ino should be gone now because refcount was 0 (decremented by earlier forget) and we pruned it.
         // We can verify it's gone by trying to resolve it and expecting panic (as per other test) or just by knowing prune works.
         // But calling forget again is definitely wrong if it's gone.
-        
+
         // If we want to test that prune actually removed it, we should check existence.
         // But since we can't easily check existence without internal access, we rely on the fact that subsequent operations might fail or the other test.
     }

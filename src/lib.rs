@@ -23,15 +23,15 @@ mod core;
 mod fuse_handler;
 
 pub mod inode_mapper;
-pub mod session;
 pub mod inode_multi_mapper;
+pub mod session;
 //pub mod templates;
 pub mod types;
 pub mod unix_fs;
 
 pub use fuse_handler::FuseHandler;
-pub use session::{FusePruner, FuseSession};
 use fuser::MountOption;
+pub use session::{FusePruner, FuseSession};
 
 pub mod prelude {
     //! Re-exports the necessary types and functions from the `easy_fuser` crate.

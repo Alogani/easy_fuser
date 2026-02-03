@@ -549,7 +549,9 @@ impl<Data: Send + Sync + 'static> InodeMapper<Data> {
 }
 
 impl<Data> InodeMapper<Data>
-where Data: HasLookupCount + Send + Sync + 'static {
+where
+    Data: HasLookupCount + Send + Sync + 'static,
+{
     pub fn prune(&mut self, keep: &HashSet<Vec<OsString>>) {
         let mut to_remove = Vec::new();
 
@@ -562,8 +564,11 @@ where Data: HasLookupCount + Send + Sync + 'static {
                 if let Some(path_info) = self.resolve(inode) {
                     // path_info is [leaf, parent...]
                     // We need [parent, leaf]
-                    let path_vec: Vec<OsString> =
-                        path_info.iter().rev().map(|info| (**info.name).clone()).collect();
+                    let path_vec: Vec<OsString> = path_info
+                        .iter()
+                        .rev()
+                        .map(|info| (**info.name).clone())
+                        .collect();
                     if !keep.contains(&path_vec) {
                         to_remove.push(inode.clone());
                     }
