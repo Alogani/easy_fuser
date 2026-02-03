@@ -77,11 +77,13 @@ impl FuseHandler<Inode> for RandomFS {
         _mode: u32,
         _umask: u32,
         _flags: OpenFlags,
+        _helper: CreateHelper,
     ) -> Result<
         (
             OwnedFileHandle,
             (Inode, FileAttribute),
             FUSEOpenResponseFlags,
+            Option<PassthroughBackingId>,
         ),
         PosixError,
     > {
@@ -93,6 +95,7 @@ impl FuseHandler<Inode> for RandomFS {
             unsafe { OwnedFileHandle::from_raw(0) },
             (ino, attr),
             FUSEOpenResponseFlags::empty(),
+            None,
         ))
     }
 
@@ -172,7 +175,7 @@ impl FuseHandler<Inode> for RandomFS {
         offset: SeekFrom,
         size: u32,
         _flags: OpenFlags,
-        _lock_owner: Option<u64>,
+        _lock_owner: Option<LockOwner>,
     ) -> FuseResult<Vec<u8>> {
         let mut rng = rand::thread_rng();
         let lines = rng.gen_range(0..81);
@@ -238,7 +241,7 @@ impl FuseHandler<Inode> for RandomFS {
         data: Vec<u8>,
         _write_flags: FUSEWriteFlags,
         _flags: OpenFlags,
-        _lock_owner: Option<u64>,
+        _lock_owner: Option<LockOwner>,
     ) -> FuseResult<u32> {
         Ok(data.len() as u32)
     }
@@ -252,13 +255,13 @@ fn main() {
     let mountpoint = std::env::args()
         .nth(1)
         .expect("Usage: random_fs <MOUNTPOINT>");
-    let options = vec![
-        MountOption::RW,
-        MountOption::FSName("random_fs".to_string()),
-    ];
+    let mut config = easy_fuser::prelude::Config::default();
+    config.acl = easy_fuser::prelude::SessionACL::Owner;
+    config.n_threads = Some(1);
+    config.mount_options = vec![MountOption::RW, MountOption::FSName("random_fs".to_string())];
 
     let fs = RandomFS::new();
 
     println!("Mounting filesystem...");
-    easy_fuser::mount(fs, Path::new(&mountpoint), &options, 1).unwrap();
+    easy_fuser::mount(fs, Path::new(&mountpoint), &config).unwrap();
 }

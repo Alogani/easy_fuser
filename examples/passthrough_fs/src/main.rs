@@ -3,14 +3,14 @@
 use clap::Parser;
 use ctrlc;
 use easy_fuser::prelude::*;
-use easy_fuser::templates::mirror_fs::*;
 use easy_fuser::templates::DefaultFuseHandler;
+use easy_fuser::templates::mirror_fs::*;
 use std::path::PathBuf;
-use std::process::exit;
 use std::process::Command;
+use std::process::exit;
+use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
-use std::sync::Arc;
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -75,7 +75,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Source directory: {:?}", fs.source_dir());
 
     // Mount the filesystem
-    mount(fs, &mntpoint, &[], 1)?;
+    let mut config = easy_fuser::prelude::Config::default();
+    config.acl = easy_fuser::prelude::SessionACL::Owner;
+    config.n_threads = Some(1);
+    config.mount_options = vec![];
+    mount(fs, &mntpoint, &config)?;
 
     // If we reach here, the filesystem has been unmounted normally
     cleanup(&mntpoint, &once_flag);

@@ -33,7 +33,7 @@ const HELLO_DIR_ATTR: (Inode, FileAttribute) = (
 const HELLO_TXT_CONTENT: &str = "Hello World!\n";
 
 const HELLO_TXT_ATTR: (Inode, FileAttribute) = (
-    Inode::from(2),
+    Inode::new(2),
     FileAttribute {
         size: 13,
         blocks: 1,
@@ -111,7 +111,7 @@ impl FuseHandler<Inode> for HelloFS {
         seek: SeekFrom,
         size: u32,
         _flags: OpenFlags,
-        _lock_owner: Option<u64>,
+        _lock_owner: Option<LockOwner>,
     ) -> FuseResult<Vec<u8>> {
         if file_id == HELLO_TXT_ATTR.0 {
             let offset = match seek {
@@ -166,8 +166,12 @@ fn main() {
         .try_init();
 
     let mountpoint = std::env::args().nth(1).expect("Usage: hello <MOUNTPOINT>");
-    let options = vec![MountOption::RO, MountOption::FSName("hello".to_string())];
 
+    let mut config = easy_fuser::prelude::Config::default();
+    config.acl = easy_fuser::prelude::SessionACL::Owner;
+    config.n_threads = Some(1);
+    config.mount_options = vec![MountOption::RO, MountOption::FSName("hello".to_string())];
+    
     println!("Mounting FTP filesystem...");
-    easy_fuser::mount(HelloFS::new(), Path::new(&mountpoint), &options).unwrap();
+    easy_fuser::mount(HelloFS::new(), Path::new(&mountpoint), &config).unwrap();
 }

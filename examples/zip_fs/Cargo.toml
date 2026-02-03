@@ -12,3 +12,7 @@ ctrlc = "3.4"
 
 [dev-dependencies]
 tempfile = "3.2"
+
+[patch.crates-io]
+# Use the updated branch 
+fuser = { git = "https://github.com/cberner/fuser", branch = "master" }

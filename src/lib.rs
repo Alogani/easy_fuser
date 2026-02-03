@@ -30,15 +30,13 @@ pub mod unix_fs;
 
 pub use fuse_handler::FuseHandler;
 use fuser::BackgroundSession;
-use fuser::Config;
 
 pub mod prelude {
     //! Re-exports the necessary types and functions from the `easy_fuser` crate.
     pub use super::fuse_handler::FuseHandler;
     pub use super::types::*;
     pub use super::{mount, spawn_mount};
-
-    pub use fuser::{BackgroundSession, MountOption, Session, SessionUnmounter};
+    pub use fuser::{BackgroundSession, MountOption, Session, SessionUnmounter, Config, SessionACL};
 }
 
 // Implentation of the high-level functions

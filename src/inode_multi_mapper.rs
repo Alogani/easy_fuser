@@ -979,7 +979,7 @@ mod tests {
         let child_name = OsString::from("child");
 
         // Insert the first child
-        let first_child_inode = Inode::from(2);
+        let first_child_inode = Inode::new(2);
         assert_eq!(
             mapper.insert_child(&root, child_name.clone(), None, |value_creator_params| {
                 assert!(value_creator_params.existing_data.is_none());

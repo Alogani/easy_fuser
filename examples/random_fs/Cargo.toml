@@ -6,3 +6,7 @@ edition = "2021"
 [dependencies]
 easy_fuser = { path = "../..", features = ["parallel"] }
 rand = "0.8.5"
+
+[patch.crates-io]
+# Use the updated branch 
+fuser = { git = "https://github.com/cberner/fuser", branch = "master" }

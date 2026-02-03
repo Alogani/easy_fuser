@@ -24,7 +24,10 @@ use crate::core::inode_mapping::FileIdResolver;
 type DirIter<TAttr> = HashMap<(INodeNo, u64), VecDeque<(OsString, INodeNo, TAttr)>>;
 
 {% if mode == "serial" %}
-    use std::cell::RefCell;
+    #[cfg(feature = "deadlock_detection")]
+    use parking_lot::Mutex;
+    #[cfg(not(feature = "deadlock_detection"))]
+    use std::sync::Mutex;
 
 {% elif mode == "parallel" %}
     use std::sync::Arc;
@@ -49,8 +52,8 @@ where
     {% if !send_sync %}
         handler: THandler,
         resolver: TId::Resolver,
-        dirmap_iter: RefCell<DirIter<FileKind>>,
-        dirmapplus_iter: RefCell<DirIter<FileAttribute>>,
+        dirmap_iter: Mutex<DirIter<FileKind>>,
+        dirmapplus_iter: Mutex<DirIter<FileAttribute>>,
     {% else %}
         handler: Arc<THandler>,
         resolver: Arc<TId::Resolver>,
@@ -101,8 +104,8 @@ where
             {% if mode == "serial" %}
                 handler,
                 resolver: TId::Resolver::new(),
-                dirmap_iter: RefCell::new(HashMap::new()),
-                dirmapplus_iter: RefCell::new(HashMap::new()),
+                dirmap_iter: Mutex::new(HashMap::new()),
+                dirmapplus_iter: Mutex::new(HashMap::new()),
             {% else %}
                 handler: Arc::new(handler),
                 resolver: Arc::new(TId::create_resolver()),
@@ -128,11 +131,11 @@ where
             &self.resolver
         }
 
-        pub fn get_dirmap_iter(&self) -> &RefCell<DirIter<FileKind>> {
+        pub fn get_dirmap_iter(&self) -> &Mutex<DirIter<FileKind>> {
             &self.dirmap_iter
         }
 
-        pub fn get_dirmapplus_iter(&self) -> &RefCell<DirIter<FileAttribute>> {
+        pub fn get_dirmapplus_iter(&self) -> &Mutex<DirIter<FileAttribute>> {
             &self.dirmapplus_iter
         }
     {% else %}
