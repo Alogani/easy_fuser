@@ -94,7 +94,7 @@ where
     P: AsRef<Path>,
 {
     let driver = FuseDriver::new(filesystem, num_threads);
-    let resolver = driver.get_resolver();
+    let resolver = driver.resolver.clone();
     let session = spawn_mount2(driver, mountpoint, options)?;
     Ok(FuseSession::new(session, resolver))
 }
@@ -112,8 +112,9 @@ where
     P: AsRef<Path>,
 {
     // num_thread argument will not be taken into account in this function due to feature serial
+
     let driver = FuseDriver::new(filesystem, 1);
-    let resolver = driver.get_resolver();
+    let resolver = driver.resolver.clone();
     let session = spawn_mount2(driver, mountpoint, options)?;
     Ok(FuseSession::new(session, resolver))
 }
