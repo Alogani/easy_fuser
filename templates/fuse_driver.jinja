@@ -771,9 +771,10 @@ where
                     match passthrough_backing_id {
                         #[cfg(feature = "passthrough")]
                         Some(passthrough_backing_id) => {
+                            let response_flags = response_flags | FUSEOpenResponseFlags::PASSTHROUGH;
                             reply.opened_passthrough(
                                 file_handle.as_fuser_file_handle(), 
-                                FopenFlags::from(response_flags) | FopenFlags::PASSTHROUGH, 
+                                FopenFlags::from(response_flags), 
                                 passthrough_backing_id.as_ref()
                             );
                         }
@@ -810,9 +811,10 @@ where
                     match passthrough_backing_id {
                         #[cfg(feature = "passthrough")]
                         Some(passthrough_backing_id) => {
+                            let response_flags = response_flags | FUSEOpenResponseFlags::PASSTHROUGH;
                             reply.opened_passthrough(
                                 file_handle.as_fuser_file_handle(), 
-                                FopenFlags::from(response_flags) | FopenFlags::PASSTHROUGH, 
+                                FopenFlags::from(response_flags), 
                                 passthrough_backing_id.as_ref()
                             );
                         }

@@ -21,10 +21,18 @@ fn test_mirror_fs_operations() {
     let mntpoint_clone = mntpoint.clone();
     let handle = std::thread::spawn(move || {
         let fs = MirrorFs::new(source_path.clone(), DefaultFuseHandler::new());
-        #[cfg(feature = "serial")]
-        mount(fs, &mntpoint_clone, &[]).unwrap();
-        #[cfg(not(feature = "serial"))]
-        mount(fs, &mntpoint_clone, &[], 4).unwrap();
+        let config = {
+            let mut config = Config::default();
+            config.acl = fuser::SessionACL::Owner;
+            if cfg!(feature = "serial") {
+                config.n_threads = None;
+            } else {
+                config.n_threads = Some(4);
+            }
+            config.mount_options = vec![];
+            config
+        };
+        mount(fs, &mntpoint_clone, &config).unwrap();
     });
     std::thread::sleep(Duration::from_millis(50)); // Wait for the mount to finish
 

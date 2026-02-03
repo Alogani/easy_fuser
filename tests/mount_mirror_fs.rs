@@ -35,11 +35,19 @@ fn mount_fs<FS: MirrorFsTrait>() {
 
     // Mount the filesystem
     println!("Mounting MirrorFs...");
-    #[cfg(feature = "serial")]
-    let mount_result = mount(fs, &mount_dir, &[]);
-    #[cfg(not(feature = "serial"))]
-    let mount_result = mount(fs, &mount_dir, &[], 4);
+    let config = {
+        let mut config = Config::default();
+        config.acl = fuser::SessionACL::Owner;
+        if cfg!(feature = "serial") {
+            config.n_threads = None;
+        } else {
+            config.n_threads = Some(4);
+        }
+        config.mount_options = vec![];
+        config
+    };
 
+    let mount_result = mount(fs, &mount_dir, &config);
     match mount_result {
         Ok(_) => {
             println!("MirrorFs mounted successfully. Press Ctrl+C to unmount and exit.");
