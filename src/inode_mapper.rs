@@ -4,7 +4,7 @@ use std::ffi::{OsStr, OsString};
 use std::hash::Hash;
 use std::sync::Arc;
 
-use super::{Inode, ROOT_INODE};
+use crate::types::{Inode, ROOT_INODE};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 /// Helper structure for managing inodes and their relationships.
@@ -599,8 +599,7 @@ mod tests {
     use std::collections::HashSet;
     use std::ffi::OsString;
 
-    use crate::ROOT_INODE;
-    use crate::types::Inode;
+    use crate::types::{Inode, ROOT_INODE};
 
     #[test]
     fn test_insert_child_returns_old_inode() {
