@@ -31,7 +31,6 @@ pub mod unix_fs;
 
 pub use fuse_handler::FuseHandler;
 pub use session::{FusePruner, FuseSession};
-use fuser::MountOption;
 
 pub mod prelude {
     //! Re-exports the necessary types and functions from the `easy_fuser` crate.
@@ -43,78 +42,8 @@ pub mod prelude {
     pub use fuser::{BackgroundSession, MountOption, Session, SessionUnmounter};
 }
 
-// Implentation of the high-level functions
-use std::io;
-use std::path::Path;
 
-use core::FuseDriver;
-use fuser::{mount2, spawn_mount2};
-use prelude::*;
-
-#[doc = include_str!("../docs/mount.md")]
-#[cfg(not(feature = "serial"))]
-pub fn mount<T, FS, P>(
-    filesystem: FS,
-    mountpoint: P,
-    options: &[MountOption],
-    num_threads: usize,
-) -> io::Result<()>
-where
-    T: FileIdType,
-    FS: FuseHandler<T>,
-    P: AsRef<Path>,
-{
-    let driver = FuseDriver::new(filesystem, num_threads);
-    mount2(driver, mountpoint, options)
-}
-#[doc = include_str!("../docs/mount.md")]
 #[cfg(feature = "serial")]
-pub fn mount<T, FS, P>(filesystem: FS, mountpoint: P, options: &[MountOption]) -> io::Result<()>
-where
-    T: FileIdType,
-    FS: FuseHandler<T>,
-    P: AsRef<Path>,
-{
-    // num_thread argument will not be taken into account in this function due to feature serial
-    let driver = FuseDriver::new(filesystem, 1);
-    mount2(driver, mountpoint, options)
-}
-
-#[doc = include_str!("../docs/spawn_mount.md")]
+include!(concat!(env!("OUT_DIR"), "/serial/mouting.rs"));
 #[cfg(not(feature = "serial"))]
-pub fn spawn_mount<T, FS, P>(
-    filesystem: FS,
-    mountpoint: P,
-    options: &[MountOption],
-    num_threads: usize,
-) -> io::Result<FuseSession<T>>
-where
-    T: FileIdType,
-    FS: FuseHandler<T> + Send,
-    P: AsRef<Path>,
-{
-    let driver = FuseDriver::new(filesystem, num_threads);
-    let resolver = driver.resolver.clone();
-    let session = spawn_mount2(driver, mountpoint, options)?;
-    Ok(FuseSession::new(session, resolver))
-}
-
-#[doc = include_str!("../docs/spawn_mount.md")]
-#[cfg(feature = "serial")]
-pub fn spawn_mount<T, FS, P>(
-    filesystem: FS,
-    mountpoint: P,
-    options: &[MountOption],
-) -> io::Result<FuseSession<T>>
-where
-    T: FileIdType,
-    FS: FuseHandler<T> + Send,
-    P: AsRef<Path>,
-{
-    // num_thread argument will not be taken into account in this function due to feature serial
-
-    let driver = FuseDriver::new(filesystem, 1);
-    let resolver = driver.resolver.clone();
-    let session = spawn_mount2(driver, mountpoint, options)?;
-    Ok(FuseSession::new(session, resolver))
-}
+include!(concat!(env!("OUT_DIR"), "/parallel/mouting.rs"));

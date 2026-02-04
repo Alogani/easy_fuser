@@ -11,3 +11,9 @@ pub struct FuseDriverTemplate<'a> {
 pub struct FuseHandlerTemplate<'a> {
     pub mode: &'a str,
 }
+
+#[derive(Template)]
+#[template(path = "mouting.rs.j2")]
+pub struct MoutingTemplate<'a> {
+    pub mode: &'a str,
+}
