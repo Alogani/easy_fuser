@@ -75,10 +75,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Source directory: {:?}", fs.source_dir());
 
     // Mount the filesystem
-    let mut config = easy_fuser::prelude::Config::default();
-    config.acl = easy_fuser::prelude::SessionACL::Owner;
-    config.n_threads = Some(1);
-    config.mount_options = vec![];
+    let config = easy_fuser::prelude::MountConfig {
+        mount_options: vec![],
+        acl: easy_fuser::prelude::SessionACL::Owner,
+        num_threads: 1,
+    };
     mount(fs, &mntpoint, &config)?;
 
     // If we reach here, the filesystem has been unmounted normally

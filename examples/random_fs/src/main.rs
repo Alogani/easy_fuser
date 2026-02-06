@@ -255,10 +255,11 @@ fn main() {
     let mountpoint = std::env::args()
         .nth(1)
         .expect("Usage: random_fs <MOUNTPOINT>");
-    let mut config = easy_fuser::prelude::Config::default();
-    config.acl = easy_fuser::prelude::SessionACL::Owner;
-    config.n_threads = Some(1);
-    config.mount_options = vec![MountOption::RW, MountOption::FSName("random_fs".to_string())];
+    let config = easy_fuser::prelude::MountConfig {
+        mount_options: vec![],
+        acl: easy_fuser::prelude::SessionACL::Owner,
+        num_threads: 1,
+    };
 
     let fs = RandomFS::new();
 

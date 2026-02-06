@@ -167,10 +167,10 @@ fn main() {
 
     let mountpoint = std::env::args().nth(1).expect("Usage: hello <MOUNTPOINT>");
 
-    let mut config = easy_fuser::prelude::Config::default();
-    config.acl = easy_fuser::prelude::SessionACL::Owner;
-    config.n_threads = Some(1);
-    config.mount_options = vec![MountOption::RO, MountOption::FSName("hello".to_string())];
+    let config = easy_fuser::prelude::MountConfig {
+        mount_options: vec![],
+        acl: easy_fuser::prelude::SessionACL::Owner,
+    };
     
     println!("Mounting FTP filesystem...");
     easy_fuser::mount(HelloFS::new(), Path::new(&mountpoint), &config).unwrap();

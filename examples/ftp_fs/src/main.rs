@@ -20,8 +20,8 @@
 
 use std::path::PathBuf;
 use std::process::exit;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use clap::{Parser, ValueEnum};
 use ctrlc;
@@ -139,14 +139,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Mount point: {:?}", &mount_point);
 
     // Mount the filesystem
-    let config = {
-        let mut config = easy_fuser::prelude::Config::default();
-        config.acl = easy_fuser::prelude::SessionACL::Owner;
-        config.n_threads = Some(4);
-        config.mount_options = vec![];
-        config
+    let config = easy_fuser::prelude::MountConfig {
+        mount_options: vec![],
+        acl: easy_fuser::prelude::SessionACL::Owner,
+        num_threads: 4,
     };
-
+    
     easy_fuser::mount(ftp_fs, &mount_point, &config)?;
 
     // If we reach here, the filesystem has been unmounted normally

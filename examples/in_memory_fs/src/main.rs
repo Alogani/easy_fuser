@@ -11,6 +11,8 @@ pub use filesystem::InMemoryFS;
 
 fn create_memory_fs() -> InMemoryFS {
     let memoryfs = InMemoryFS::new();
+    // NOTE: manual call example here is removed because the [`CreateHelper`]
+    // parameter is not supported
     memoryfs
 }
 
@@ -26,26 +28,26 @@ fn main() {
     let mountpoint = std::env::args()
         .nth(1)
         .expect("Usage: in_memory_fs <MOUNTPOINT>");
-    let mut config = easy_fuser::prelude::Config::default();
-    config.acl = easy_fuser::prelude::SessionACL::Owner;
-    config.n_threads = Some(1);
-    config.mount_options = vec![
-        MountOption::RW,
-        MountOption::FSName("in_memory_fs".to_string()),
-    ];
-
+    let config = MountConfig {
+        mount_options: vec![],
+        acl: SessionACL::Owner,
+        num_threads: 4,
+    };
     let memoryfs = create_memory_fs();
 
     println!("Mounting filesystem...");
     let session = easy_fuser::spawn_mount(memoryfs, Path::new(&mountpoint), &config).unwrap();
     println!("Filesystem mounted");
-    fs::write(
-        Path::new(&mountpoint).join("README.md"),
-        README_CONTENT,
-    )
-    .expect("Failed to write README.md");
+    fs::write(Path::new(&mountpoint).join("README.md"), README_CONTENT)
+        .expect("Failed to write README.md");
 
     std::io::stdin().read_line(&mut String::new()).unwrap();
-    session.umount_and_join().unwrap();
+    session
+        .join(&[])
+        .map_err(|(_session, error)| {
+            println!("Error unmounting filesystem: {:?}", error);
+            error
+        })
+        .unwrap();
     println!("Filesystem unmounted");
 }
