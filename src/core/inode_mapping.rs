@@ -1,4 +1,5 @@
 use std::{
+    collections::HashSet,
     ffi::{OsStr, OsString},
     fmt::Debug,
     hash::Hash,
@@ -8,12 +9,13 @@ use std::{
 
 use std::sync::{RwLock, atomic::AtomicU64};
 
+use fuser::INodeNo;
+
 use crate::{
     inode_mapper::{self, InodeMapper},
     inode_multi_mapper::{self, InodeMultiMapper},
     types::*,
 };
-use fuser::INodeNo;
 
 pub(crate) const ROOT_INO: u64 = 1;
 
@@ -80,6 +82,7 @@ pub trait FileIdResolver: Send + Sync + 'static {
         increment: bool,
     ) -> Vec<(OsString, INodeNo)>;
     fn forget(&self, ino: INodeNo, nlookup: u64);
+    fn prune(&self, keep: &HashSet<Self::ResolvedType>);
     fn rename(&self, parent: INodeNo, name: &OsStr, newparent: INodeNo, newname: &OsStr);
 }
 
@@ -114,6 +117,8 @@ impl FileIdResolver for InodeResolver {
     }
 
     fn forget(&self, _ino: INodeNo, _nlookup: u64) {}
+
+    fn prune(&self, _keep: &HashSet<Self::ResolvedType>) {}
 
     fn rename(&self, _parent: INodeNo, _name: &OsStr, _newparent: INodeNo, _newname: &OsStr) {}
 }
@@ -213,6 +218,13 @@ impl FileIdResolver for ComponentsResolver {
         self.mapper.write().unwrap().remove(&inode).unwrap();
     }
 
+    fn prune(&self, keep: &HashSet<Self::ResolvedType>) {
+        self.mapper
+            .write()
+            .expect("Failed to acquire write lock")
+            .prune(keep);
+    }
+
     fn rename(&self, parent: INodeNo, name: &OsStr, newparent: INodeNo, newname: &OsStr) {
         let parent_inode = Inode::from(parent);
         let newparent_inode = Inode::from(newparent);
@@ -271,6 +283,14 @@ impl FileIdResolver for PathResolver {
 
     fn forget(&self, ino: INodeNo, nlookup: u64) {
         self.resolver.forget(ino, nlookup);
+    }
+
+    fn prune(&self, keep: &HashSet<Self::ResolvedType>) {
+        let resolver_keep: HashSet<Vec<OsString>> = keep
+            .iter()
+            .map(|path| path.iter().map(|s| s.to_os_string()).collect())
+            .collect();
+        self.resolver.prune(&resolver_keep);
     }
 
     fn rename(&self, parent: INodeNo, name: &OsStr, newparent: INodeNo, newname: &OsStr) {
@@ -396,6 +416,10 @@ where
             .unwrap();
     }
 
+    fn prune(&self, _keep: &HashSet<Self::ResolvedType>) {
+        // TODO
+    }
+
     fn rename(&self, parent: INodeNo, name: &OsStr, newparent: INodeNo, newname: &OsStr) {
         let parent_inode = Inode::from(parent);
         let newparent_inode = Inode::from(newparent);
@@ -451,6 +475,28 @@ mod tests {
 
         let renamed_path = resolver.resolve_id(child_ino);
         assert_eq!(renamed_path, vec![OsString::from("renamed_child")]);
+
+        // Test prune
+        let keep = HashSet::new();
+        resolver.prune(&keep);
+
+        // child_ino should be gone now because refcount was 0 (decremented by earlier forget) and we pruned it.
+        // We can verify it's gone by trying to resolve it and expecting panic (as per other test) or just by knowing prune works.
+        // But calling forget again is definitely wrong if it's gone.
+
+        // If we want to test that prune actually removed it, we should check existence.
+        // But since we can't easily check existence without internal access, we rely on the fact that subsequent operations might fail or the other test.
+    }
+
+    #[test]
+    #[should_panic(expected = "Failed to resolve inode")]
+    fn test_components_resolver_prune_panics_on_resolved_deleted() {
+        let resolver = ComponentsResolver::new();
+        let parent_ino = INodeNo(ROOT_INO);
+        let child_ino = resolver.lookup(parent_ino, OsStr::new("child"), (), true);
+        resolver.forget(child_ino, 1);
+        resolver.prune(&HashSet::new());
+        resolver.resolve_id(child_ino);
     }
 
     #[test]

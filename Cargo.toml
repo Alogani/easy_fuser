@@ -46,4 +46,4 @@ features = ["parallel"]
 
 [patch.crates-io]
 # Use the updated branch 
-fuser = { git = "https://github.com/cberner/fuser", branch = "master" }
+fuser = { git = "https://github.com/khanhtranngoccva/fuser", branch = "bleeding-edge" }

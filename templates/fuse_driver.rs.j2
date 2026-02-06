@@ -1,6 +1,5 @@
-{% let send_sync = mode != "serial" %}
-
 use std::{
+    sync::Arc,
     collections::{HashMap, VecDeque},
     ffi::{OsStr, OsString},
     path::Path,
@@ -30,7 +29,6 @@ type DirIter<TAttr> = HashMap<(INodeNo, u64), VecDeque<(OsString, INodeNo, TAttr
     use std::sync::Mutex;
 
 {% elif mode == "parallel" %}
-    use std::sync::Arc;
     use threadpool::ThreadPool;
 
     #[cfg(feature = "deadlock_detection")]
@@ -39,7 +37,6 @@ type DirIter<TAttr> = HashMap<(INodeNo, u64), VecDeque<(OsString, INodeNo, TAttr
     use std::sync::Mutex;
 
 {% elif mode == "async" %}
-    use std::sync::Arc;
     use tokio::runtime::Runtime;
     use tokio::sync::Mutex;
 {% endif %}
@@ -49,17 +46,11 @@ where
     TId: FileIdType,
     THandler: FuseHandler<TId>,
 {
-    {% if !send_sync %}
-        handler: THandler,
-        resolver: TId::Resolver,
-        dirmap_iter: Mutex<DirIter<FileKind>>,
-        dirmapplus_iter: Mutex<DirIter<FileAttribute>>,
-    {% else %}
-        handler: Arc<THandler>,
-        resolver: Arc<TId::Resolver>,
-        dirmap_iter: Arc<Mutex<DirIter<FileKind>>>,
-        dirmapplus_iter: Arc<Mutex<DirIter<FileAttribute>>>,
-    {% endif %}
+    // Use of `Arc` types is mandatory to satisfy `fuser`'s new Send + Sync requirement.
+    pub resolver: Arc<TId::Resolver>,
+    handler: Arc<THandler>,
+    dirmap_iter: Arc<Mutex<DirIter<FileKind>>>,
+    dirmapplus_iter: Arc<Mutex<DirIter<FileAttribute>>>,
 
     {% if mode == "parallel" %}
         pub threadpool: ThreadPool,
@@ -89,10 +80,10 @@ where
 {
     pub fn new(
         handler: THandler,
-        {% if send_sync %}
-            num_threads: usize
-        {% else %}
+        {% if mode == "serial" %}
             _num_threads: usize
+        {% else %}
+            num_threads: usize
         {% endif %}
     ) -> FuseDriver<TId, THandler> {
         {% if mode == "parallel" %}
@@ -101,17 +92,10 @@ where
         {% endif %}
 
         FuseDriver {
-            {% if mode == "serial" %}
-                handler,
-                resolver: TId::Resolver::new(),
-                dirmap_iter: Mutex::new(HashMap::new()),
-                dirmapplus_iter: Mutex::new(HashMap::new()),
-            {% else %}
-                handler: Arc::new(handler),
-                resolver: Arc::new(TId::create_resolver()),
-                dirmap_iter: Arc::new(Mutex::new(HashMap::new())),
-                dirmapplus_iter: Arc::new(Mutex::new(HashMap::new())),
-            {% endif %}
+            resolver: Arc::new(TId::create_resolver()),
+            handler: Arc::new(handler),
+            dirmap_iter: Arc::new(Mutex::new(HashMap::new())),
+            dirmapplus_iter: Arc::new(Mutex::new(HashMap::new())),
 
             {% if mode == "parallel" %}
                 threadpool: ThreadPool::new(num_threads),
@@ -122,39 +106,17 @@ where
         }
     }
 
-    {% if !send_sync %}
-        pub fn get_handler(&self) -> &THandler {
-            &self.handler
-        }
+    pub fn get_handler(&self) -> Arc<THandler> {
+        self.handler.clone()
+    }
 
-        pub fn get_resolver(&self) -> &TId::Resolver {
-            &self.resolver
-        }
+    pub fn get_dirmap_iter(&self) -> Arc<Mutex<DirIter<FileKind>>> {
+        self.dirmap_iter.clone()
+    }
 
-        pub fn get_dirmap_iter(&self) -> &Mutex<DirIter<FileKind>> {
-            &self.dirmap_iter
-        }
-
-        pub fn get_dirmapplus_iter(&self) -> &Mutex<DirIter<FileAttribute>> {
-            &self.dirmapplus_iter
-        }
-    {% else %}
-        pub fn get_handler(&self) -> Arc<THandler> {
-            self.handler.clone()
-        }
-
-        pub fn get_resolver(&self) -> Arc<TId::Resolver> {
-            self.resolver.clone()
-        }
-
-        pub fn get_dirmap_iter(&self) -> Arc<Mutex<DirIter<FileKind>>> {
-            self.dirmap_iter.clone()
-        }
-
-        pub fn get_dirmapplus_iter(&self) -> Arc<Mutex<DirIter<FileAttribute>>> {
-            self.dirmapplus_iter.clone()
-        }
-    {% endif %}
+    pub fn get_dirmapplus_iter(&self) -> Arc<Mutex<DirIter<FileAttribute>>> {
+        self.dirmapplus_iter.clone()
+    }
 }
 
 
@@ -245,7 +207,7 @@ where
     fn access(&self, req: &Request, ino: INodeNo, mask: fuser::AccessFlags, reply: ReplyEmpty) {
         let req = RequestInfo::from(req);
         let handler = self.get_handler();
-        let resolver = self.get_resolver();
+        let resolver = self.resolver.clone();
         {% call spawn() %}
             match handler.access(
                 &req,
@@ -265,7 +227,7 @@ where
     fn bmap(&self, req: &Request, ino: INodeNo, blocksize: u32, idx: u64, reply: ReplyBmap) {
         let req = RequestInfo::from(req);
         let handler = self.get_handler();
-        let resolver = self.get_resolver();
+        let resolver = self.resolver.clone();
         {% call spawn() %}
             match handler.bmap(&req, resolver.resolve_id(ino), blocksize, idx) {
                 Ok(block) => { {% call spawn_reply() %}reply.bmap(block);{% endcall %} }
@@ -292,7 +254,7 @@ where
     ) {
         let req = RequestInfo::from(req);
         let handler = self.get_handler();
-        let resolver = self.get_resolver();
+        let resolver = self.resolver.clone();
         {% call spawn() %}
             match handler.copy_file_range(
                 &req,
@@ -326,7 +288,7 @@ where
     ) {
         let req = RequestInfo::from(req);
         let handler = self.get_handler();
-        let resolver = self.get_resolver();
+        let resolver = self.resolver.clone();
         let name = name.to_owned();
         {% call spawn() %}
             let helper = CreateHelper::new(&reply);
@@ -393,7 +355,7 @@ where
     ) {
         let req = RequestInfo::from(req);
         let handler = self.get_handler();
-        let resolver = self.get_resolver();
+        let resolver = self.resolver.clone();
         {% call spawn() %}
             match handler.fallocate(
                 &req,
@@ -415,7 +377,7 @@ where
     fn flush(&self, req: &Request, ino: INodeNo, fh: FileHandle, lock_owner: LockOwner, reply: ReplyEmpty) {
         let req = RequestInfo::from(req);
         let handler = self.get_handler();
-        let resolver = self.get_resolver();
+        let resolver = self.resolver.clone();
         {% call spawn() %}
             match handler.flush(
                 &req,
@@ -435,7 +397,7 @@ where
     fn forget(&self, req: &Request, ino: INodeNo, nlookup: u64) {
         let req = RequestInfo::from(req);
         let handler = self.get_handler();
-        let resolver = self.get_resolver();
+        let resolver = self.resolver.clone();
         handler.forget(&req, resolver.resolve_id(ino), nlookup);
         resolver.forget(ino, nlookup);
     }
@@ -443,7 +405,7 @@ where
     fn fsync(&self, req: &Request, ino: INodeNo, fh: FileHandle, datasync: bool, reply: ReplyEmpty) {
         let req = RequestInfo::from(req);
         let handler = self.get_handler();
-        let resolver = self.get_resolver();
+        let resolver = self.resolver.clone();
         {% call spawn() %}
             match handler.fsync(
                 &req,
@@ -463,7 +425,7 @@ where
     fn fsyncdir(&self, req: &Request, ino: INodeNo, fh: FileHandle, datasync: bool, reply: ReplyEmpty) {
         let req = RequestInfo::from(req);
         let handler = self.get_handler();
-        let resolver = self.get_resolver();
+        let resolver = self.resolver.clone();
         {% call spawn() %}
             match handler.fsyncdir(
                 &req,
@@ -483,7 +445,7 @@ where
     fn getattr(&self, req: &Request, ino: INodeNo, fh: Option<FileHandle>, reply: ReplyAttr) {
         let req = RequestInfo::from(req);
         let handler = self.get_handler();
-        let resolver = self.get_resolver();
+        let resolver = self.resolver.clone();
         {% call spawn() %}
             match handler.getattr(
                 &req,
@@ -513,7 +475,7 @@ where
     ) {
         let req = RequestInfo::from(req);
         let handler = self.get_handler();
-        let resolver = self.get_resolver();
+        let resolver = self.resolver.clone();
         {% call spawn() %}
             let lock_info = LockInfo {
                 start,
@@ -547,7 +509,7 @@ where
     fn getxattr(&self, req: &Request, ino: INodeNo, name: &OsStr, size: u32, reply: ReplyXattr) {
         let req = RequestInfo::from(req);
         let handler = self.get_handler();
-        let resolver = self.get_resolver();
+        let resolver = self.resolver.clone();
         let name = name.to_owned();
         {% call spawn() %}
             match handler.getxattr(&req, resolver.resolve_id(ino), &name, size) {
@@ -581,7 +543,7 @@ where
     ) {
         let req = RequestInfo::from(req);
         let handler = self.get_handler();
-        let resolver = self.get_resolver();
+        let resolver = self.resolver.clone();
         let in_data = in_data.to_owned();
         {% call spawn() %}
             match handler.ioctl(
@@ -612,7 +574,7 @@ where
     ) {
         let req = RequestInfo::from(req);
         let handler = self.get_handler();
-        let resolver = self.get_resolver();
+        let resolver = self.resolver.clone();
         let newname = newname.to_owned();
         {% call spawn() %}
             match handler.link(&req,
@@ -632,7 +594,7 @@ where
     fn listxattr(&self, req: &Request, ino: INodeNo, size: u32, reply: ReplyXattr) {
         let req = RequestInfo::from(req);
         let handler = self.get_handler();
-        let resolver = self.get_resolver();
+        let resolver = self.resolver.clone();
         {% call spawn() %}
             match handler.listxattr(&req, resolver.resolve_id(ino), size) {
                 Ok(xattr_data) => { {% call spawn_reply() %}
@@ -655,7 +617,7 @@ where
     fn lookup(&self, req: &Request, parent: INodeNo, name: &OsStr, reply: ReplyEntry) {
         let req = RequestInfo::from(req);
         let handler = self.get_handler();
-        let resolver = self.get_resolver();
+        let resolver = self.resolver.clone();
         let name = name.to_owned();
         {% call spawn() %}
             match handler.lookup(&req, resolver.resolve_id(parent), &name) {
@@ -680,7 +642,7 @@ where
     ) {
         let req = RequestInfo::from(req);
         let handler = self.get_handler();
-        let resolver = self.get_resolver();
+        let resolver = self.resolver.clone();
         {% call spawn() %}
             match handler.lseek(
                 &req,
@@ -708,7 +670,7 @@ where
     ) {
         let req = RequestInfo::from(req);
         let handler = self.get_handler();
-        let resolver = self.get_resolver();
+        let resolver = self.resolver.clone();
         let name = name.to_owned();
         {% call spawn() %}
             match handler.mkdir(&req,
@@ -738,7 +700,7 @@ where
     ) {
         let req = RequestInfo::from(req);
         let handler = self.get_handler();
-        let resolver = self.get_resolver();
+        let resolver = self.resolver.clone();
         let name = name.to_owned();
         {% call spawn() %}
             match handler.mknod(
@@ -761,7 +723,7 @@ where
     fn open(&self, req: &Request, ino: INodeNo, flags: fuser::OpenFlags, reply: ReplyOpen) {
         let req = RequestInfo::from(req);
         let handler = self.get_handler();
-        let resolver = self.get_resolver();
+        let resolver = self.resolver.clone();
         {% call spawn() %}
             let helper = OpenHelper::new(&reply);
             match handler.open(
@@ -801,7 +763,7 @@ where
     fn opendir(&self, req: &Request, ino: INodeNo, flags: fuser::OpenFlags, reply: ReplyOpen) {
         let req = RequestInfo::from(req);
         let handler = self.get_handler();
-        let resolver = self.get_resolver();
+        let resolver = self.resolver.clone();
         {% call spawn() %}
             let helper = OpenHelper::new(&reply);
             match handler.opendir(
@@ -851,7 +813,7 @@ where
     ) {
         let req = RequestInfo::from(req);
         let handler = self.get_handler();
-        let resolver = self.get_resolver();
+        let resolver = self.resolver.clone();
         {% call spawn() %}
             match handler.read(
                 &req,
@@ -876,7 +838,7 @@ where
     {% macro readdir_impl(is_extended_readdir) -%}
         let req_info = RequestInfo::from(req);
         let handler = self.get_handler();
-        let resolver = self.get_resolver();
+        let resolver = self.resolver.clone();
         let dirmap_iter = {% if is_extended_readdir %}
             self.get_dirmapplus_iter(){% else %}
             self.get_dirmap_iter(){% endif %};
@@ -1007,7 +969,7 @@ where
     fn readlink(&self, req: &Request, ino: INodeNo, reply: ReplyData) {
         let req = RequestInfo::from(req);
         let handler = self.get_handler();
-        let resolver = self.get_resolver();
+        let resolver = self.resolver.clone();
         {% call spawn() %}
             match handler.readlink(&req, resolver.resolve_id(ino)) {
                 Ok(link) => { {% call spawn_reply() %} reply.data(&link); {% endcall %} }
@@ -1031,7 +993,7 @@ where
     ) {
         let req = RequestInfo::from(req);
         let handler = self.get_handler();
-        let resolver = self.get_resolver();
+        let resolver = self.resolver.clone();
         {% call spawn() %}
             match handler.release(
                 &req,
@@ -1053,7 +1015,7 @@ where
     fn releasedir(&self, req: &Request, ino: INodeNo, fh: FileHandle, flags: fuser::OpenFlags, reply: ReplyEmpty) {
         let req = RequestInfo::from(req);
         let handler = self.get_handler();
-        let resolver = self.get_resolver();
+        let resolver = self.resolver.clone();
         {% call spawn() %}
             match handler.releasedir(
                 &req,
@@ -1073,7 +1035,7 @@ where
     fn removexattr(&self, req: &Request, ino: INodeNo, name: &OsStr, reply: ReplyEmpty) {
         let req = RequestInfo::from(req);
         let handler = self.get_handler();
-        let resolver = self.get_resolver();
+        let resolver = self.resolver.clone();
         let name = name.to_owned();
         {% call spawn() %}
             match handler.removexattr(&req, resolver.resolve_id(ino), &name) {
@@ -1098,7 +1060,7 @@ where
     ) {
         let req = RequestInfo::from(req);
         let handler = self.get_handler();
-        let resolver = self.get_resolver();
+        let resolver = self.resolver.clone();
         let name = name.to_owned();
         let newname = newname.to_owned();
         {% call spawn() %}
@@ -1124,7 +1086,7 @@ where
     fn rmdir(&self, req: &Request, parent: INodeNo, name: &OsStr, reply: ReplyEmpty) {
         let req = RequestInfo::from(req);
         let handler = self.get_handler();
-        let resolver = self.get_resolver();
+        let resolver = self.resolver.clone();
         let name = name.to_owned();
         {% call spawn() %}
             match handler.rmdir(&req, resolver.resolve_id(parent), &name) {
@@ -1157,7 +1119,7 @@ where
     ) {
         let req = RequestInfo::from(req);
         let handler = self.get_handler();
-        let resolver = self.get_resolver();
+        let resolver = self.resolver.clone();
         let attrs = SetAttrRequest {
             mode,
             uid,
@@ -1202,7 +1164,7 @@ where
     ) {
         let req = RequestInfo::from(req);
         let handler = self.get_handler();
-        let resolver = self.get_resolver();
+        let resolver = self.resolver.clone();
         {% call spawn() %}
             let lock_info = LockInfo {
                 start,
@@ -1239,7 +1201,7 @@ where
     ) {
         let req = RequestInfo::from(req);
         let handler = self.get_handler();
-        let resolver = self.get_resolver();
+        let resolver = self.resolver.clone();
         let name = name.to_owned();
         let value = value.to_owned();
         {% call spawn() %}
@@ -1263,7 +1225,7 @@ where
     fn statfs(&self, req: &Request, ino: INodeNo, reply: ReplyStatfs) {
         let req = RequestInfo::from(req);
         let handler = self.get_handler();
-        let resolver = self.get_resolver();
+        let resolver = self.resolver.clone();
         {% call spawn() %}
             match handler.statfs(&req, resolver.resolve_id(ino)) {
                 Ok(statfs) => { {% call spawn_reply() %}
@@ -1296,7 +1258,7 @@ where
     ) {
         let req = RequestInfo::from(req);
         let handler = self.get_handler();
-        let resolver = self.get_resolver();
+        let resolver = self.resolver.clone();
         let link_name = link_name.to_owned();
         let target = target.to_owned();
         {% call spawn() %}
@@ -1324,7 +1286,7 @@ where
     ) {
         let req = RequestInfo::from(req);
         let handler = self.get_handler();
-        let resolver = self.get_resolver();
+        let resolver = self.resolver.clone();
         let data = data.to_owned();
         {% call spawn() %}
             match handler.write(
@@ -1349,7 +1311,7 @@ where
     fn unlink(&self, req: &Request, parent: INodeNo, name: &OsStr, reply: ReplyEmpty) {
         let req = RequestInfo::from(req);
         let handler = self.get_handler();
-        let resolver = self.get_resolver();
+        let resolver = self.resolver.clone();
         let name = name.to_owned();
         {% call spawn() %}
             match handler.unlink(&req, resolver.resolve_id(parent), &name) {

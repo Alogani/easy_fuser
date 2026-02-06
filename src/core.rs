@@ -4,4 +4,4 @@ mod inode_mapping;
 mod thread_mode;
 
 pub(crate) use fuse_driver::FuseDriver;
-pub(crate) use inode_mapping::{InodeResolvable, ROOT_INO};
+pub(crate) use inode_mapping::{FileIdResolver, InodeResolvable, ROOT_INO};

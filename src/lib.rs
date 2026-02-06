@@ -24,93 +24,25 @@ mod fuse_handler;
 
 pub mod inode_mapper;
 pub mod inode_multi_mapper;
+pub mod session;
 pub mod templates;
 pub mod types;
 pub mod unix_fs;
 
 pub use fuse_handler::FuseHandler;
-use fuser::BackgroundSession;
+pub use session::{FusePruner, FuseSession};
 
 pub mod prelude {
     //! Re-exports the necessary types and functions from the `easy_fuser` crate.
+    pub use super::MountConfig;
     pub use super::fuse_handler::FuseHandler;
+    pub use super::session::{FusePruner, FuseSession};
     pub use super::types::*;
     pub use super::{mount, spawn_mount};
-    pub use fuser::{BackgroundSession, MountOption, Session, SessionUnmounter, Config, SessionACL};
+    pub use fuser::{MountOption, Session, SessionACL, SessionUnmounter, UnmountOption};
 }
 
-// Implentation of the high-level functions
-use std::io;
-use std::path::Path;
-
-use core::FuseDriver;
-use fuser::{mount2, spawn_mount2};
-use prelude::*;
-
-#[doc = include_str!("../docs/mount.md")]
-#[cfg(not(feature = "serial"))]
-pub fn mount<T, FS, P>(filesystem: FS, mountpoint: P, config: &Config) -> io::Result<()>
-where
-    T: FileIdType,
-    FS: FuseHandler<T>,
-    P: AsRef<Path>,
-{
-    let mut modified_config = config.clone();
-    let n_threads = modified_config.n_threads.unwrap_or(1);
-    modified_config.n_threads = Some(n_threads);
-    let driver = FuseDriver::new(filesystem, n_threads);
-    mount2(driver, mountpoint, &modified_config)
-}
-
-#[doc = include_str!("../docs/mount.md")]
 #[cfg(feature = "serial")]
-pub fn mount<T, FS, P>(filesystem: FS, mountpoint: P, config: &Config) -> io::Result<()>
-where
-    T: FileIdType,
-    FS: FuseHandler<T>,
-    P: AsRef<Path>,
-{
-    // num_thread argument will be forced to 1 due to feature serial
-    let mut modified_config = config.clone();
-    modified_config.n_threads = Some(1);
-    let driver = FuseDriver::new(filesystem, 1);
-    mount2(driver, mountpoint, &modified_config)
-}
-
-#[doc = include_str!("../docs/spawn_mount.md")]
+include!(concat!(env!("OUT_DIR"), "/serial/mounting.rs"));
 #[cfg(not(feature = "serial"))]
-pub fn spawn_mount<T, FS, P>(
-    filesystem: FS,
-    mountpoint: P,
-    config: &Config,
-) -> io::Result<BackgroundSession>
-where
-    T: FileIdType,
-    FS: FuseHandler<T> + Send,
-    P: AsRef<Path>,
-{
-    let mut modified_config = config.clone();
-    let n_threads = modified_config.n_threads.unwrap_or(1);
-    modified_config.n_threads = Some(n_threads);
-    let driver = FuseDriver::new(filesystem, n_threads);
-    spawn_mount2(driver, mountpoint, &modified_config)
-}
-
-#[doc = include_str!("../docs/spawn_mount.md")]
-#[cfg(feature = "serial")]
-pub fn spawn_mount<T, FS, P>(
-    filesystem: FS,
-    mountpoint: P,
-    config: &Config,
-) -> io::Result<BackgroundSession>
-where
-    T: FileIdType,
-    FS: FuseHandler<T> + Send,
-    P: AsRef<Path>,
-{
-    // num_thread argument will be forced to 1 due to feature serial
-    let mut modified_config = config.clone();
-    modified_config.n_threads = Some(1);
-    let driver = FuseDriver::new(filesystem, 1);
-    spawn_mount2(driver, mountpoint, &modified_config)
-}
+include!(concat!(env!("OUT_DIR"), "/parallel/mounting.rs"));
