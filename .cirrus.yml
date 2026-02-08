@@ -6,6 +6,6 @@ task:
   setup_script:
     - pkg install -y pkgconf fusefs-libs fusefs-libs3 rust
   build_script:
-    - cargo build --features parallel
+    - cargo build --features "parallel libfuse"
   test_script:
-    - cargo test --features parallel
+    - cargo test --features "parallel libfuse"
