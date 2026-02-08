@@ -14,13 +14,13 @@ serial = []
 parallel = ["dep:threadpool"]
 async = ["dep:async-trait", "dep:tokio"]
 deadlock_detection = ["parallel", "dep:parking_lot"]
-
+libfuse = ["fuser/libfuse"]
 
 [dependencies]
 # Core dependencies
+fuser = { version = "0.16.0" }
 log = "0.4"
 libc = "0.2"
-fuser = "0.16"
 bitflags = "2.10"
 
 # Parallel dependencies

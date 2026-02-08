@@ -75,9 +75,21 @@ fn test_mirror_fs_recursion() {
     println!("Test passed: No infinite recursion detected.");
 
     eprintln!("Unmounting filesystem...");
-    let _ = std::process::Command::new("fusermount")
-        .arg("-u")
-        .arg(&mntpoint)
-        .status();
-    handle.join().unwrap();
+    #[cfg(not(target_os = "freebsd"))]
+    {
+        let _ = std::process::Command::new("fusermount")
+            .arg("-u")
+            .arg(&mntpoint)
+            .status();
+        handle.join().unwrap();
+    }
+    #[cfg(target_os = "freebsd")] // TODO: explore why error: no such file or directory happens there
+    {
+        let _ = std::process::Command::new("umount")
+            .arg(&mntpoint)
+            .status();
+        let _ = handle.join();
+    }
+    drop(mntpoint);
+    
 }

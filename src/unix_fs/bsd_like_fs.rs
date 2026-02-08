@@ -19,11 +19,11 @@ pub(super) unsafe fn renameat2(
     newpath: *const c_char,
     _flags: c_uint,
 ) -> c_int {
-    libc::renameat(olddirfd, oldpath, newdirfd, newpath)
+    unsafe { libc::renameat(olddirfd, oldpath, newdirfd, newpath) }
 }
 
 pub(super) unsafe fn fdatasync(fd: c_int) -> c_int {
-    libc::fsync(fd)
+    unsafe { libc::fsync(fd) }
 }
 
 /// Copies a range of data from one file to another.
