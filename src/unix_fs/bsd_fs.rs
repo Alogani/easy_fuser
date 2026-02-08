@@ -1,8 +1,7 @@
 pub use super::bsd_like_fs::*;
 use std::path::Path;
-use std::ffi::CStr;
+use std::ffi::{CStr, Cstring};
 use std::os::raw::{c_char, c_int, c_void};
-use std::ptr;
 use crate::PosixError;
 
 use libc::{self, c_char, c_int, size_t, ssize_t, off_t};
@@ -32,8 +31,7 @@ pub(super) unsafe fn setxattr(
         Err(_) => return -libc::EINVAL,
     };
 
-    // Map Linux-style prefixed names → FreeBSD namespace
-    // Most real-world FUSE code does this even on pure-BSD targets
+    // Map common prefixed names → FreeBSD namespace
     let (ns, attr_name): (c_int, &str) = if name_str.starts_with("user.") {
         (libc::EXTATTR_NAMESPACE_USER, &name_str[5..])
     } else if name_str.starts_with("system.") {
@@ -43,11 +41,10 @@ pub(super) unsafe fn setxattr(
     } else if name_str.starts_with("security.") {
         (libc::EXTATTR_NAMESPACE_SYSTEM, &name_str[9..])
     } else {
-        // Default = user namespace, no prefix stripping
         (libc::EXTATTR_NAMESPACE_USER, name_str)
     };
 
-    let attr_name_c = match CString::new(attr_name) {
+    let attr_name_c: CString = match CString::new(attr_name) {
         Ok(c) => c,
         Err(_) => return -libc::EINVAL,
     };
@@ -56,15 +53,14 @@ pub(super) unsafe fn setxattr(
         path,
         ns,
         attr_name_c.as_ptr(),
-        value as *mut c_void,     // API wants mutable pointer
+        value as *mut c_void, // FreeBSD wants mutable pointer
         size,
     );
 
     if ret >= 0 {
-        // On success, returns number of bytes written (should == size)
         0
     } else {
-        -(*libc::errno())
+        -(*libc::__error()) // correct FreeBSD way to read errno
     }
 }
 
