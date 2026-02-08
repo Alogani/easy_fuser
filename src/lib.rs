@@ -1,8 +1,5 @@
 #![doc = include_str!("../README.md")]
 
-#[cfg(feature = "async")]
-compile_error!("Feature 'async' is not yet implemented.");
-
 #[cfg(all(
     not(feature = "serial"),
     not(feature = "parallel"),

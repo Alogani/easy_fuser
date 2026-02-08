@@ -2,7 +2,7 @@
     "files.associations": {
         "*.rs.j2": "rust",
     },
-    "rust-analyzer.cargo.features": ["serial"],
+    "rust-analyzer.cargo.features": ["serial", "parallel", "async"],
     "rust-analyzer.files.exclude": [
         "templates"
     ]

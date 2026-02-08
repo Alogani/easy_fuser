@@ -103,11 +103,11 @@ use async_trait::async_trait;
 
 #[async_trait]
 {% endif %}
-pub trait FuseHandler<TId: FileIdType>: 'static
-    {% if send_sync %}
-        + Sync + Send {# Never put this on serial mode #}
-    {% endif %}
+pub trait FuseHandler<TId>: 'static {% if send_sync %}+ Sync + Send {% endif %}
+where
+    TId: FileIdType {% if mode == "async" %}+ Send{% endif %}
 {
+
     {% macro async_keyword() -%}{% if mode == "async" %}async{% endif %}{%- endmacro %}
     {% macro await_keyword() -%}{% if mode == "async" %}.await{% endif %}{%- endmacro %}
 
@@ -152,10 +152,10 @@ pub trait FuseHandler<TId: FileIdType>: 'static
         &self,
         req: &RequestInfo,
         file_in: TId,
-        file_handle_in: BorrowedFileHandle,
+        file_handle_in: BorrowedFileHandle<'_>,
         offset_in: i64,
         file_out: TId,
-        file_handle_out: BorrowedFileHandle,
+        file_handle_out: BorrowedFileHandle<'_>,
         offset_out: i64,
         len: u64,
         flags: u32, // Not implemented yet in standard
@@ -182,7 +182,7 @@ pub trait FuseHandler<TId: FileIdType>: 'static
         &self,
         req: &RequestInfo,
         file_id: TId,
-        file_handle: BorrowedFileHandle,
+        file_handle: BorrowedFileHandle<'_>,
         offset: i64,
         length: i64,
         mode: FallocateFlags,
@@ -196,7 +196,7 @@ pub trait FuseHandler<TId: FileIdType>: 'static
         &self,
         req: &RequestInfo,
         file_id: TId,
-        file_handle: BorrowedFileHandle,
+        file_handle: BorrowedFileHandle<'_>,
         lock_owner: u64,
     ) -> FuseResult<()>;
 
@@ -210,7 +210,7 @@ pub trait FuseHandler<TId: FileIdType>: 'static
         &self,
         req: &RequestInfo,
         file_id: TId,
-        file_handle: BorrowedFileHandle,
+        file_handle: BorrowedFileHandle<'_>,
         datasync: bool,
     ) -> FuseResult<()>;
 
@@ -224,7 +224,7 @@ pub trait FuseHandler<TId: FileIdType>: 'static
         &self,
         req: &RequestInfo,
         file_id: TId,
-        file_handle: BorrowedFileHandle,
+        file_handle: BorrowedFileHandle<'_>,
         datasync: bool,
     ) -> FuseResult<()>;
 
@@ -233,7 +233,7 @@ pub trait FuseHandler<TId: FileIdType>: 'static
         &self,
         req: &RequestInfo,
         file_id: TId,
-        file_handle: Option<BorrowedFileHandle>,
+        file_handle: Option<BorrowedFileHandle<'_>>,
     ) -> FuseResult<FileAttribute>;
 
     /// Test for a POSIX file lock.
@@ -241,7 +241,7 @@ pub trait FuseHandler<TId: FileIdType>: 'static
         &self,
         req: &RequestInfo,
         file_id: TId,
-        file_handle: BorrowedFileHandle,
+        file_handle: BorrowedFileHandle<'_>,
         lock_owner: u64,
         lock_info: LockInfo,
     ) -> FuseResult<LockInfo>;
@@ -260,7 +260,7 @@ pub trait FuseHandler<TId: FileIdType>: 'static
         &self,
         req: &RequestInfo,
         file_id: TId,
-        file_handle: BorrowedFileHandle,
+        file_handle: BorrowedFileHandle<'_>,
         flags: IOCtlFlags,
         cmd: u32,
         in_data: Vec<u8>,
@@ -287,7 +287,7 @@ pub trait FuseHandler<TId: FileIdType>: 'static
         &self,
         req: &RequestInfo,
         file_id: TId,
-        file_handle: BorrowedFileHandle,
+        file_handle: BorrowedFileHandle<'_>,
         seek: SeekFrom,
     ) -> FuseResult<i64>;
 
@@ -341,7 +341,7 @@ pub trait FuseHandler<TId: FileIdType>: 'static
         &self,
         req: &RequestInfo,
         file_id: TId,
-        file_handle: BorrowedFileHandle,
+        file_handle: BorrowedFileHandle<'_>,
         seek: SeekFrom,
         size: u32,
         flags: FUSEOpenFlags,
@@ -358,7 +358,7 @@ pub trait FuseHandler<TId: FileIdType>: 'static
         &self,
         req: &RequestInfo,
         file_id: TId,
-        file_handle: BorrowedFileHandle,
+        file_handle: BorrowedFileHandle<'_>,
     ) -> FuseResult<Vec<(OsString, TId::MinimalMetadata)>>;
 
     /// Read directory contents with full file attributes
@@ -371,7 +371,7 @@ pub trait FuseHandler<TId: FileIdType>: 'static
         &self,
         req: &RequestInfo,
         file_id: TId,
-        file_handle: BorrowedFileHandle,
+        file_handle: BorrowedFileHandle<'_>,
     ) -> FuseResult<Vec<(OsString, TId::Metadata)>> {
         let readdir_result = self.readdir(req, file_id.clone(), file_handle)
             {{ await_keyword() }}?;
@@ -449,7 +449,7 @@ pub trait FuseHandler<TId: FileIdType>: 'static
         &self,
         req: &RequestInfo,
         file_id: TId,
-        file_handle: BorrowedFileHandle,
+        file_handle: BorrowedFileHandle<'_>,
         lock_owner: u64,
         lock_info: LockInfo,
         sleep: bool,
@@ -487,7 +487,7 @@ pub trait FuseHandler<TId: FileIdType>: 'static
         &self,
         req: &RequestInfo,
         file_id: TId,
-        file_handle: BorrowedFileHandle,
+        file_handle: BorrowedFileHandle<'_>,
         seek: SeekFrom,
         data: Vec<u8>,
         write_flags: FUSEWriteFlags,

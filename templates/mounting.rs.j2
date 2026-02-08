@@ -1,11 +1,13 @@
 use std::io;
 use std::path::Path;
 
-use core::FuseDriver;
-use types::*;
 use fuser::{mount2, spawn_mount2};
 use fuser::MountOption;
 
+use crate::types::*;
+use crate::FuseSession;
+use super::FuseHandler;
+use super::fuse_driver::FuseDriver;
 
 /// Mounts a FUSE filesystem at the specified mountpoint.
 /// 
