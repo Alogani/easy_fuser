@@ -1,4 +1,5 @@
 use libc::{self, c_char, c_int, c_uint};
+use std::os::fd::*;
 
 use crate::{ErrorKind, PosixError};
 

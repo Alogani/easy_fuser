@@ -47,6 +47,14 @@ fn create_memory_fs() -> InMemoryFS {
 }
 
 fn main() {
+    #[cfg(feature = "logging")]
+    std::env::set_var("RUST_BACKTRACE", "full");
+    #[cfg(feature = "logging")]
+    let _ = env_logger::builder()
+        .is_test(true)
+        .filter_level(log::LevelFilter::Trace)
+        .try_init();
+
     let mountpoint = std::env::args()
         .nth(1)
         .expect("Usage: in_memory_fs <MOUNTPOINT>");

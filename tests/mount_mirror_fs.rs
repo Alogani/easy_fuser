@@ -1,5 +1,5 @@
 use easy_fuser::prelude::*;
-use easy_fuser::templates::{mirror_fs::*, DefaultFuseHandler};
+use easy_fuser::templates::{DefaultFuseHandler, mirror_fs::*};
 use std::path::PathBuf;
 use std::thread;
 use std::time::Duration;
@@ -7,7 +7,7 @@ use std::time::Duration;
 // cargo test --package easy_fuser --test mount_mirror_fs --features "parallel" -- mount_mirror_fs --nocapture --ignored
 
 fn mount_fs<FS: MirrorFsTrait>() {
-    std::env::set_var("RUST_BACKTRACE", "full");
+    unsafe { std::env::set_var("RUST_BACKTRACE", "full") };
     let _ = env_logger::builder()
         .is_test(true)
         .filter_level(log::LevelFilter::Trace)
@@ -35,11 +35,10 @@ fn mount_fs<FS: MirrorFsTrait>() {
 
     // Mount the filesystem
     println!("Mounting MirrorFs...");
-    #[cfg(feature = "parallel")]
-    let num_workers = 4;
-    #[cfg(not(feature = "parallel"))]
-    let num_workers = 1;
-    let mount_result = mount(fs, &mount_dir, &[], num_workers);
+    #[cfg(feature = "serial")]
+    let mount_result = mount(fs, &mount_dir, &[]);
+    #[cfg(not(feature = "serial"))]
+    let mount_result = mount(fs, &mount_dir, &[], 4);
 
     match mount_result {
         Ok(_) => {
