@@ -1,10 +1,9 @@
 pub use super::bsd_like_fs::*;
 use std::path::Path;
 use std::ffi::{CStr, CString};
-use std::os::raw::{c_char, c_int, c_void};
 use crate::PosixError;
 
-use libc::{self, c_char, c_int, size_t, ssize_t, off_t};
+use libc::{self, c_char, c_int, size_t, ssize_t, off_t, c_void};
 
 use super::{StatFs, cstring_from_path};
 
@@ -21,46 +20,48 @@ pub(super) unsafe fn setxattr(
     position: u32,
     _flags: c_int,           // ignored on FreeBSD
 ) -> c_int {
-    if position != 0 {
-        return -libc::EOPNOTSUPP;
-    }
+    unsafe {
+        if position != 0 {
+            return -libc::EOPNOTSUPP;
+        }
 
-    // Convert C strings → Rust &str (safe failure → EINVAL)
-    let name_str = match CStr::from_ptr(name).to_str() {
-        Ok(s) => s,
-        Err(_) => return -libc::EINVAL,
-    };
+        // Convert C strings → Rust &str (safe failure → EINVAL)
+        let name_str = match CStr::from_ptr(name).to_str() {
+            Ok(s) => s,
+            Err(_) => return -libc::EINVAL,
+        };
 
-    // Map common prefixed names → FreeBSD namespace
-    let (ns, attr_name): (c_int, &str) = if name_str.starts_with("user.") {
-        (libc::EXTATTR_NAMESPACE_USER, &name_str[5..])
-    } else if name_str.starts_with("system.") {
-        (libc::EXTATTR_NAMESPACE_SYSTEM, &name_str[7..])
-    } else if name_str.starts_with("trusted.") {
-        (libc::EXTATTR_NAMESPACE_SYSTEM, &name_str[8..])
-    } else if name_str.starts_with("security.") {
-        (libc::EXTATTR_NAMESPACE_SYSTEM, &name_str[9..])
-    } else {
-        (libc::EXTATTR_NAMESPACE_USER, name_str)
-    };
+        // Map common prefixed names → FreeBSD namespace
+        let (ns, attr_name): (c_int, &str) = if name_str.starts_with("user.") {
+            (libc::EXTATTR_NAMESPACE_USER, &name_str[5..])
+        } else if name_str.starts_with("system.") {
+            (libc::EXTATTR_NAMESPACE_SYSTEM, &name_str[7..])
+        } else if name_str.starts_with("trusted.") {
+            (libc::EXTATTR_NAMESPACE_SYSTEM, &name_str[8..])
+        } else if name_str.starts_with("security.") {
+            (libc::EXTATTR_NAMESPACE_SYSTEM, &name_str[9..])
+        } else {
+            (libc::EXTATTR_NAMESPACE_USER, name_str)
+        };
 
-    let attr_name_c: CString = match CString::new(attr_name) {
-        Ok(c) => c,
-        Err(_) => return -libc::EINVAL,
-    };
+        let attr_name_c: CString = match CString::new(attr_name) {
+            Ok(c) => c,
+            Err(_) => return -libc::EINVAL,
+        };
 
-    let ret = libc::extattr_set_file(
-        path,
-        ns,
-        attr_name_c.as_ptr(),
-        value as *mut c_void, // FreeBSD wants mutable pointer
-        size,
-    );
+        let ret = libc::extattr_set_file(
+            path,
+            ns,
+            attr_name_c.as_ptr(),
+            value as *mut c_void, // FreeBSD wants mutable pointer
+            size,
+        );
 
-    if ret >= 0 {
-        0
-    } else {
-        -(*libc::__error()) // correct FreeBSD way to read errno
+        if ret >= 0 {
+            0
+        } else {
+            -(*libc::__error()) // correct FreeBSD way to read errno
+        }
     }
 }
 
