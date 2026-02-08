@@ -1,7 +1,8 @@
 pub use super::bsd_like_fs::*;
-use std::os::fd::*;
 use std::path::Path;
-use std::ffi::c_void;
+use std::ffi::CStr;
+use std::os::raw::{c_char, c_int, c_void};
+use std::ptr;
 use crate::PosixError;
 
 use libc::{self, c_char, c_int, size_t, ssize_t, off_t};
@@ -19,21 +20,21 @@ pub(super) unsafe fn setxattr(
     value: *const c_void,
     size: libc::size_t,
     position: u32,
-    flags: c_int,
+    _flags: c_int,           // ignored on FreeBSD
 ) -> c_int {
     if position != 0 {
         return -libc::EOPNOTSUPP;
     }
 
-    let path_cstr = CStr::from_ptr(path);
-    let name_cstr = CStr::from_ptr(name);
-    let name_str = match name_cstr.to_str() {
+    // Convert C strings → Rust &str (safe failure → EINVAL)
+    let name_str = match CStr::from_ptr(name).to_str() {
         Ok(s) => s,
         Err(_) => return -libc::EINVAL,
     };
 
-    // Determine namespace and strip prefix
-    let (ns, attr_name) = if name_str.starts_with("user.") {
+    // Map Linux-style prefixed names → FreeBSD namespace
+    // Most real-world FUSE code does this even on pure-BSD targets
+    let (ns, attr_name): (c_int, &str) = if name_str.starts_with("user.") {
         (libc::EXTATTR_NAMESPACE_USER, &name_str[5..])
     } else if name_str.starts_with("system.") {
         (libc::EXTATTR_NAMESPACE_SYSTEM, &name_str[7..])
@@ -42,43 +43,28 @@ pub(super) unsafe fn setxattr(
     } else if name_str.starts_with("security.") {
         (libc::EXTATTR_NAMESPACE_SYSTEM, &name_str[9..])
     } else {
+        // Default = user namespace, no prefix stripping
         (libc::EXTATTR_NAMESPACE_USER, name_str)
     };
 
-    let attr_name_c = match std::ffi::CString::new(attr_name) {
+    let attr_name_c = match CString::new(attr_name) {
         Ok(c) => c,
         Err(_) => return -libc::EINVAL,
     };
 
-    // Check existence for flags
-    let exists = libc::extattr_get_file(
+    let ret = libc::extattr_set_file(
         path,
         ns,
         attr_name_c.as_ptr(),
-        ptr::null_mut(),
-        0,
-    ) >= 0;
-
-    if (flags & libc::XATTR_CREATE) != 0 && exists {
-        return -libc::EEXIST;
-    }
-    if (flags & libc::XATTR_REPLACE) != 0 && !exists {
-        return -libc::ENODATA; // or -ENOATTR, depending on convention
-    }
-
-    // Set the attribute
-    let ret = unsafe { libc::extattr_set_file(
-        path,
-        ns,
-        attr_name_c.as_ptr(),
-        value as *mut c_void, // cast for mutability if needed
+        value as *mut c_void,     // API wants mutable pointer
         size,
-    ) };
+    );
 
     if ret >= 0 {
-        0 // Success
+        // On success, returns number of bytes written (should == size)
+        0
     } else {
-        -libc::errno
+        -(*libc::errno())
     }
 }
 
