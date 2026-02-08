@@ -239,7 +239,6 @@ where
     /// file that a filesystem handler opened, which mitigates the risk of a race
     /// condition, in which case another backing path could be tried, or an error
     /// could be returned.
-    #[deprecated = "Unstable: need sanity check to resist TOCTOU bugs. _marked temporarly as deprecated_"]
     pub fn backing_id(&self) -> Option<BackingId> {
         let mapper = self
             .mapper
