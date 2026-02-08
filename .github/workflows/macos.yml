@@ -3,9 +3,9 @@ name: CI MacOS
 on:
   workflow_dispatch:
   push:
-    branches: [ main ]
+    branches: [ main, devel ]
   pull_request:
-    branches: [ main, devel, macos_workflow ]
+    branches: [ main, devel ]
 
 jobs:
   build:
