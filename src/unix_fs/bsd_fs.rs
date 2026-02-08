@@ -1,9 +1,10 @@
 pub use super::bsd_like_fs::*;
 use std::os::fd::*;
-
+use std::path::Path;
 use std::ffi::c_void;
+use crate::PosixError;
 
-use libc::{self, c_char, c_int, size_t, ssize_t};
+use libc::{self, c_char, c_int, size_t, ssize_t, off_t};
 
 use super::{StatFs, cstring_from_path};
 
@@ -15,7 +16,7 @@ pub(super) unsafe fn setxattr(
     path: *const c_char,
     name: *const c_char,
     value: *const c_void,
-    _size: size_t,
+    size: size_t,
     _flags: c_int,
 ) -> c_int {
     libc::extattr_set_file(path, libc::EXTATTR_NAMESPACE_USER, name, value, size)
