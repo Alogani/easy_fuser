@@ -110,6 +110,7 @@ fn test_mirror_fs_operations() {
         let _ = std::process::Command::new("umount")
             .arg(&mntpoint)
             .status();
-        handle.join();
+        let _ = handle.join();
     }
+    drop(mntpoint);
 }

@@ -108,6 +108,7 @@ fn test_mirror_fs_file_offsets() {
         let _ = std::process::Command::new("umount")
             .arg(&mntpoint)
             .status();
-        handle.join();
+        let _ = handle.join();
     }
+    drop(mntpoint);
 }
