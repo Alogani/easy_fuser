@@ -103,7 +103,10 @@ use async_trait::async_trait;
 
 #[async_trait]
 {% endif %}
-pub trait FuseHandler<TId>: 'static {% if send_sync %}+ Sync + Send {% endif %}
+pub trait FuseHandler<TId>: 'static
+    {% if send_sync %}
+        + Sync + Send {# Never put this on serial mode #}
+    {% endif %}
 where
     TId: FileIdType {% if mode == "async" %}+ Send{% endif %}
 {
