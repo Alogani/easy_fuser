@@ -1,3 +1,5 @@
+#![cfg(not(target_os = "macos"))]
+
 use easy_fuser::prelude::*;
 use easy_fuser::templates::{DefaultFuseHandler, mirror_fs::*};
 use std::path::PathBuf;
