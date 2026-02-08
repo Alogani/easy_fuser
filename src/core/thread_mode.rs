@@ -11,7 +11,6 @@ pub(crate) trait SafeBorrowable {
 #[cfg(feature = "serial")]
 mod safe_borrowable_impl {
     use super::*;
-
     use std::cell::{RefCell, RefMut};
 
     impl<T> SafeBorrowable for RefCell<T> {
@@ -22,6 +21,30 @@ mod safe_borrowable_impl {
 
         fn safe_borrow_mut(&self) -> Self::Guard<'_> {
             self.borrow_mut()
+        }
+    }
+
+    #[cfg(not(feature = "deadlock_detection"))]
+    impl<T> SafeBorrowable for std::sync::Mutex<T> {
+        type Guard<'a>
+            = std::sync::MutexGuard<'a, T>
+        where
+            Self: 'a;
+
+        fn safe_borrow_mut(&self) -> Self::Guard<'_> {
+            self.lock().unwrap()
+        }
+    }
+
+    #[cfg(feature = "deadlock_detection")]
+    impl<T> SafeBorrowable for parking_lot::Mutex<T> {
+        type Guard<'a>
+            = parking_lot::MutexGuard<'a, T>
+        where
+            Self: 'a;
+
+        fn safe_borrow_mut(&self) -> Self::Guard<'_> {
+            self.lock()
         }
     }
 }

@@ -35,11 +35,13 @@ fn mount_fs<FS: MirrorFsTrait>() {
 
     // Mount the filesystem
     println!("Mounting MirrorFs...");
-    #[cfg(feature = "serial")]
-    let mount_result = mount(fs, &mount_dir, &[]);
-    #[cfg(not(feature = "serial"))]
-    let mount_result = mount(fs, &mount_dir, &[], 4);
-
+    let config = MountConfig {
+        mount_options: vec![],
+        acl: SessionACL::Owner,
+        #[cfg(feature = "parallel")]
+        num_threads: 4,
+    };
+    let mount_result = mount(fs, &mount_dir, &config);
     match mount_result {
         Ok(_) => {
             println!("MirrorFs mounted successfully. Press Ctrl+C to unmount and exit.");

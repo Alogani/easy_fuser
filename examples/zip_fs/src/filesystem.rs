@@ -135,8 +135,8 @@ impl FuseHandler<Inode> for ZipFs {
         _file_handle: BorrowedFileHandle,
         seek: SeekFrom,
         size: u32,
-        _flags: FUSEOpenFlags,
-        _lock_owner: Option<u64>,
+        _flags: OpenFlags,
+        _lock_owner: Option<LockOwner>,
     ) -> FuseResult<Vec<u8>> {
         let InodeInfo {
             parent: _,

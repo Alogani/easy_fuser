@@ -152,14 +152,14 @@ impl<TId: FileIdType> FuseHandler<TId> for DefaultFuseHandler {
         file_handle_out: BorrowedFileHandle,
         offset_out: i64,
         len: u64,
-        flags: u32, // Not implemented yet in standard
+        flags: CopyFileRangeFlags, // Not implemented yet in standard
     ) -> FuseResult<u32> {
         match self.handling {
             HandlingMethod::Error(kind) => Err(PosixError::new(
                 kind,
                 if cfg!(debug_assertions) {
                     format!(
-                        "copy_file_range(file_in: {}, file_handle_in: {:?}, offset_in: {}, file_out: {}, file_handle_out: {:?}, offset_out: {}, len: {}, flags: {})",
+                        "copy_file_range(file_in: {}, file_handle_in: {:?}, offset_in: {}, file_out: {}, file_handle_out: {:?}, offset_out: {}, len: {}, flags: {:?})",
                         file_in.display(),
                         file_handle_in,
                         offset_in,
@@ -174,7 +174,7 @@ impl<TId: FileIdType> FuseHandler<TId> for DefaultFuseHandler {
                 },
             )),
             HandlingMethod::Panic => panic!(
-                "[Not Implemented] copy_file_range(file_in: {}, file_handle_in: {:?}, offset_in: {}, file_out: {}, file_handle_out: {:?}, offset_out: {}, len: {}, flags: {})",
+                "[Not Implemented] copy_file_range(file_in: {}, file_handle_in: {:?}, offset_in: {}, file_out: {}, file_handle_out: {:?}, offset_out: {}, len: {}, flags: {:?})",
                 file_in.display(),
                 file_handle_in,
                 offset_in,
@@ -195,7 +195,13 @@ impl<TId: FileIdType> FuseHandler<TId> for DefaultFuseHandler {
         mode: u32,
         umask: u32,
         flags: OpenFlags,
-    ) -> FuseResult<(OwnedFileHandle, TId::Metadata, FUSEOpenResponseFlags)> {
+        _helper: CreateHelper,
+    ) -> FuseResult<(
+        OwnedFileHandle,
+        TId::Metadata,
+        FUSEOpenResponseFlags,
+        Option<PassthroughBackingId>,
+    )> {
         match self.handling {
             HandlingMethod::Error(kind) => Err(PosixError::new(
                 kind,
@@ -228,8 +234,8 @@ impl<TId: FileIdType> FuseHandler<TId> for DefaultFuseHandler {
         _req: &RequestInfo,
         file_id: TId,
         file_handle: BorrowedFileHandle,
-        offset: i64,
-        length: i64,
+        offset: u64,
+        length: u64,
         mode: FallocateFlags,
     ) -> FuseResult<()> {
         match self.handling {
@@ -264,14 +270,14 @@ impl<TId: FileIdType> FuseHandler<TId> for DefaultFuseHandler {
         _req: &RequestInfo,
         file_id: TId,
         file_handle: BorrowedFileHandle,
-        lock_owner: u64,
+        lock_owner: LockOwner,
     ) -> FuseResult<()> {
         match self.handling {
             HandlingMethod::Error(kind) => Err(PosixError::new(
                 kind,
                 if cfg!(debug_assertions) {
-                    format!(
-                        "flush(file_id: {}, file_handle: {:?}, lock_owner: {})",
+                    format!( 
+                        "flush(file_id: {}, file_handle: {:?}, lock_owner: {:?})",
                         file_id.display(),
                         file_handle,
                         lock_owner
@@ -281,7 +287,7 @@ impl<TId: FileIdType> FuseHandler<TId> for DefaultFuseHandler {
                 },
             )),
             HandlingMethod::Panic => panic!(
-                "[Not Implemented] flush(file_id: {}, file_handle: {:?}, lock_owner: {})",
+                "[Not Implemented] flush(file_id: {}, file_handle: {:?}, lock_owner: {:?})",
                 file_id.display(),
                 file_handle,
                 lock_owner
@@ -363,7 +369,7 @@ impl<TId: FileIdType> FuseHandler<TId> for DefaultFuseHandler {
         _req: &RequestInfo,
         file_id: TId,
         file_handle: BorrowedFileHandle,
-        lock_owner: u64,
+        lock_owner: LockOwner,
         lock_info: LockInfo,
     ) -> FuseResult<LockInfo> {
         match self.handling {
@@ -371,7 +377,7 @@ impl<TId: FileIdType> FuseHandler<TId> for DefaultFuseHandler {
                 kind,
                 if cfg!(debug_assertions) {
                     format!(
-                        "getlk(file_id: {}, file_handle: {:?}, lock_owner: {}, lock_info: {:?})",
+                        "getlk(file_id: {}, file_handle: {:?}, lock_owner: {:?}, lock_info: {:?})",
                         file_id.display(),
                         file_handle,
                         lock_owner,
@@ -382,7 +388,7 @@ impl<TId: FileIdType> FuseHandler<TId> for DefaultFuseHandler {
                 },
             )),
             HandlingMethod::Panic => panic!(
-                "[Not Implemented] getlk(file_id: {}, file_handle: {:?}, lock_owner: {}, lock_info: {:?})",
+                "[Not Implemented] getlk(file_id: {}, file_handle: {:?}, lock_owner: {:?}, lock_info: {:?})",
                 file_id.display(),
                 file_handle,
                 lock_owner,
@@ -426,7 +432,7 @@ impl<TId: FileIdType> FuseHandler<TId> for DefaultFuseHandler {
         _req: &RequestInfo,
         file_id: TId,
         file_handle: BorrowedFileHandle,
-        flags: IOCtlFlags,
+        flags: FUSEIoctlFlags,
         cmd: u32,
         in_data: Vec<u8>,
         out_size: u32,
@@ -635,7 +641,12 @@ impl<TId: FileIdType> FuseHandler<TId> for DefaultFuseHandler {
         _req: &RequestInfo,
         file_id: TId,
         flags: OpenFlags,
-    ) -> FuseResult<(OwnedFileHandle, FUSEOpenResponseFlags)> {
+        _helper: OpenHelper,
+    ) -> FuseResult<(
+        OwnedFileHandle,
+        FUSEOpenResponseFlags,
+        Option<PassthroughBackingId>,
+    )> {
         match self.handling {
             HandlingMethod::Error(kind) => Err(PosixError::new(
                 kind,
@@ -658,11 +669,17 @@ impl<TId: FileIdType> FuseHandler<TId> for DefaultFuseHandler {
         _req: &RequestInfo,
         _file_id: TId,
         _flags: OpenFlags,
-    ) -> FuseResult<(OwnedFileHandle, FUSEOpenResponseFlags)> {
+        _helper: OpenHelper,
+    ) -> FuseResult<(
+        OwnedFileHandle,
+        FUSEOpenResponseFlags,
+        Option<PassthroughBackingId>,
+    )> {
         // Safe because in releasedir we don't use it
         Ok((
             unsafe { OwnedFileHandle::from_raw(0) },
             FUSEOpenResponseFlags::empty(),
+            None,
         ))
     }
 
@@ -673,8 +690,8 @@ impl<TId: FileIdType> FuseHandler<TId> for DefaultFuseHandler {
         file_handle: BorrowedFileHandle,
         seek: SeekFrom,
         size: u32,
-        flags: FUSEOpenFlags,
-        lock_owner: Option<u64>,
+        flags: OpenFlags,
+        lock_owner: Option<LockOwner>,
     ) -> FuseResult<Vec<u8>> {
         match self.handling {
             HandlingMethod::Error(kind) => Err(PosixError::new(
@@ -781,7 +798,7 @@ impl<TId: FileIdType> FuseHandler<TId> for DefaultFuseHandler {
         file_id: TId,
         file_handle: OwnedFileHandle,
         flags: OpenFlags,
-        lock_owner: Option<u64>,
+        lock_owner: Option<LockOwner>,
         flush: bool,
     ) -> FuseResult<()> {
         match self.handling {
@@ -933,7 +950,7 @@ impl<TId: FileIdType> FuseHandler<TId> for DefaultFuseHandler {
         _req: &RequestInfo,
         file_id: TId,
         file_handle: BorrowedFileHandle,
-        lock_owner: u64,
+        lock_owner: LockOwner,
         lock_info: LockInfo,
         sleep: bool,
     ) -> FuseResult<()> {
@@ -942,7 +959,7 @@ impl<TId: FileIdType> FuseHandler<TId> for DefaultFuseHandler {
                 kind,
                 if cfg!(debug_assertions) {
                     format!(
-                        "setlk(file_id: {}, file_handle: {:?}, lock_owner: {}, lock_info: {:?}, sleep: {})",
+                        "setlk(file_id: {}, file_handle: {:?}, lock_owner: {:?}, lock_info: {:?}, sleep: {})",
                         file_id.display(),
                         file_handle,
                         lock_owner,
@@ -954,7 +971,7 @@ impl<TId: FileIdType> FuseHandler<TId> for DefaultFuseHandler {
                 },
             )),
             HandlingMethod::Panic => panic!(
-                "[Not Implemented] setlk(file_id: {}, file_handle: {:?}, lock_owner: {}, lock_info: {:?}, sleep: {})",
+                "[Not Implemented] setlk(file_id: {}, file_handle: {:?}, lock_owner: {:?}, lock_info: {:?}, sleep: {})",
                 file_id.display(),
                 file_handle,
                 lock_owner,
@@ -1063,7 +1080,7 @@ impl<TId: FileIdType> FuseHandler<TId> for DefaultFuseHandler {
         data: Vec<u8>,
         write_flags: FUSEWriteFlags,
         flags: OpenFlags,
-        lock_owner: Option<u64>,
+        lock_owner: Option<LockOwner>,
     ) -> FuseResult<u32> {
         match self.handling {
             HandlingMethod::Error(kind) => Err(PosixError::new(

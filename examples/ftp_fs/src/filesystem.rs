@@ -83,8 +83,8 @@ impl FuseHandler<PathBuf> for FtpFs {
         _file_handle: BorrowedFileHandle,
         offset: SeekFrom,
         size: u32,
-        _flags: FUSEOpenFlags,
-        _lock_owner: Option<u64>,
+        _flags: OpenFlags,
+        _lock_owner: Option<LockOwner>,
     ) -> FuseResult<Vec<u8>> {
         self.with_ftp(|ftp| {
             let mut cursor = ftp.retr_as_buffer(file_id.to_str().unwrap())?;

@@ -1,8 +1,11 @@
 {
+    "rust-analyzer.cargo.features": [
+        "serial",
+        "passthrough"
+    ],
     "files.associations": {
         "*.rs.j2": "rust",
     },
-    "rust-analyzer.cargo.features": ["serial"],
     "rust-analyzer.files.exclude": [
         "templates"
     ]

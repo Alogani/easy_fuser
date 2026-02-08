@@ -22,8 +22,11 @@ pub mod errors;
 pub mod file_handle;
 mod file_id_type;
 pub mod flags;
+pub mod helpers;
 mod inode;
-
-pub use self::{arguments::*, errors::*, file_handle::*, file_id_type::*, flags::*, inode::*};
-
-pub use fuser::{FileType as FileKind, KernelConfig, TimeOrNow};
+pub use self::{
+    arguments::*, errors::*, file_handle::*, file_id_type::*, flags::*, helpers::*, inode::*,
+};
+pub use fuser::{
+    FileType as FileKind, Generation, IoctlFlags, KernelConfig, LockOwner, TimeOrNow,
+};

@@ -1,10 +1,10 @@
 //! Inode number in a FUSE (Filesystem in Userspace) filesystem.
-
 use crate::core::ROOT_INO;
+use fuser::INodeNo;
 
 /// Represents the mountpoint folder in a FuseFilesystem
 /// Its value is 1 and should not be modified.
-pub const ROOT_INODE: Inode = Inode::from(ROOT_INO);
+pub const ROOT_INODE: Inode = Inode::new(ROOT_INO);
 
 /// Represents an inode number in a FUSE (Filesystem in Userspace) filesystem.
 ///
@@ -32,26 +32,41 @@ pub const ROOT_INODE: Inode = Inode::from(ROOT_INO);
 /// using `PathBuf` as `FileIdType`. This alternative approach allows for file
 /// identification based on paths rather than inode numbers.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[repr(transparent)]
 pub struct Inode(u64);
 
 impl Inode {
     /// Allow const creation of Inode.
-    pub const fn from(value: u64) -> Self {
+    pub const fn new(value: u64) -> Self {
         Inode(value)
     }
 
     /// Convenience for creating a new Inode
     pub fn add_one(&self) -> Self {
-        Inode::from(u64::from(self.clone()) + 1)
+        Inode::new(u64::from(self.clone()) + 1)
+    }
+}
+
+impl From<Inode> for INodeNo {
+    /// Converts an Inode into a raw [`fuser::INodeNo`].
+    fn from(value: Inode) -> Self {
+        INodeNo(value.0)
     }
 }
 
 impl From<Inode> for u64 {
-    // Converts a u64 into an Inode.
+    /// Converts a u64 into an Inode.
     ///
     /// This allows for easy creation of Inode instances from raw inode numbers.
     fn from(value: Inode) -> Self {
         value.0
+    }
+}
+
+impl From<INodeNo> for Inode {
+    /// Converts a raw [`fuser::INodeNo`] into an Inode.
+    fn from(value: INodeNo) -> Self {
+        Inode(value.0)
     }
 }
 

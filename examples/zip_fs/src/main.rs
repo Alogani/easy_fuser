@@ -77,9 +77,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Mounting ZIP filesystem...");
     println!("ZIP file: {:?}", &zip_file);
     println!("Mount point: {:?}", &mount_point);
-
+    
+    let config = easy_fuser::prelude::MountConfig {
+        mount_options: vec![],
+        acl: easy_fuser::prelude::SessionACL::Owner,
+    };
     // Mount the filesystem
-    easy_fuser::mount(zip_fs, &mount_point, &[])?;
+    easy_fuser::mount(zip_fs, &mount_point, &config)?;
 
     // If we reach here, the filesystem has been unmounted normally
     cleanup(&mount_point, &once_flag);

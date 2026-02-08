@@ -73,10 +73,13 @@ impl FuseHandler<PathBuf> for MyFS {
 
 fn main() -> std::io::Result<()> {
     let fs = MyFS { inner: Box::new(DefaultFuseHandler::new()) };
-    #[cfg(feature="serial")]
-    easy_fuser::mount(fs, Path::new("/mnt/myfs"), &[])?;
-    #[cfg(not(feature="serial"))]
-    easy_fuser::mount(fs, Path::new("/mnt/myfs"), &[], 4)?;
+    let config = MountConfig {
+        mount_options: vec![],
+        acl: SessionACL::Owner,
+        #[cfg(feature = "parallel")]
+        num_threads: 4,
+    };
+    easy_fuser::mount(fs, Path::new("/mnt/myfs"), &config)?;
     Ok(())
 }
 ```

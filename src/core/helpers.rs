@@ -28,6 +28,6 @@ pub(super) fn spawn_deadlock_checker() {
     });
 }
 
-pub(super) fn get_random_generation() -> u64 {
-    Instant::now().elapsed().as_nanos() as u64
+pub(super) fn get_random_generation() -> fuser::Generation {
+    fuser::Generation(Instant::now().elapsed().as_nanos() as u64)
 }

@@ -25,10 +25,13 @@ fn test_mirror_fs_recursion() {
     let mntpoint_clone = mntpoint.clone();
     let handle = std::thread::spawn(move || {
         let fs = MirrorFs::new(source_path.clone(), DefaultFuseHandler::new());
-        #[cfg(feature = "serial")]
-        mount(fs, &mntpoint_clone, &[]).unwrap();
-        #[cfg(not(feature = "serial"))]
-        mount(fs, &mntpoint_clone, &[], 4).unwrap();
+        let config = MountConfig {
+            mount_options: vec![],
+            acl: SessionACL::Owner,
+            #[cfg(feature = "parallel")]
+            num_threads: 4,
+        };
+        mount(fs, &mntpoint_clone, &config).unwrap();
     });
     std::thread::sleep(Duration::from_millis(50)); // Wait for the mount to finish
 

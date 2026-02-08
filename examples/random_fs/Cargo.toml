@@ -6,3 +6,6 @@ edition = "2021"
 [dependencies]
 easy_fuser = { path = "../..", features = ["parallel"] }
 rand = "0.8.5"
+
+[patch.crates-io]
+fuser = { git = "https://github.com/khanhtranngoccva/fuser", branch = "bleeding-edge" }

@@ -132,12 +132,17 @@ macro_rules! mirror_fs_readonly_methods {
             _req: &RequestInfo,
             file_id: PathBuf,
             flags: OpenFlags,
-        ) -> FuseResult<(OwnedFileHandle, FUSEOpenResponseFlags)> {
+            _helper: OpenHelper,
+        ) -> FuseResult<(
+            OwnedFileHandle,
+            FUSEOpenResponseFlags,
+            Option<PassthroughBackingId>,
+        )> {
             let file_path = self.source_path.join(file_id);
             let fd = unix_fs::open(file_path.as_ref(), flags)?;
             // Open by definition returns positive Fd or error
             let file_handle = OwnedFileHandle::from_owned_fd(fd).unwrap();
-            Ok((file_handle, FUSEOpenResponseFlags::empty()))
+            Ok((file_handle, FUSEOpenResponseFlags::empty(), None))
         }
 
         fn readdir(
@@ -179,12 +184,18 @@ macro_rules! mirror_fs_readwrite_methods {
             mode: u32,
             umask: u32,
             flags: OpenFlags,
-        ) -> FuseResult<(OwnedFileHandle, FileAttribute, FUSEOpenResponseFlags)> {
+            _helper: CreateHelper,
+        ) -> FuseResult<(
+            OwnedFileHandle,
+            FileAttribute,
+            FUSEOpenResponseFlags,
+            Option<PassthroughBackingId>,
+        )> {
             let file_path = self.source_path.join(parent_id).join(name);
             let (fd, file_attr) = unix_fs::create(&file_path, mode, umask, flags)?;
             // Open by definition returns positive Fd or error
             let file_handle = OwnedFileHandle::from_owned_fd(fd).unwrap();
-            Ok((file_handle, file_attr, FUSEOpenResponseFlags::empty()))
+            Ok((file_handle, file_attr, FUSEOpenResponseFlags::empty(), None))
         }
 
         fn mkdir(

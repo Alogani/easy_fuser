@@ -4,7 +4,15 @@ use std::path::Path;
 use core::FuseDriver;
 use types::*;
 use fuser::{mount2, spawn_mount2};
-use fuser::MountOption;
+use fuser::{Config, MountOption, SessionACL};
+
+pub struct MountConfig {
+    {% if mode == "parallel" %}
+        pub num_threads: usize,
+    {% endif %}
+    pub mount_options: Vec<MountOption>,
+    pub acl: SessionACL,
+}
 
 
 /// Mounts a FUSE filesystem at the specified mountpoint.
@@ -32,25 +40,26 @@ use fuser::MountOption;
 pub fn mount<T, FS, P>(
     filesystem: FS,
     mountpoint: P,
-    options: &[MountOption],
-    {% if mode == "parallel" %}
-        num_threads: usize,
-    {% endif %}
+    config: &MountConfig,
 ) -> io::Result<()>
 where
     T: FileIdType,
     FS: FuseHandler<T>,
     P: AsRef<Path>,
 {
-    let driver = FuseDriver::new(
-        filesystem,
+    let mut fuser_config = Config::default();
+    let num_threads = {
         {% if mode == "parallel" %}
-            num_threads,
+            config.num_threads
         {% else %}
-            1,
+            1
         {% endif %}
-        );
-    mount2(driver, mountpoint, options)
+    };
+    fuser_config.n_threads = Some(num_threads);
+    fuser_config.mount_options = config.mount_options.to_vec();
+    fuser_config.acl = config.acl.clone();
+    let driver = FuseDriver::new(filesystem, num_threads);
+    mount2(driver, mountpoint, &fuser_config)
 }
 
 /// Spawns a FUSE filesystem in the background at the specified mountpoint.
@@ -87,25 +96,26 @@ where
 pub fn spawn_mount<T, FS, P>(
     filesystem: FS,
     mountpoint: P,
-    options: &[MountOption],
-    {% if mode == "parallel" %}
-        num_threads: usize,
-    {% endif %}
+    config: &MountConfig,
 ) -> io::Result<FuseSession<T>>
 where
     T: FileIdType,
     FS: FuseHandler<T> + Send,
     P: AsRef<Path>,
 {
-    let driver = FuseDriver::new(
-        filesystem,
+    let mut fuser_config = Config::default();
+    let num_threads = {
         {% if mode == "parallel" %}
-            num_threads,
+            config.num_threads
         {% else %}
-            1,
+            1
         {% endif %}
-        );
+    };
+    fuser_config.n_threads = Some(num_threads);
+    fuser_config.mount_options = config.mount_options.to_vec();
+    fuser_config.acl = config.acl.clone();
+    let driver = FuseDriver::new(filesystem, num_threads);
     let resolver = driver.resolver.clone();
-    let session = spawn_mount2(driver, mountpoint, options)?;
+    let session = spawn_mount2(driver, mountpoint, &fuser_config)?;
     Ok(FuseSession::new(session, resolver))
 }

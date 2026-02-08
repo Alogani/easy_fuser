@@ -960,10 +960,22 @@ pub fn create(
 /// and extending for the given length.
 pub fn fallocate(
     fd: BorrowedFd,
-    offset: i64,
-    length: i64,
+    offset: u64,
+    length: u64,
     mode: FallocateFlags,
 ) -> Result<(), PosixError> {
+    let offset: i64 = offset.try_into().map_err(|_| {
+        PosixError::new(
+            ErrorKind::InvalidArgument,
+            "Offset too large for i64".to_string(),
+        )
+    })?;
+    let length: i64 = length.try_into().map_err(|_| {
+        PosixError::new(
+            ErrorKind::InvalidArgument,
+            "Length too large for i64".to_string(),
+        )
+    })?;
     let result = unsafe { unix_impl::fallocate(fd.as_raw_fd(), mode.bits(), offset, length) };
     if result == -1 {
         return Err(PosixError::last_error(format!(

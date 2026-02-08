@@ -47,8 +47,8 @@ fn main() -> std::io::Result<()> {
         let content = FuseHandlerTemplate { mode }.render()?;
         fs::write(mode_dir.join("fuse_handler.rs"), content)?;
 
-        let content = MoutingTemplate { mode }.render()?;
-        fs::write(mode_dir.join("mouting.rs"), content)?;
+        let content = MountingTemplate { mode }.render()?;
+        fs::write(mode_dir.join("mounting.rs"), content)?;
     }
 
     Ok(())

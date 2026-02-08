@@ -17,12 +17,13 @@
 
 use std::time::{Duration, SystemTime};
 
-use fuser::FileAttr as FuseFileAttr;
+use fuser::{FileAttr as FuseFileAttr, Generation, INodeNo, RequestId};
 use fuser::{FileType, Request, TimeOrNow};
 use libc::mode_t;
 
+use crate::types::LockType;
+
 use super::BorrowedFileHandle;
-use super::LockType;
 
 pub use std::io::SeekFrom;
 
@@ -159,13 +160,14 @@ impl StatFs {
 /// - `pid`: Process ID of the process that initiated the request
 #[derive(Debug, Clone)]
 pub struct RequestInfo {
-    pub id: u64,
+    pub id: RequestId,
     pub uid: u32,
     pub gid: u32,
     pub pid: u32,
 }
-impl<'a> From<&Request<'a>> for RequestInfo {
-    fn from(req: &Request<'a>) -> Self {
+
+impl From<&Request> for RequestInfo {
+    fn from(req: &Request) -> Self {
         Self {
             id: req.unique(),
             uid: req.uid(),
@@ -213,12 +215,15 @@ pub struct FileAttribute {
     /// - Must be non-zero (FUSE treats zero as an error)
     /// - Should be unique over the file system's lifetime if exported over NFS
     /// - Should be a new, previously unused number if an inode is reused after deletion
-    pub generation: Option<u64>,
+    pub generation: Option<Generation>,
 }
 
 /// `FuseFileAttr`, `Option<ttl>`, `Option<generation>`
 impl FileAttribute {
-    pub(crate) fn to_fuse(self, ino: u64) -> (FuseFileAttr, Option<Duration>, Option<u64>) {
+    pub(crate) fn to_fuse(
+        self,
+        ino: INodeNo,
+    ) -> (FuseFileAttr, Option<Duration>, Option<Generation>) {
         (
             FuseFileAttr {
                 ino,

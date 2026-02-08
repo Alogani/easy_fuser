@@ -1,8 +1,9 @@
-use std::collections::HashSet;
-use std::sync::Arc;
-use fuser::BackgroundSession;
-use crate::types::FileIdType;
 use crate::core::FileIdResolver;
+use crate::types::FileIdType;
+use fuser::{BackgroundSession, UnmountOption};
+use std::collections::HashSet;
+use std::io;
+use std::sync::Arc;
 
 /// A session for a mounted FUSE filesystem running in the background.
 ///
@@ -37,8 +38,11 @@ impl<T: FileIdType> FuseSession<T> {
     /// Join the background session, waiting for the filesystem to unmount.
     ///
     /// This method blocks until the filesystem is unmounted.
-    pub fn join(self) {
-        self.session.join()
+    pub fn join(self, flags: &[UnmountOption]) -> Result<(), (Option<Self>, io::Error)> {
+        let Self { session, resolver } = self;
+        session
+            .umount_and_join(flags)
+            .map_err(|(session, error)| (session.map(|session| Self { session, resolver }), error))
     }
 }
 

@@ -1,8 +1,8 @@
 #![doc = include_str!("../README.md")]
 
 use easy_fuser::prelude::*;
-use std::ffi::OsStr;
 use std::path::Path;
+use std::fs;
 
 const README_CONTENT: &[u8] = include_bytes!("../README.md") as &[u8];
 
@@ -11,38 +11,8 @@ pub use filesystem::InMemoryFS;
 
 fn create_memory_fs() -> InMemoryFS {
     let memoryfs = InMemoryFS::new();
-    #[cfg(feature = "readme")]
-    {
-        // An example of interacting directly with the filesystem
-        let request_info = RequestInfo {
-            id: 0,
-            uid: 0,
-            gid: 0,
-            pid: 0,
-        }; // dummy RequestInfo
-        let (fd, (inode, _), _) = memoryfs
-            .create(
-                &request_info,
-                ROOT_INODE,
-                OsStr::new("README.md"),
-                0o755,
-                0,
-                OpenFlags::empty(),
-            )
-            .unwrap();
-        let _ = memoryfs
-            .write(
-                &request_info,
-                inode,
-                fd.borrow(),
-                SeekFrom::Start(0),
-                README_CONTENT.to_vec(),
-                FUSEWriteFlags::empty(),
-                OpenFlags::empty(),
-                None,
-            )
-            .unwrap();
-    }
+    // NOTE: manual call example here is removed because the [`CreateHelper`]
+    // parameter is not supported
     memoryfs
 }
 
@@ -58,13 +28,26 @@ fn main() {
     let mountpoint = std::env::args()
         .nth(1)
         .expect("Usage: in_memory_fs <MOUNTPOINT>");
-    let options = vec![
-        MountOption::RW,
-        MountOption::FSName("in_memory_fs".to_string()),
-    ];
-
+    let config = MountConfig {
+        mount_options: vec![],
+        acl: SessionACL::Owner,
+        num_threads: 4,
+    };
     let memoryfs = create_memory_fs();
 
     println!("Mounting filesystem...");
-    easy_fuser::mount(memoryfs, Path::new(&mountpoint), &options, 1).unwrap();
+    let session = easy_fuser::spawn_mount(memoryfs, Path::new(&mountpoint), &config).unwrap();
+    println!("Filesystem mounted");
+    fs::write(Path::new(&mountpoint).join("README.md"), README_CONTENT)
+        .expect("Failed to write README.md");
+
+    std::io::stdin().read_line(&mut String::new()).unwrap();
+    session
+        .join(&[])
+        .map_err(|(_session, error)| {
+            println!("Error unmounting filesystem: {:?}", error);
+            error
+        })
+        .unwrap();
+    println!("Filesystem unmounted");
 }

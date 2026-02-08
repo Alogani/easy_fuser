@@ -14,13 +14,13 @@ serial = []
 parallel = ["dep:threadpool"]
 async = ["dep:async-trait", "dep:tokio"]
 deadlock_detection = ["parallel", "dep:parking_lot"]
-
+passthrough = []
 
 [dependencies]
 # Core dependencies
 log = "0.4"
 libc = "0.2"
-fuser = "0.16"
+fuser = { version = "0.16" }
 bitflags = "2.10"
 
 # Parallel dependencies
@@ -43,3 +43,7 @@ askama = { version = "0.15.4", features = ["derive"] }
 
 [package.metadata.docs.rs]
 features = ["parallel"]
+
+[patch.crates-io]
+# Use the updated branch 
+fuser = { git = "https://github.com/khanhtranngoccva/fuser", branch = "bleeding-edge" }

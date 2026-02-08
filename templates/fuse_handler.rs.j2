@@ -88,9 +88,6 @@
 ///
 /// Documentation is inspired by the original fuser documentation
 
-{% let send_sync = mode != "serial" %}
-
-
 use std::ffi::{OsStr, OsString};
 use std::path::Path;
 use std::time::Duration;
@@ -102,7 +99,7 @@ use async_trait::async_trait;
 
 #[async_trait]
 {% endif %}
-pub trait FuseHandler<TId: FileIdType>: 'static {% if send_sync %}+ Sync + Send {% endif %} {
+pub trait FuseHandler<TId: FileIdType>: 'static + Sync + Send {
 
     {% macro async_keyword() -%}{% if mode == "async" %}async{% endif %}{%- endmacro %}
     {% macro await_keyword() -%}{% if mode == "async" %}.await{% endif %}{%- endmacro %}
@@ -157,7 +154,7 @@ pub trait FuseHandler<TId: FileIdType>: 'static {% if send_sync %}+ Sync + Send 
         file_handle_out: BorrowedFileHandle,
         offset_out: i64,
         len: u64,
-        flags: u32, // Not implemented yet in standard
+        flags: CopyFileRangeFlags, // Not implemented yet in standard
     ) -> FuseResult<u32> {
         self.get_inner().copy_file_range(
             req,
@@ -186,9 +183,10 @@ pub trait FuseHandler<TId: FileIdType>: 'static {% if send_sync %}+ Sync + Send 
         mode: u32,
         umask: u32,
         flags: OpenFlags,
-    ) -> FuseResult<(OwnedFileHandle, TId::Metadata, FUSEOpenResponseFlags)> {
+        helper: CreateHelper,
+    ) -> FuseResult<(OwnedFileHandle, TId::Metadata, FUSEOpenResponseFlags, Option<PassthroughBackingId>)> {
         self.get_inner()
-            .create(req, parent_id, name, mode, umask, flags)
+            .create(req, parent_id, name, mode, umask, flags, helper)
             {{ await_keyword() }}
     }
 
@@ -198,8 +196,8 @@ pub trait FuseHandler<TId: FileIdType>: 'static {% if send_sync %}+ Sync + Send 
         req: &RequestInfo,
         file_id: TId,
         file_handle: BorrowedFileHandle,
-        offset: i64,
-        length: i64,
+        offset: u64,
+        length: u64,
         mode: FallocateFlags,
     ) -> FuseResult<()> {
         self.get_inner()
@@ -216,7 +214,7 @@ pub trait FuseHandler<TId: FileIdType>: 'static {% if send_sync %}+ Sync + Send 
         req: &RequestInfo,
         file_id: TId,
         file_handle: BorrowedFileHandle,
-        lock_owner: u64,
+        lock_owner: LockOwner,
     ) -> FuseResult<()> {
         self.get_inner()
             .flush(req, file_id, file_handle, lock_owner)
@@ -277,7 +275,7 @@ pub trait FuseHandler<TId: FileIdType>: 'static {% if send_sync %}+ Sync + Send 
         req: &RequestInfo,
         file_id: TId,
         file_handle: BorrowedFileHandle,
-        lock_owner: u64,
+        lock_owner: LockOwner,
         lock_info: LockInfo,
     ) -> FuseResult<LockInfo> {
         self.get_inner()
@@ -303,7 +301,7 @@ pub trait FuseHandler<TId: FileIdType>: 'static {% if send_sync %}+ Sync + Send 
         req: &RequestInfo,
         file_id: TId,
         file_handle: BorrowedFileHandle,
-        flags: IOCtlFlags,
+        flags: FUSEIoctlFlags,
         cmd: u32,
         in_data: Vec<u8>,
         out_size: u32,
@@ -385,8 +383,9 @@ pub trait FuseHandler<TId: FileIdType>: 'static {% if send_sync %}+ Sync + Send 
         req: &RequestInfo,
         file_id: TId,
         flags: OpenFlags,
-    ) -> FuseResult<(OwnedFileHandle, FUSEOpenResponseFlags)> {
-        self.get_inner().open(req, file_id, flags)
+        helper: OpenHelper,
+    ) -> FuseResult<(OwnedFileHandle, FUSEOpenResponseFlags, Option<PassthroughBackingId>)> {
+        self.get_inner().open(req, file_id, flags, helper)
             {{ await_keyword() }}
     }
 
@@ -398,8 +397,9 @@ pub trait FuseHandler<TId: FileIdType>: 'static {% if send_sync %}+ Sync + Send 
         req: &RequestInfo,
         file_id: TId,
         flags: OpenFlags,
-    ) -> FuseResult<(OwnedFileHandle, FUSEOpenResponseFlags)> {
-        self.get_inner().opendir(req, file_id, flags)
+        helper: OpenHelper,
+    ) -> FuseResult<(OwnedFileHandle, FUSEOpenResponseFlags, Option<PassthroughBackingId>)> {
+        self.get_inner().opendir(req, file_id, flags, helper)
             {{ await_keyword() }}
     }
 
@@ -415,8 +415,8 @@ pub trait FuseHandler<TId: FileIdType>: 'static {% if send_sync %}+ Sync + Send 
         file_handle: BorrowedFileHandle,
         seek: SeekFrom,
         size: u32,
-        flags: FUSEOpenFlags,
-        lock_owner: Option<u64>,
+        flags: OpenFlags,
+        lock_owner: Option<LockOwner>,
     ) -> FuseResult<Vec<u8>> {
         self.get_inner()
             .read(req, file_id, file_handle, seek, size, flags, lock_owner)
@@ -478,7 +478,7 @@ pub trait FuseHandler<TId: FileIdType>: 'static {% if send_sync %}+ Sync + Send 
         file_id: TId,
         file_handle: OwnedFileHandle,
         flags: OpenFlags,
-        lock_owner: Option<u64>,
+        lock_owner: Option<LockOwner>,
         flush: bool,
     ) -> FuseResult<()> {
         self.get_inner()
@@ -552,7 +552,7 @@ pub trait FuseHandler<TId: FileIdType>: 'static {% if send_sync %}+ Sync + Send 
         req: &RequestInfo,
         file_id: TId,
         file_handle: BorrowedFileHandle,
-        lock_owner: u64,
+        lock_owner: LockOwner,
         lock_info: LockInfo,
         sleep: bool,
     ) -> FuseResult<()> {
@@ -608,7 +608,7 @@ pub trait FuseHandler<TId: FileIdType>: 'static {% if send_sync %}+ Sync + Send 
         data: Vec<u8>,
         write_flags: FUSEWriteFlags,
         flags: OpenFlags,
-        lock_owner: Option<u64>,
+        lock_owner: Option<LockOwner>,
     ) -> FuseResult<u32> {
         self.get_inner().write(
             req,

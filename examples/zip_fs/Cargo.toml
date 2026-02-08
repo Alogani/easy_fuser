@@ -12,3 +12,6 @@ ctrlc = "3.4"
 
 [dev-dependencies]
 tempfile = "3.2"
+
+[patch.crates-io]
+fuser = { git = "https://github.com/khanhtranngoccva/fuser", branch = "bleeding-edge" }
