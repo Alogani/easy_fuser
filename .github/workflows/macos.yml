@@ -1,4 +1,4 @@
-name: macOS CI
+name: CI MacOS
 
 on:
   workflow_dispatch:

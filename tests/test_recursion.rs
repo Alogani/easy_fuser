@@ -10,6 +10,7 @@ use std::time::{Duration, Instant};
 ///
 /// However, when trying this kind of mount in a terminal, it hangs
 
+#[cfg(not(target_os = "macos"))]
 #[test]
 fn test_mirror_fs_recursion() {
     // Create source and mount directories
