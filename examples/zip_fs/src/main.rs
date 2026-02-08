@@ -79,7 +79,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Mount point: {:?}", &mount_point);
 
     // Mount the filesystem
-    easy_fuser::mount(zip_fs, &mount_point, &[], 1)?;
+    easy_fuser::mount(zip_fs, &mount_point, &[])?;
 
     // If we reach here, the filesystem has been unmounted normally
     cleanup(&mount_point, &once_flag);

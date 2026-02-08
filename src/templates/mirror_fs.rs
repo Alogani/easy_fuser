@@ -93,9 +93,7 @@ macro_rules! mirror_fs_readonly_methods {
             _file_handle: Option<BorrowedFileHandle>,
         ) -> FuseResult<FileAttribute> {
             let file_path = self.source_path.join(file_id);
-            let fd = unix_fs::open(file_path.as_ref(), OpenFlags::empty())?;
-            let result = unix_fs::getattr(fd.as_fd());
-            result
+            unix_fs::lookup(&file_path)
         }
 
         fn getxattr(
@@ -285,7 +283,7 @@ macro_rules! mirror_fs_readwrite_methods {
 }
 
 pub trait MirrorFsTrait: FuseHandler<PathBuf> {
-    fn new<U: FuseHandler<PathBuf> + Send>(source_path: PathBuf, inner: U) -> Self;
+    fn new<U: FuseHandler<PathBuf>>(source_path: PathBuf, inner: U) -> Self;
 
     fn source_dir(&self) -> &Path;
 }
@@ -297,7 +295,7 @@ pub struct MirrorFs {
 }
 
 impl MirrorFsTrait for MirrorFs {
-    fn new<U: FuseHandler<PathBuf> + Send>(source_path: PathBuf, inner: U) -> Self {
+    fn new<U: FuseHandler<PathBuf>>(source_path: PathBuf, inner: U) -> Self {
         Self {
             source_path,
             inner: Box::new(FdHandlerHelper::new(inner)),
@@ -325,7 +323,7 @@ pub struct MirrorFsReadOnly {
 }
 
 impl MirrorFsTrait for MirrorFsReadOnly {
-    fn new<THandler: FuseHandler<PathBuf> + Send>(source_path: PathBuf, inner: THandler) -> Self {
+    fn new<THandler: FuseHandler<PathBuf>>(source_path: PathBuf, inner: THandler) -> Self {
         Self {
             source_path,
             inner: Box::new(FdHandlerHelperReadOnly::new(inner)),

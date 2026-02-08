@@ -5,7 +5,7 @@ use std::ffi::c_void;
 
 use libc::{self, c_char, c_int, size_t, ssize_t};
 
-use super::{cstring_from_path, StatFs};
+use super::{StatFs, cstring_from_path};
 
 pub(super) unsafe fn fallocate(fd: c_int, _mode: c_int, offset: off_t, len: off_t) -> c_int {
     libc::posix_fallocate(fd, offset, len)

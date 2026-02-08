@@ -1,7 +1,7 @@
 [package]
 name = "easy_fuser"
-version = "0.3.1"
-edition = "2021"
+version = "0.4.5"
+edition = "2024"
 description = "A flexible and idiomatic Fuse implementation for Rust"
 license = "MIT"
 documentation = "https://docs.rs/easy_fuser"
@@ -20,8 +20,8 @@ deadlock_detection = ["parallel", "dep:parking_lot"]
 # Core dependencies
 log = "0.4"
 libc = "0.2"
-fuser = "0.15"
-bitflags = "2.6.0"
+fuser = "0.16"
+bitflags = "2.10"
 
 # Parallel dependencies
 threadpool = { version = "1.8", optional = true }
@@ -30,12 +30,16 @@ parking_lot = { version = "0.12", features = ["deadlock_detection"], optional = 
 
 # Async dependencies
 # easy_fuser_async_macro = { path = "./easy_fuser_async_macro", optional = true }
-tokio = { version = "1.42.0", features = ["full"], optional = true }
-async-trait = { version = "0.1.83", optional = true }
+tokio = { version = "1.48", features = ["full"], optional = true }
+async-trait = { version = "0.1.89", optional = true }
+bimap = { version = "0.6.3", features = ["std"] }
 
 [dev-dependencies]
-tempfile = "3.14"
+tempfile = "3.23"
 env_logger = "0.11"
+
+[build-dependencies]
+askama = { version = "0.15.4", features = ["derive"] }
 
 [package.metadata.docs.rs]
 features = ["parallel"]
