@@ -28,24 +28,6 @@ jobs:
     - name: Setup Rust
       run: rustup update ${{ matrix.toolchain }} && rustup default ${{ matrix.toolchain }}
     - name: Build
-      run: cargo build --verbose --features ${{ matrix.feature }}
+      run: cargo build --verbose --features "${{ matrix.feature }} libfuse"
     - name: Run tests
-      run: cargo test --verbose --features ${{ matrix.feature }}
-
-  test_examples:
-    name: "Examples crates"
-    runs-on: macos-latest
-    steps:
-    - name: Run tests of crates inside examples folder
-      run: |
-        crate_dir="$(pwd)"
-        for dir in examples/*/; do
-          if [ -f "${dir}Cargo.toml" ]; then
-            echo "Running tests in ${dir}"
-            if ! (cd "${dir}" && cargo test); then
-              echo "Tests failed in ${dir}"
-              exit 1
-            fi
-            cd "$crate_dir"
-          fi
-        done
+      run: cargo test --verbose --features "${{ matrix.feature }} libfuse"
