@@ -31,7 +31,7 @@ use super::fuse_driver::FuseDriver;
 /// # Returns
 /// 
 /// `io::Result<()>` indicating success or failure of the mount operation.
-pub fn mount<T, FS, P>(
+pub fn mount<TId, FS, P>(
     filesystem: FS,
     mountpoint: P,
     options: &[MountOption],
@@ -40,8 +40,8 @@ pub fn mount<T, FS, P>(
     {% endif %}
 ) -> io::Result<()>
 where
-    T: FileIdType,
-    FS: FuseHandler<T>,
+    TId: FileIdType,
+    FS: FuseHandler<TId = TId>,
     P: AsRef<Path>,
 {
     let driver = FuseDriver::new(
@@ -86,17 +86,17 @@ where
 /// Returns `io::Result<BackgroundSession>`, which is:
 /// * `Ok(BackgroundSession)` on successful mount, providing a handle to manage the mounted filesystem.
 /// * `Err(io::Error)` if the mount operation fails.
-pub fn spawn_mount<T, FS, P>(
+pub fn spawn_mount<TId, FS, P>(
     filesystem: FS,
     mountpoint: P,
     options: &[MountOption],
     {% if mode == "parallel" %}
         num_threads: usize,
     {% endif %}
-) -> io::Result<FuseSession<T>>
+) -> io::Result<FuseSession<TId>>
 where
-    T: FileIdType,
-    FS: FuseHandler<T> + Send,
+    TId: FileIdType,
+    FS: FuseHandler<TId = TId> + Send,
     P: AsRef<Path>,
 {
     let driver = FuseDriver::new(

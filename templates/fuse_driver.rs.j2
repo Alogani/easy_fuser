@@ -54,7 +54,7 @@ type DirIter<TAttr> = HashMap<(u64, i64), VecDeque<(OsString, u64, TAttr)>>;
 pub(crate) struct FuseDriver<TId, THandler>
 where
     TId: FileIdType,
-    THandler: FuseHandler<TId>,
+    THandler: FuseHandler<TId = TId>,
 {
     pub resolver: Arc<TId::Resolver>,
 
@@ -80,7 +80,7 @@ where
     impl<TId, THandler> Drop for FuseDriver<TId, THandler>
     where
         TId: FileIdType,
-        THandler: FuseHandler<TId>,
+        THandler: FuseHandler<TId = TId>,
     {
         fn drop(&mut self) {
             self.threadpool.join();
@@ -92,11 +92,11 @@ where
 impl<TId, THandler> FuseDriver<TId, THandler>
 where
     TId: FileIdType,
-    THandler: FuseHandler<TId>,
+    THandler: FuseHandler<TId = TId>,
 {
     pub fn new(
         handler: THandler,
-        {% if send_sync %}
+        {% if mode == "parallel" %}
             num_threads: usize
         {% else %}
             _num_threads: usize
@@ -160,7 +160,7 @@ where
 impl<TId, THandler> fuser::Filesystem for FuseDriver<TId, THandler>
 where
     TId: FileIdType,
-    THandler: FuseHandler<TId>,
+    THandler: FuseHandler<TId = TId>,
 {
     {% macro spawn() -%}
         {% if mode == "parallel" %}
@@ -418,8 +418,12 @@ where
         let req = RequestInfo::from(req);
         let handler = self.get_handler();
         let resolver = self.resolver.clone();
-        handler.forget(&req, resolver.resolve_id(ino), nlookup);
-        resolver.forget(ino, nlookup);
+        #[allow(unused_variables)] // No need for replies
+        {% call spawn() %}
+            handler.forget(&req, resolver.resolve_id(ino), nlookup)
+                {% if mode == "async" %}.await{% endif %};
+            resolver.forget(ino, nlookup);
+        {% endcall %}
     }
 
     fn fsync(&mut self, req: &Request, ino: u64, fh: u64, datasync: bool, reply: ReplyEmpty) {

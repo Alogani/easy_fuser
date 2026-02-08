@@ -6,17 +6,14 @@ use either::Either;
 use proc_macro::TokenStream;
 use quote::quote;
 use syn::{
-    Attribute, ExprBlock, Ident, Result, Token,
-    parse::{Parse, ParseStream},
-    parse_macro_input,
-    punctuated::Punctuated,
-    token::{Comma, FatArrow, Semi},
+    Attribute, ExprBlock, Ident, Result, Token, parse::{Parse, ParseStream}, parse_macro_input, punctuated::Punctuated, token::{Async, Comma, FatArrow, Semi}
 };
 
 use fuse_handlers_signatures::*;
 
 struct FnSigInput {
     attrs: Vec<Attribute>,
+    asyncness: Option<Async>,
     name: Ident,
     tail: Either<Semi, ExprBlock>,
 }
@@ -32,6 +29,7 @@ impl Parse for FnSigInput {
             attrs.extend(input.call(Attribute::parse_outer)?);
         }
 
+        let asyncness: Option<Async> = input.parse()?;
         let name: Ident = input.parse()?;
         let _arrow: FatArrow = input.parse()?;
 
@@ -41,7 +39,7 @@ impl Parse for FnSigInput {
             Either::Right(input.parse::<ExprBlock>()?)
         };
 
-        Ok(FnSigInput { attrs, name, tail })
+        Ok(FnSigInput { attrs, asyncness, name, tail })
     }
 }
 
@@ -62,6 +60,7 @@ impl Parse for FnSigInput {
 pub fn fuse_handler_fnsig(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as FnSigInput);
     let attrs = input.attrs;
+    let asyncness = input.asyncness;
     let tail_tokens: proc_macro2::TokenStream = match input.tail {
         Either::Left(semi) => quote!( #semi ),
         Either::Right(block) => {
@@ -70,13 +69,13 @@ pub fn fuse_handler_fnsig(input: TokenStream) -> TokenStream {
     };
 
     let trait_fn = get_fuse_handler_trait_fn(
-        &input.name.to_string(),
+        &input.name.to_string()
     );
     let fn_sig = trait_fn.sig;
 
     quote!(
         #(#attrs)*
-        #fn_sig #tail_tokens
+        #asyncness #fn_sig #tail_tokens
     )
     .into()
 }
@@ -112,6 +111,15 @@ impl Parse for DelegateFsInput {
 /// ```
 #[proc_macro]
 pub fn delegate_fs(input: TokenStream) -> TokenStream {
+    delegate_fs_impl(false, input)
+}
+
+#[proc_macro]
+pub fn delegate_fs_async(input: TokenStream) -> TokenStream {
+    delegate_fs_impl(true, input)
+}
+
+fn delegate_fs_impl(is_async: bool, input: TokenStream) -> TokenStream {
     let args = syn::parse_macro_input!(input as DelegateFsInput);
 
     let target = args.target;
@@ -119,14 +127,26 @@ pub fn delegate_fs(input: TokenStream) -> TokenStream {
     let mut expanded = quote! {};
 
     for method in &args.methods {
-        let fn_impl = get_fuse_handler_trait_fn(&method.to_string());
+        let fn_impl = get_fuse_handler_trait_fn(
+            &method.to_string()
+        );
         let method_expr = make_method_call_expr(&fn_impl);
         let fn_sig = fn_impl.sig;
-        expanded.extend(quote! {
-            #fn_sig {
-                self.#target.#method_expr
-            }
-        });
+
+        if !is_async {
+            expanded.extend(quote! {
+                #fn_sig {
+                    self.#target.#method_expr
+                }
+            });
+        } else {
+            expanded.extend(quote! {
+                async #fn_sig {
+                    self.#target.#method_expr.await
+                }
+            });
+        }
+        
     }
 
     expanded.into()

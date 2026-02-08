@@ -12,13 +12,12 @@ mod core;
 pub mod inode_mapper;
 pub mod inode_multi_mapper;
 pub mod session;
-// TODO :pub mod templates;
 pub mod types;
 pub mod unix_fs;
 
 pub mod fuse_async;
 pub mod fuse_parallel;
 pub mod fuse_serial;
-
+pub mod fuse_presets;
 
 pub use session::{FusePruner, FuseSession};

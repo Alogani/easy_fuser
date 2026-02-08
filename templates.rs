@@ -24,3 +24,11 @@ pub struct FuseLibTemplate<'a> {
     pub mode: &'a str,
 }
 
+/*
+#[derive(Template)]
+#[template(path = "fuse_presets/xxx__handler.rs.j2")]
+pub struct PresetXxxHandler {
+    pub is_async: bool,
+}
+    */
+

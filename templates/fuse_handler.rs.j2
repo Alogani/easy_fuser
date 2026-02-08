@@ -88,9 +88,6 @@
 ///
 /// Documentation is inspired by the original fuser documentation
 
-{% let send_sync = mode != "serial" %}
-
-
 use std::ffi::{OsStr, OsString};
 use std::path::Path;
 use std::time::Duration;
@@ -103,13 +100,12 @@ use async_trait::async_trait;
 
 #[async_trait]
 {% endif %}
-pub trait FuseHandler<TId>: 'static
-    {% if send_sync %}
-        + Sync + Send {# Never put this on serial mode #}
+pub trait FuseHandler: 'static
+    {% if mode != "serial" %}
+        + Send + Sync{# Never put this on serial mode #}
     {% endif %}
-where
-    TId: FileIdType {% if mode == "async" %}+ Send{% endif %}
 {
+    type TId: FileIdType {% if mode == "async" %}+ Send{% endif %};
 
     {% macro async_keyword() -%}{% if mode == "async" %}async{% endif %}{%- endmacro %}
     {% macro await_keyword() -%}{% if mode == "async" %}.await{% endif %}{%- endmacro %}
@@ -142,22 +138,22 @@ where
     /// This method is called for the access() system call. If the 'default_permissions'
     /// mount option is given, this method is not called. This method is not called
     /// under Linux kernel versions 2.4.x
-    {{ async_keyword() }} fn access(&self, req: &RequestInfo, file_id: TId, mask: AccessMask) -> FuseResult<()>;
+    {{ async_keyword() }} fn access(&self, req: &RequestInfo, file_id: Self::TId, mask: AccessMask) -> FuseResult<()>;
 
     /// Map block index within file to block index within device
     ///
     /// Note: This makes sense only for block device backed filesystems mounted
     /// with the 'blkdev' option
-    {{ async_keyword() }} fn bmap(&self, req: &RequestInfo, file_id: TId, blocksize: u32, idx: u64) -> FuseResult<u64>;
+    {{ async_keyword() }} fn bmap(&self, req: &RequestInfo, file_id: Self::TId, blocksize: u32, idx: u64) -> FuseResult<u64>;
 
     /// Copy the specified range from the source inode to the destination inode
     {{ async_keyword() }} fn copy_file_range(
         &self,
         req: &RequestInfo,
-        file_in: TId,
+        file_in: Self::TId,
         file_handle_in: BorrowedFileHandle<'_>,
         offset_in: i64,
-        file_out: TId,
+        file_out: Self::TId,
         file_handle_out: BorrowedFileHandle<'_>,
         offset_out: i64,
         len: u64,
@@ -173,18 +169,18 @@ where
     {{ async_keyword() }} fn create(
         &self,
         req: &RequestInfo,
-        parent_id: TId,
+        parent_id: Self::TId,
         name: &OsStr,
         mode: u32,
         umask: u32,
         flags: OpenFlags,
-    ) -> FuseResult<(OwnedFileHandle, TId::Metadata, FUSEOpenResponseFlags)>;
+    ) -> FuseResult<(OwnedFileHandle, <Self::TId as FileIdType>::Metadata, FUSEOpenResponseFlags)>;
 
     /// Preallocate or deallocate space to a file
     {{ async_keyword() }} fn fallocate(
         &self,
         req: &RequestInfo,
-        file_id: TId,
+        file_id: Self::TId,
         file_handle: BorrowedFileHandle<'_>,
         offset: i64,
         length: i64,
@@ -198,13 +194,13 @@ where
     {{ async_keyword() }} fn flush(
         &self,
         req: &RequestInfo,
-        file_id: TId,
+        file_id: Self::TId,
         file_handle: BorrowedFileHandle<'_>,
         lock_owner: u64,
     ) -> FuseResult<()>;
 
     /// Release references to an inode, if the nlookup count reaches zero (to substract from the number of lookups).
-    {{ async_keyword() }} fn forget(&self, req: &RequestInfo, file_id: TId, nlookup: u64);
+    {{ async_keyword() }} fn forget(&self, req: &RequestInfo, file_id: Self::TId, nlookup: u64);
 
     /// Synchronize file contents
     ///
@@ -212,7 +208,7 @@ where
     {{ async_keyword() }} fn fsync(
         &self,
         req: &RequestInfo,
-        file_id: TId,
+        file_id: Self::TId,
         file_handle: BorrowedFileHandle<'_>,
         datasync: bool,
     ) -> FuseResult<()>;
@@ -226,7 +222,7 @@ where
     {{ async_keyword() }} fn fsyncdir(
         &self,
         req: &RequestInfo,
-        file_id: TId,
+        file_id: Self::TId,
         file_handle: BorrowedFileHandle<'_>,
         datasync: bool,
     ) -> FuseResult<()>;
@@ -235,7 +231,7 @@ where
     {{ async_keyword() }} fn getattr(
         &self,
         req: &RequestInfo,
-        file_id: TId,
+        file_id: Self::TId,
         file_handle: Option<BorrowedFileHandle<'_>>,
     ) -> FuseResult<FileAttribute>;
 
@@ -243,7 +239,7 @@ where
     {{ async_keyword() }} fn getlk(
         &self,
         req: &RequestInfo,
-        file_id: TId,
+        file_id: Self::TId,
         file_handle: BorrowedFileHandle<'_>,
         lock_owner: u64,
         lock_info: LockInfo,
@@ -253,7 +249,7 @@ where
     {{ async_keyword() }} fn getxattr(
         &self,
         req: &RequestInfo,
-        file_id: TId,
+        file_id: Self::TId,
         name: &OsStr,
         size: u32,
     ) -> FuseResult<Vec<u8>>;
@@ -262,7 +258,7 @@ where
     {{ async_keyword() }} fn ioctl(
         &self,
         req: &RequestInfo,
-        file_id: TId,
+        file_id: Self::TId,
         file_handle: BorrowedFileHandle<'_>,
         flags: IOCtlFlags,
         cmd: u32,
@@ -274,22 +270,22 @@ where
     {{ async_keyword() }} fn link(
         &self,
         req: &RequestInfo,
-        file_id: TId,
-        newparent: TId,
+        file_id: Self::TId,
+        newparent: Self::TId,
         newname: &OsStr,
-    ) -> FuseResult<TId::Metadata>;
+    ) -> FuseResult<<Self::TId as FileIdType>::Metadata>;
 
     /// List extended attribute names
-    {{ async_keyword() }} fn listxattr(&self, req: &RequestInfo, file_id: TId, size: u32) -> FuseResult<Vec<u8>>;
+    {{ async_keyword() }} fn listxattr(&self, req: &RequestInfo, file_id: Self::TId, size: u32) -> FuseResult<Vec<u8>>;
 
     /// Retrieve file attributes for a directory entry by name and increment the lookup count associated with the inode.
-    {{ async_keyword() }} fn lookup(&self, req: &RequestInfo, parent_id: TId, name: &OsStr) -> FuseResult<TId::Metadata>;
+    {{ async_keyword() }} fn lookup(&self, req: &RequestInfo, parent_id: Self::TId, name: &OsStr) -> FuseResult<<Self::TId as FileIdType>::Metadata>;
 
     /// Reposition read/write file offset
     {{ async_keyword() }} fn lseek(
         &self,
         req: &RequestInfo,
-        file_id: TId,
+        file_id: Self::TId,
         file_handle: BorrowedFileHandle<'_>,
         seek: SeekFrom,
     ) -> FuseResult<i64>;
@@ -298,22 +294,22 @@ where
     {{ async_keyword() }} fn mkdir(
         &self,
         req: &RequestInfo,
-        parent_id: TId,
+        parent_id: Self::TId,
         name: &OsStr,
         mode: u32,
         umask: u32,
-    ) -> FuseResult<TId::Metadata>;
+    ) -> FuseResult<<Self::TId as FileIdType>::Metadata>;
 
     /// Create a new file node (regular file, device, FIFO, socket, etc)
     {{ async_keyword() }} fn mknod(
         &self,
         req: &RequestInfo,
-        parent_id: TId,
+        parent_id: Self::TId,
         name: &OsStr,
         mode: u32,
         umask: u32,
         rdev: DeviceType,
-    ) -> FuseResult<TId::Metadata>;
+    ) -> FuseResult<<Self::TId as FileIdType>::Metadata>;
 
     /// Open a file and return a file handle.
     ///
@@ -321,7 +317,7 @@ where
     {{ async_keyword() }} fn open(
         &self,
         req: &RequestInfo,
-        file_id: TId,
+        file_id: Self::TId,
         flags: OpenFlags,
     ) -> FuseResult<(OwnedFileHandle, FUSEOpenResponseFlags)>;
 
@@ -331,7 +327,7 @@ where
     {{ async_keyword() }} fn opendir(
         &self,
         req: &RequestInfo,
-        file_id: TId,
+        file_id: Self::TId,
         flags: OpenFlags,
     ) -> FuseResult<(OwnedFileHandle, FUSEOpenResponseFlags)>;
 
@@ -343,7 +339,7 @@ where
     {{ async_keyword() }} fn read(
         &self,
         req: &RequestInfo,
-        file_id: TId,
+        file_id: Self::TId,
         file_handle: BorrowedFileHandle<'_>,
         seek: SeekFrom,
         size: u32,
@@ -360,9 +356,9 @@ where
     {{ async_keyword() }} fn readdir(
         &self,
         req: &RequestInfo,
-        file_id: TId,
+        file_id: Self::TId,
         file_handle: BorrowedFileHandle<'_>,
-    ) -> FuseResult<Vec<(OsString, TId::MinimalMetadata)>>;
+    ) -> FuseResult<Vec<(OsString, <Self::TId as FileIdType>::MinimalMetadata)>>;
 
     /// Read directory contents with full file attributes
     ///
@@ -373,9 +369,9 @@ where
     {{ async_keyword() }} fn readdirplus(
         &self,
         req: &RequestInfo,
-        file_id: TId,
+        file_id: Self::TId,
         file_handle: BorrowedFileHandle<'_>,
-    ) -> FuseResult<Vec<(OsString, TId::Metadata)>> {
+    ) -> FuseResult<Vec<(OsString, <Self::TId as FileIdType>::Metadata)>> {
         let readdir_result = self.readdir(req, file_id.clone(), file_handle)
             {{ await_keyword() }}?;
         let mut result = Vec::with_capacity(readdir_result.len());
@@ -388,7 +384,7 @@ where
     }
 
     /// Read the target of a symbolic link
-    {{ async_keyword() }} fn readlink(&self, req: &RequestInfo, file_id: TId) -> FuseResult<Vec<u8>>;
+    {{ async_keyword() }} fn readlink(&self, req: &RequestInfo, file_id: Self::TId) -> FuseResult<Vec<u8>>;
 
     /// Release an open file
     ///
@@ -397,7 +393,7 @@ where
     {{ async_keyword() }} fn release(
         &self,
         req: &RequestInfo,
-        file_id: TId,
+        file_id: Self::TId,
         file_handle: OwnedFileHandle,
         flags: OpenFlags,
         lock_owner: Option<u64>,
@@ -412,33 +408,33 @@ where
     {{ async_keyword() }} fn releasedir(
         &self,
         req: &RequestInfo,
-        file_id: TId,
+        file_id: Self::TId,
         file_handle: OwnedFileHandle,
         flags: OpenFlags,
     ) -> FuseResult<()>;
 
     /// Remove an extended attribute.
-    {{ async_keyword() }} fn removexattr(&self, req: &RequestInfo, file_id: TId, name: &OsStr) -> FuseResult<()>;
+    {{ async_keyword() }} fn removexattr(&self, req: &RequestInfo, file_id: Self::TId, name: &OsStr) -> FuseResult<()>;
 
     /// Rename a file or directory
     {{ async_keyword() }} fn rename(
         &self,
         req: &RequestInfo,
-        parent_id: TId,
+        parent_id: Self::TId,
         name: &OsStr,
-        newparent: TId,
+        newparent: Self::TId,
         newname: &OsStr,
         flags: RenameFlags,
     ) -> FuseResult<()>;
 
     /// Remove a directory
-    {{ async_keyword() }} fn rmdir(&self, req: &RequestInfo, parent_id: TId, name: &OsStr) -> FuseResult<()>;
+    {{ async_keyword() }} fn rmdir(&self, req: &RequestInfo, parent_id: Self::TId, name: &OsStr) -> FuseResult<()>;
 
     /// Set file attributes.
     {{ async_keyword() }} fn setattr(
         &self,
         req: &RequestInfo,
-        file_id: TId,
+        file_id: Self::TId,
         attrs: SetAttrRequest,
     ) -> FuseResult<FileAttribute>;
 
@@ -451,7 +447,7 @@ where
     {{ async_keyword() }} fn setlk(
         &self,
         req: &RequestInfo,
-        file_id: TId,
+        file_id: Self::TId,
         file_handle: BorrowedFileHandle<'_>,
         lock_owner: u64,
         lock_info: LockInfo,
@@ -462,7 +458,7 @@ where
     {{ async_keyword() }} fn setxattr(
         &self,
         req: &RequestInfo,
-        file_id: TId,
+        file_id: Self::TId,
         name: &OsStr,
         value: Vec<u8>,
         flags: FUSESetXAttrFlags,
@@ -470,16 +466,16 @@ where
     ) -> FuseResult<()>;
 
     /// Get file system statistics
-    {{ async_keyword() }} fn statfs(&self, req: &RequestInfo, file_id: TId) -> FuseResult<StatFs>;
+    {{ async_keyword() }} fn statfs(&self, req: &RequestInfo, file_id: Self::TId) -> FuseResult<StatFs>;
 
     /// Create a symbolic link.
     {{ async_keyword() }} fn symlink(
         &self,
         req: &RequestInfo,
-        parent_id: TId,
+        parent_id: Self::TId,
         link_name: &OsStr,
         target: &Path,
-    ) -> FuseResult<TId::Metadata>;
+    ) -> FuseResult<<Self::TId as FileIdType>::Metadata>;
 
     /// Write data to a file
     ///
@@ -489,7 +485,7 @@ where
     {{ async_keyword() }} fn write(
         &self,
         req: &RequestInfo,
-        file_id: TId,
+        file_id: Self::TId,
         file_handle: BorrowedFileHandle<'_>,
         seek: SeekFrom,
         data: Vec<u8>,
@@ -499,5 +495,5 @@ where
     ) -> FuseResult<u32>;
 
     /// Remove a file
-    {{ async_keyword() }} fn unlink(&self, req: &RequestInfo, parent_id: TId, name: &OsStr) -> FuseResult<()>;
+    {{ async_keyword() }} fn unlink(&self, req: &RequestInfo, parent_id: Self::TId, name: &OsStr) -> FuseResult<()>;
 }

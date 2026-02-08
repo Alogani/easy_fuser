@@ -1,12 +1,38 @@
-use easy_fuser::prelude::*;
-use easy_fuser::templates::{DefaultFuseHandler, mirror_fs::*};
+use easy_fuser::fuse_parallel::prelude::*;
+use easy_fuser::fuse_presets::mirror_fs::*;
+use easy_fuser::fuse_presets::DefaultFuseHandler;
+
+use easy_fuser_macro::delegate_fs;
 
 use std::fs::{self, File};
 use std::io::Write;
 use std::os::unix::fs::MetadataExt;
 use std::os::unix::fs::PermissionsExt;
+use std::path::PathBuf;
 use std::time::Duration;
 use tempfile::TempDir;
+
+struct MyFs {
+    mirror_fs: MirrorFs,
+    default_fs: DefaultFuseHandler<PathBuf>,
+}
+
+impl FuseHandler for MyFs {
+    type TId = PathBuf;
+
+    delegate_fs!{ mirror_fs, [ // readonly functions
+        flush, fsync, lseek, read, release,
+        access, getattr, getxattr, listxattr, lookup, open, readdir, readlink,
+        ]
+    }
+    delegate_fs!{ mirror_fs, [ // readwrite functions
+        copy_file_range, fallocate, write,
+        create, mkdir, mknod, removexattr, rename, rmdir, setattr, setxattr, symlink, unlink
+        ]
+    }
+
+    delegate_fs! {default_fs, [ bmap, forget, fsyncdir, getlk, ioctl, link, opendir, releasedir, setlk, statfs ]}
+}
 
 #[test]
 fn test_mirror_fs_operations() {
@@ -20,10 +46,10 @@ fn test_mirror_fs_operations() {
     // We won't use spawn_mount because it MirrorFs doesn't implement Send in serial mode
     let mntpoint_clone = mntpoint.clone();
     let handle = std::thread::spawn(move || {
-        let fs = MirrorFs::new(source_path.clone(), DefaultFuseHandler::new());
-        #[cfg(feature = "serial")]
-        mount(fs, &mntpoint_clone, &[]).unwrap();
-        #[cfg(not(feature = "serial"))]
+        let fs = MyFs {
+            mirror_fs: MirrorFs::new(source_path.clone()),
+            default_fs: DefaultFuseHandler::new()
+        };
         mount(fs, &mntpoint_clone, &[], 4).unwrap();
     });
     std::thread::sleep(Duration::from_millis(50)); // Wait for the mount to finish
