@@ -8,7 +8,8 @@ on:
     branches: [ main, devel ]
 
 jobs:
-  build:
+  build_and_test:
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     name: "Main tests"
     runs-on: macos-latest
     strategy:
