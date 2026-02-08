@@ -58,14 +58,12 @@ fn mount_fs<FS: MirrorFsTrait>() {
     println!("Exiting debug mount.");
 }
 
-#[cfg(not(target_os = "macos"))]
 #[test]
 #[ignore]
 fn mount_mirror_fs() {
     mount_fs::<MirrorFs>();
 }
 
-#[cfg(not(target_os = "macos"))]
 #[test]
 #[ignore]
 fn mount_mirror_fs_read_only() {
