@@ -1,6 +1,6 @@
 pub use super::bsd_like_fs::*;
 use std::path::Path;
-use std::ffi::{CStr, Cstring};
+use std::ffi::{CStr, CString};
 use std::os::raw::{c_char, c_int, c_void};
 use crate::PosixError;
 
