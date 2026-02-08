@@ -9,19 +9,77 @@ use libc::{self, c_char, c_int, size_t, ssize_t, off_t};
 use super::{StatFs, cstring_from_path};
 
 pub(super) unsafe fn fallocate(fd: c_int, _mode: c_int, offset: off_t, len: off_t) -> c_int {
-    libc::posix_fallocate(fd, offset, len)
+    unsafe { libc::posix_fallocate(fd, offset, len) }
 }
 
+/// Warning: untested function
 pub(super) unsafe fn setxattr(
     path: *const c_char,
     name: *const c_char,
     value: *const c_void,
-    size: size_t,
-    _flags: c_int,
+    size: libc::size_t,
+    position: u32,
+    flags: c_int,
 ) -> c_int {
-    libc::extattr_set_file(path, libc::EXTATTR_NAMESPACE_USER, name, value, size)
-        .try_into()
-        .unwrap()
+    if position != 0 {
+        return -libc::EOPNOTSUPP;
+    }
+
+    let path_cstr = CStr::from_ptr(path);
+    let name_cstr = CStr::from_ptr(name);
+    let name_str = match name_cstr.to_str() {
+        Ok(s) => s,
+        Err(_) => return -libc::EINVAL,
+    };
+
+    // Determine namespace and strip prefix
+    let (ns, attr_name) = if name_str.starts_with("user.") {
+        (libc::EXTATTR_NAMESPACE_USER, &name_str[5..])
+    } else if name_str.starts_with("system.") {
+        (libc::EXTATTR_NAMESPACE_SYSTEM, &name_str[7..])
+    } else if name_str.starts_with("trusted.") {
+        (libc::EXTATTR_NAMESPACE_SYSTEM, &name_str[8..])
+    } else if name_str.starts_with("security.") {
+        (libc::EXTATTR_NAMESPACE_SYSTEM, &name_str[9..])
+    } else {
+        (libc::EXTATTR_NAMESPACE_USER, name_str)
+    };
+
+    let attr_name_c = match std::ffi::CString::new(attr_name) {
+        Ok(c) => c,
+        Err(_) => return -libc::EINVAL,
+    };
+
+    // Check existence for flags
+    let exists = libc::extattr_get_file(
+        path,
+        ns,
+        attr_name_c.as_ptr(),
+        ptr::null_mut(),
+        0,
+    ) >= 0;
+
+    if (flags & libc::XATTR_CREATE) != 0 && exists {
+        return -libc::EEXIST;
+    }
+    if (flags & libc::XATTR_REPLACE) != 0 && !exists {
+        return -libc::ENODATA; // or -ENOATTR, depending on convention
+    }
+
+    // Set the attribute
+    let ret = unsafe { libc::extattr_set_file(
+        path,
+        ns,
+        attr_name_c.as_ptr(),
+        value as *mut c_void, // cast for mutability if needed
+        size,
+    ) };
+
+    if ret >= 0 {
+        0 // Success
+    } else {
+        -libc::errno
+    }
 }
 
 pub(super) unsafe fn getxattr(
@@ -30,20 +88,20 @@ pub(super) unsafe fn getxattr(
     value: *mut c_void,
     size: size_t,
 ) -> ssize_t {
-    libc::extattr_get_file(path, libc::EXTATTR_NAMESPACE_USER, name, value, size)
+    unsafe { libc::extattr_get_file(path, libc::EXTATTR_NAMESPACE_USER, name, value, size) }
 }
 
 pub(super) unsafe fn listxattr(path: *const c_char, list: *mut c_char, size: size_t) -> ssize_t {
-    libc::extattr_list_file(
+    unsafe { libc::extattr_list_file(
         path,
         libc::EXTATTR_NAMESPACE_USER,
         list as *mut c_void,
         size,
-    )
+    ) }
 }
 
 pub(super) unsafe fn removexattr(path: *const c_char, name: *const c_char) -> c_int {
-    libc::extattr_delete_file(path, libc::EXTATTR_NAMESPACE_USER, name)
+    unsafe { libc::extattr_delete_file(path, libc::EXTATTR_NAMESPACE_USER, name) }
 }
 
 /// Retrieves file system statistics for the specified path.
