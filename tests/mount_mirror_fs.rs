@@ -1,5 +1,3 @@
-#![cfg(not(target_os = "macos"))]
-
 use easy_fuser::prelude::*;
 use easy_fuser::templates::{DefaultFuseHandler, mirror_fs::*};
 use std::path::PathBuf;
@@ -20,8 +18,13 @@ fn mount_fs<FS: MirrorFsTrait>() {
     let source_dir = PathBuf::from("/tmp/easy_fuser_mirror_fs_source");
 
     // Create directories if they don't exist
+    #[cfg(not(any(target_os = "freebsd", target_os = "macos")))]
     let _ = std::process::Command::new("fusermount")
         .arg("-u")
+        .arg(&mount_dir)
+        .status();
+    #[cfg(any(target_os = "freebsd", target_os = "macos"))]
+    let _ = std::process::Command::new("umount")
         .arg(&mount_dir)
         .status();
     let _ = std::fs::create_dir(&mount_dir);
