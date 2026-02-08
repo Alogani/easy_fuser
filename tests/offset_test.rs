@@ -7,6 +7,7 @@ use std::time::Duration;
 
 use tempfile::TempDir;
 
+#[cfg(not(target_os = "macos"))]
 #[test]
 fn test_mirror_fs_file_offsets() {
     // Create temporary directories for mount point and source

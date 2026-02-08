@@ -1,0 +1,33 @@
+name: CI MacOS
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main, devel, macos_workflow ]
+
+jobs:
+  build:
+    name: "Main tests"
+    runs-on: macos-latest
+    strategy:
+      matrix:
+        toolchain:
+          - stable
+        feature:
+          - serial
+          - parallel
+    
+    steps:
+    - uses: actions/checkout@v4
+    - name: Install dependencies
+      run: brew install macfuse
+    - name: Set PKG_CONFIG_PATH
+      run: echo "PKG_CONFIG_PATH=/usr/lib/x86_64-linux-gnu/pkgconfig" >> $GITHUB_ENV
+    - name: Setup Rust
+      run: rustup update ${{ matrix.toolchain }} && rustup default ${{ matrix.toolchain }}
+    - name: Build
+      run: cargo build --verbose --features "${{ matrix.feature }} libfuse"
+    - name: Run tests
+      run: cargo test --verbose --features "${{ matrix.feature }} libfuse"
