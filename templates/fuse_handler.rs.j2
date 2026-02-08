@@ -200,7 +200,9 @@ pub trait FuseHandler: 'static
     ) -> FuseResult<()>;
 
     /// Release references to an inode, if the nlookup count reaches zero (to substract from the number of lookups).
-    {{ async_keyword() }} fn forget(&self, req: &RequestInfo, file_id: Self::TId, nlookup: u64);
+    /// 
+    /// A default implementation is provided that does nothing. It is advised to implement in case of manual Inode handling to release memory
+    {{ async_keyword() }} fn forget(&self, req: &RequestInfo, file_id: Self::TId, nlookup: u64) {}
 
     /// Synchronize file contents
     ///
