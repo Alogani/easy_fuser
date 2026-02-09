@@ -174,8 +174,13 @@ where
                 resolver.lookup_root(id);
             },
             Err(e) => {
-                // This is normal if the filesystem is not using HybridId, we'll just put a warning instead
-                warn!("[{}] lookup_root", e);
+                if e.kind() == ErrorKind::FunctionNotImplemented {
+                    // This is normal if the filesystem is not using HybridId, we'll just put a warning here but 
+                    // return the error to the caller
+                    warn!("[{}] lookup_root", e);
+                } else {
+                    return Err(e);
+                }
             }
         }
         Ok(())
