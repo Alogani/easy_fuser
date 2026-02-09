@@ -90,7 +90,7 @@
 
 {% let send_sync = mode != "serial" %}
 
-
+use std::sync::Arc;
 use std::ffi::{OsStr, OsString};
 use std::path::Path;
 use std::time::Duration;
@@ -102,7 +102,7 @@ use async_trait::async_trait;
 
 #[async_trait]
 {% endif %}
-pub trait FuseHandler<TId: FileIdType>: 'static {% if send_sync %}+ Sync + Send {% endif %} {
+pub trait FuseHandler<TId: FileIdType>: 'static + Sync + Send {
 
     {% macro async_keyword() -%}{% if mode == "async" %}async{% endif %}{%- endmacro %}
     {% macro await_keyword() -%}{% if mode == "async" %}.await{% endif %}{%- endmacro %}
@@ -117,6 +117,17 @@ pub trait FuseHandler<TId: FileIdType>: 'static {% if send_sync %}+ Sync + Send 
         Duration::from_secs(1)
     }
 
+    /// Perform pre-mount setup for the filesystem, which allows the filesystem to use advanced 
+    /// functionalities of the library such as [`HybridId`](crate::types::HybridId).
+    ///  
+    /// # Parameters
+    /// - `resolver`: The path resolver for the filesystem. If using [`HybridId`](crate::types::HybridId), 
+    /// the user is expected to store the resolver for later use.
+    {{ async_keyword() }} fn setup(&self, resolver: Arc<TId::Resolver>) -> FuseResult<()> {
+        self.get_inner().setup(resolver)
+            {{ await_keyword() }}
+    }
+
     /// Initialize the filesystem and configure kernel connection
     fn init(&self, req: &RequestInfo, config: &mut KernelConfig) -> FuseResult<()> {
         self.get_inner().init(req, config)
@@ -126,7 +137,7 @@ pub trait FuseHandler<TId: FileIdType>: 'static {% if send_sync %}+ Sync + Send 
     fn destroy(&self) {
         self.get_inner().destroy();
     }
-
+    
     /// Check file access permissions
     ///
     /// This method is called for the access() system call. If the 'default_permissions'
@@ -334,6 +345,20 @@ pub trait FuseHandler<TId: FileIdType>: 'static {% if send_sync %}+ Sync + Send 
     /// Retrieve file attributes for a directory entry by name and increment the lookup count associated with the inode.
     {{ async_keyword() }} fn lookup(&self, req: &RequestInfo, parent_id: TId, name: &OsStr) -> FuseResult<TId::Metadata> {
         self.get_inner().lookup(req, parent_id, name)
+            {{ await_keyword() }}
+    }
+
+    /// Perform a pre-mount lookup of the root inode. 
+    /// 
+    /// This method acts similarly to the [`lookup`](Self::lookup) 
+    /// method, but is only called once for the root inode, requires no parameters,
+    /// and is called before mounting succeeds so that the subsequent 
+    /// lookup operations are performed with the root inode being valid.
+    /// 
+    /// This method must be implemented if the filesystem requires the root 
+    /// inode to have a stable backing ID.
+    {{ async_keyword() }} fn lookup_root(&self) -> FuseResult<TId::Metadata> {
+        self.get_inner().lookup_root()
             {{ await_keyword() }}
     }
 

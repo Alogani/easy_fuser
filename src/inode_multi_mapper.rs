@@ -1,3 +1,4 @@
+use super::inode_mapper::HasLookupCount;
 use crate::types::{Inode, ROOT_INODE};
 use bimap::BiHashMap;
 use std::{
@@ -7,7 +8,7 @@ use std::{
     fmt::Debug,
     hash::{Hash, Hasher},
     ops::Deref,
-    sync::Arc,
+    sync::{Arc, atomic::Ordering},
 };
 
 #[derive(Debug)]
@@ -276,6 +277,16 @@ where
         }
     }
 
+    /// Overrides the backing ID of the root inode.
+    pub fn set_root_inode_backing_id(&mut self, backing_id: Option<BackingId>) -> () {
+        if let Some(id) = backing_id {
+            self.data.backing.insert(self.root_inode.clone(), id);
+        } else {
+            self.data.backing.remove_by_left(&self.root_inode);
+        }
+    }
+
+    /// Retrieves the root inode.
     pub fn get_root_inode(&self) -> Inode {
         self.root_inode.clone()
     }
@@ -951,6 +962,34 @@ where
             Some(inode_value.data)
         } else {
             None
+        }
+    }
+}
+
+impl<Data, BackingId> InodeMultiMapper<Data, BackingId>
+where
+    BackingId: Clone + Eq + Hash + Debug,
+    Data: HasLookupCount + Send + Sync + 'static,
+{
+    pub fn prune(&mut self, keep: &HashSet<Inode>) {
+        let mut to_remove = Vec::new();
+
+        for (inode, value) in &self.data.inodes {
+            if *inode == ROOT_INODE {
+                continue;
+            }
+            if value.data.lookup_count().load(Ordering::SeqCst) == 0 {
+                // Check if inode is in keep list
+                if let Some(_resolve_info) = self.resolve(inode) {
+                    if !keep.contains(&inode) {
+                        to_remove.push(inode.clone());
+                    }
+                }
+            }
+        }
+
+        for inode in to_remove {
+            self.remove(&inode);
         }
     }
 }

@@ -1,6 +1,7 @@
 use std::{
     ffi::{OsStr, OsString},
     path::Path,
+    sync::Arc,
     time::Duration,
 };
 
@@ -92,6 +93,10 @@ impl<TId: FileIdType> FuseHandler<TId> for DefaultFuseHandler {
 
     fn get_default_ttl(&self) -> Duration {
         Duration::from_secs(1)
+    }
+
+    fn setup(&self, _resolver: Arc<TId::Resolver>) -> FuseResult<()> {
+        Ok(())
     }
 
     fn init(&self, _req: &RequestInfo, _config: &mut KernelConfig) -> FuseResult<()> {
@@ -528,6 +533,15 @@ impl<TId: FileIdType> FuseHandler<TId> for DefaultFuseHandler {
                 },
             )),
             HandlingMethod::Panic => panic!("[Not Implemented] lookup"),
+        }
+    }
+
+    fn lookup_root(&self) -> FuseResult<TId::Metadata> {
+        match self.handling {
+            HandlingMethod::Error(kind) => {
+                Err(PosixError::new(kind, "[Not Implemented] lookup_root"))
+            }
+            HandlingMethod::Panic => panic!("[Not Implemented] lookup_root"),
         }
     }
 

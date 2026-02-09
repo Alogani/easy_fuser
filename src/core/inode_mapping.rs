@@ -70,6 +70,7 @@ pub trait FileIdResolver: Send + Sync + 'static {
         id: <Self::ResolvedType as FileIdType>::_Id,
         increment: bool,
     ) -> u64;
+    fn lookup_root(&self, id: <Self::ResolvedType as FileIdType>::_Id) -> ();
     fn add_children(
         &self,
         parent: u64,
@@ -97,6 +98,8 @@ impl FileIdResolver for InodeResolver {
     fn lookup(&self, _parent: u64, _child: &OsStr, id: Inode, _increment: bool) -> u64 {
         id.into()
     }
+
+    fn lookup_root(&self, _id: <Self::ResolvedType as FileIdType>::_Id) -> () {}
 
     // Do nothing, user should provide its own inode
     fn add_children(
@@ -166,6 +169,8 @@ impl FileIdResolver for ComponentsResolver {
         )
     }
 
+    fn lookup_root(&self, _id: <Self::ResolvedType as FileIdType>::_Id) -> () {}
+
     fn add_children(
         &self,
         parent: u64,
@@ -212,7 +217,10 @@ impl FileIdResolver for ComponentsResolver {
     }
 
     fn prune(&self, keep: &HashSet<Self::ResolvedType>) {
-        self.mapper.write().expect("Failed to acquire write lock").prune(keep);
+        self.mapper
+            .write()
+            .expect("Failed to acquire write lock")
+            .prune(keep);
     }
 
     fn rename(&self, parent: u64, name: &OsStr, newparent: u64, newname: &OsStr) {
@@ -262,6 +270,8 @@ impl FileIdResolver for PathResolver {
         self.resolver.lookup(parent, child, id, increment)
     }
 
+    fn lookup_root(&self, _id: <Self::ResolvedType as FileIdType>::_Id) -> () {}
+
     fn add_children(
         &self,
         parent: u64,
@@ -307,7 +317,7 @@ where
     }
 
     fn resolve_id(&self, ino: u64) -> Self::ResolvedType {
-        HybridId::new(Inode::from(ino), self.mapper.clone())
+        HybridId::new(Inode::from(ino))
     }
 
     fn lookup(
@@ -353,6 +363,13 @@ where
                 })
                 .expect("Failed to insert child"),
         )
+    }
+
+    fn lookup_root(&self, id: <Self::ResolvedType as FileIdType>::_Id) -> () {
+        self.mapper
+            .write()
+            .expect("Failed to acquire write lock")
+            .set_root_inode_backing_id(id);
     }
 
     fn add_children(
@@ -405,7 +422,14 @@ where
     }
 
     fn prune(&self, _keep: &HashSet<Self::ResolvedType>) {
-        // TODO
+        let resolver_keep: HashSet<Inode> = _keep
+            .iter()
+            .map(|id| id.inode().clone())
+            .collect();
+        self.mapper
+            .write()
+            .expect("Failed to acquire write lock")
+            .prune(&resolver_keep);
     }
 
     fn rename(&self, parent: u64, name: &OsStr, newparent: u64, newname: &OsStr) {
@@ -421,6 +445,70 @@ where
                 newname.to_os_string(),
             )
             .expect("Failed to rename inode");
+    }
+}
+
+/// Specialized methods for hybrid resolver to deal with file paths and backing IDs.
+impl<BackingId> HybridResolver<BackingId>
+where
+    BackingId: Clone + Eq + Hash + Send + Sync + std::fmt::Debug + 'static,
+{
+    /// Retrieves the first path to the hybrid ID's inode. This is a convenience method
+    /// for users who do not need a more exhaustive list of paths that might occupy an inode.
+    ///
+    /// # Notes
+    /// - Due to the nature of an inode being able to have multiple links, there can be
+    /// multiple combinations of path components that resolve to the same inode. This method
+    /// only returns the first combination of path components that resolves to the inode.
+    pub fn first_path(&self, id: &HybridId<BackingId>) -> Option<PathBuf> {
+        let mapper = self
+            .mapper
+            .read()
+            .expect("failed to acquire read lock on mapper");
+        let path = mapper.resolve(id.inode()).map(|components| {
+            components
+                .iter()
+                .map(|component| component.name.as_ref())
+                .rev()
+                .collect::<PathBuf>()
+        });
+        path
+    }
+
+    /// Retrieves all paths to the hybrid ID's inode, up to a given limit.
+    ///
+    /// Inodes that are not found will result in an empty vector.
+    pub fn all_paths(&self, id: &HybridId<BackingId>, limit: Option<usize>) -> Vec<PathBuf> {
+        let mapper = self
+            .mapper
+            .read()
+            .expect("failed to acquire read lock on mapper");
+        let resolved = mapper.resolve_all(id.inode(), limit);
+        resolved
+            .iter()
+            .map(|components| {
+                components
+                    .iter()
+                    .rev()
+                    .map(|component| component.name.as_ref())
+                    .collect::<PathBuf>()
+            })
+            .collect()
+    }
+
+    /// Retrieves the backing ID of the inode.
+    ///
+    /// This is useful for comparing to the backing ID of the actual underlying
+    /// file that a filesystem handler opened, which mitigates the risk of a race
+    /// condition, in which case another backing path could be tried, or an error
+    /// could be returned. The stable backing ID can also be used as key for the
+    /// inode's data as defined by the user.
+    pub fn backing_id(&self, id: &HybridId<BackingId>) -> Option<BackingId> {
+        let mapper = self
+            .mapper
+            .read()
+            .expect("failed to acquire read lock on mapper");
+        mapper.get_backing_id(id.inode()).cloned()
     }
 }
 
@@ -467,11 +555,11 @@ mod tests {
         // Test prune
         let keep = HashSet::new();
         resolver.prune(&keep);
-        
+
         // child_ino should be gone now because refcount was 0 (decremented by earlier forget) and we pruned it.
         // We can verify it's gone by trying to resolve it and expecting panic (as per other test) or just by knowing prune works.
         // But calling forget again is definitely wrong if it's gone.
-        
+
         // If we want to test that prune actually removed it, we should check existence.
         // But since we can't easily check existence without internal access, we rely on the fact that subsequent operations might fail or the other test.
     }
@@ -565,16 +653,19 @@ mod tests {
         // Test lookup and resolve_id for root
         let root_ino = ROOT_INODE.into();
         let root_id = resolver.resolve_id(root_ino);
-        assert_eq!(root_id.first_path(), Some(PathBuf::from("")));
+        assert_eq!(resolver.first_path(&root_id), Some(PathBuf::from("")));
 
         // Test lookup and resolve_id for child and create nested structures
         let dir1_ino = resolver.lookup(root_ino, OsStr::new("dir1"), Some(1), true);
         let dir1_id = resolver.resolve_id(dir1_ino);
-        assert_eq!(dir1_id.first_path(), Some(PathBuf::from("dir1")));
+        assert_eq!(resolver.first_path(&dir1_id), Some(PathBuf::from("dir1")));
 
         let dir2_ino = resolver.lookup(dir1_ino, OsStr::new("dir2"), Some(2), true);
         let dir2_id = resolver.resolve_id(dir2_ino);
-        assert_eq!(dir2_id.first_path(), Some(PathBuf::from("dir1/dir2")));
+        assert_eq!(
+            resolver.first_path(&dir2_id),
+            Some(PathBuf::from("dir1/dir2"))
+        );
 
         // Test add_children
         let grandchildren = vec![
@@ -584,9 +675,9 @@ mod tests {
         let added_grandchildren = resolver.add_children(dir2_ino, grandchildren, true);
         assert_eq!(added_grandchildren.len(), 2);
         for (name, ino) in added_grandchildren.iter() {
-            let child_path = resolver.resolve_id(*ino);
+            let child_id = resolver.resolve_id(*ino);
             assert_eq!(
-                child_path.first_path(),
+                resolver.first_path(&child_id),
                 Some(PathBuf::from("dir1/dir2").join(name))
             );
         }
@@ -603,7 +694,7 @@ mod tests {
         );
         let renamed_grandchild_path = resolver.resolve_id(added_grandchildren[1].1);
         assert_eq!(
-            renamed_grandchild_path.first_path(),
+            resolver.first_path(&renamed_grandchild_path),
             Some(PathBuf::from("dir1/dir2/grandchild2_renamed"))
         );
 
@@ -617,7 +708,7 @@ mod tests {
         );
         let renamed_grandchild_path = resolver.resolve_id(added_grandchildren[1].1);
         assert_eq!(
-            renamed_grandchild_path.first_path(),
+            resolver.first_path(&renamed_grandchild_path),
             Some(PathBuf::from("dir3/grandchild2_renamed"))
         );
 
@@ -627,14 +718,17 @@ mod tests {
         assert_ne!(non_existent_ino, 0);
         let non_existent_path = resolver.resolve_id(non_existent_ino);
         assert_eq!(
-            non_existent_path.first_path(),
+            resolver.first_path(&non_existent_path),
             Some(PathBuf::from("non_existent"))
         );
 
         // Test lookup for a file with existing backing ID
         let hard_link_ino = resolver.lookup(root_ino, OsStr::new("hard_link"), Some(7), true);
         let hard_link_id = resolver.resolve_id(hard_link_ino);
-        assert_eq!(hard_link_id.first_path(), Some(PathBuf::from("hard_link")));
+        assert_eq!(
+            resolver.first_path(&hard_link_id),
+            Some(PathBuf::from("hard_link"))
+        );
 
         let hard_link_ino_2 = resolver.lookup(dir2_ino, OsStr::new("hard_linked"), Some(7), true);
         let hard_link_id_2 = resolver.resolve_id(hard_link_ino_2);
@@ -644,7 +738,7 @@ mod tests {
         );
 
         resolver.lookup(dir1_ino, OsStr::new("hard_linked_2"), Some(7), true);
-        let paths = hard_link_id_2.all_paths(Some(100));
+        let paths = resolver.all_paths(&hard_link_id_2, Some(100));
         assert!(paths.contains(&PathBuf::from("dir1/dir2/hard_linked")));
         assert!(paths.contains(&PathBuf::from("hard_link")));
         assert!(paths.contains(&PathBuf::from("dir1/hard_linked_2")));
@@ -658,7 +752,7 @@ mod tests {
         );
 
         // Test path resolution after overriding a location with a new backing ID
-        let paths = hard_link_id_2.all_paths(Some(100));
+        let paths = resolver.all_paths(&hard_link_id_2, Some(100));
         assert!(
             !paths.contains(&PathBuf::from("dir1/dir2/hard_linked")),
             "the path list should no longer contain the overridden location"

@@ -44,6 +44,6 @@ pub mod prelude {
 
 
 #[cfg(feature = "serial")]
-include!(concat!(env!("OUT_DIR"), "/serial/mouting.rs"));
+include!(concat!(env!("OUT_DIR"), "/serial/mounting.rs"));
 #[cfg(not(feature = "serial"))]
-include!(concat!(env!("OUT_DIR"), "/parallel/mouting.rs"));
+include!(concat!(env!("OUT_DIR"), "/parallel/mounting.rs"));

@@ -11,13 +11,13 @@ use std::{
     ffi::OsString,
     fmt::{Debug, Display},
     hash::Hasher,
+    marker::PhantomData,
     path::{Path, PathBuf},
-    sync::{Arc, RwLock, atomic::AtomicU64},
 };
 
 use super::arguments::FileAttribute;
 use super::inode::*;
-use crate::{core::InodeResolvable, inode_multi_mapper::InodeMultiMapper};
+use crate::core::InodeResolvable;
 use fuser::FileType as FileKind;
 
 /// Represents the type used to identify files in the file system.
@@ -56,9 +56,13 @@ use fuser::FileType as FileKind;
 ///         comparison method.
 ///     - Root: Represented by the constant ROOT_INODE with a value of 1 and an empty string.
 ///     - Usage: (see https://github.com/Alogani/easy_fuser/pull/77#issuecomment-3830951142)
-///       - If two paths represents hardlinks, the user will return the same inode to the fuse filesystem
-///       - The user can use the hardlinks of the current filesystem by using `libc::fstat(...).f_fsid` (Persistent) or libc::fstatfs(...).f_dev` (Ephemeral)
-///       - When a Fuse operation provides an inode, the user can use `BackingId::all_paths()` to retrieve all the paths associated to that inode
+///         - During setup(), the user must store the `HybridResolver` object supplied by this method.
+///         - The user can use the hardlinks of the current filesystem by using `libc::fstat(...).f_fsid` (Persistent)
+///         or libc::fstatfs(...).f_dev` (Ephemeral) at opportunities to provide a stable file ID (there are currently
+///         7 methods: `mkdir`, `mknod`, `create`, `lookup`, `symlink`, `link`, `rename`, and `lookup_root`)
+///         - If two paths represents hardlinks, the user will return the same inode to the fuse filesystem
+///         - When a Fuse operation provides an inode, the user can use `HybridResolver::all_paths()` to retrieve
+///         all the paths associated to that inode
 pub trait FileIdType:
     'static + Debug + Clone + PartialEq + Eq + std::hash::Hash + InodeResolvable
 {
@@ -176,7 +180,7 @@ where
     BackingId: Clone + Eq + std::hash::Hash + Debug,
 {
     inode: Inode,
-    mapper: Arc<RwLock<InodeMultiMapper<AtomicU64, BackingId>>>,
+    _static: PhantomData<BackingId>,
 }
 
 impl<BackingId> HybridId<BackingId>
@@ -184,68 +188,16 @@ where
     BackingId: Clone + Eq + std::hash::Hash + Debug,
 {
     /// Creates a new hybrid ID.
-    pub fn new(inode: Inode, mapper: Arc<RwLock<InodeMultiMapper<AtomicU64, BackingId>>>) -> Self {
-        Self { inode, mapper }
-    }
-
-    /// Retrieves the first path to the inode.
-    ///
-    /// # Notes
-    /// - Due to the nature of an inode being able to have multiple links, there can be multiple combinations of path components
-    /// that resolve to the same inode. This method only returns the first combination of path components that
-    /// resolves to the inode.
-    pub fn first_path(&self) -> Option<PathBuf> {
-        let mapper = self
-            .mapper
-            .read()
-            .expect("failed to acquire read lock on mapper");
-        let path = mapper.resolve(&self.inode).map(|components| {
-            components
-                .iter()
-                .map(|component| component.name.as_ref())
-                .rev()
-                .collect::<PathBuf>()
-        });
-        path
+    pub fn new(inode: Inode) -> Self {
+        Self {
+            inode,
+            _static: PhantomData,
+        }
     }
 
     /// Retrieves the inode of the hybrid ID.
     pub fn inode(&self) -> &Inode {
         &self.inode
-    }
-
-    /// Retrieves all paths to the inode, up to a given limit.
-    pub fn all_paths(&self, limit: Option<usize>) -> Vec<PathBuf> {
-        let mapper = self
-            .mapper
-            .read()
-            .expect("failed to acquire read lock on mapper");
-        let resolved = mapper.resolve_all(&self.inode, limit);
-        resolved
-            .iter()
-            .map(|components| {
-                components
-                    .iter()
-                    .rev()
-                    .map(|component| component.name.as_ref())
-                    .collect::<PathBuf>()
-            })
-            .collect()
-    }
-
-    /// Retrieves the backing ID of the inode.
-    ///
-    /// This is useful for comparing to the backing ID of the actual underlying
-    /// file that a filesystem handler opened, which mitigates the risk of a race
-    /// condition, in which case another backing path could be tried, or an error
-    /// could be returned.
-    #[deprecated = "Unstable: need sanity check to resist TOCTOU bugs. _marked temporarly as deprecated_"]
-    pub fn backing_id(&self) -> Option<BackingId> {
-        let mapper = self
-            .mapper
-            .read()
-            .expect("failed to acquire read lock on mapper");
-        mapper.get_backing_id(&self.inode).cloned()
     }
 }
 
@@ -254,7 +206,7 @@ where
     BackingId: Clone + Eq + std::hash::Hash + Debug,
 {
     fn eq(&self, other: &Self) -> bool {
-        self.inode == other.inode && Arc::ptr_eq(&self.mapper, &other.mapper)
+        self.inode == other.inode
     }
 }
 
@@ -266,7 +218,6 @@ where
 {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.inode.hash(state);
-        Arc::as_ptr(&self.mapper).hash(state);
     }
 }
 
@@ -275,15 +226,7 @@ where
     BackingId: Clone + Eq + std::hash::Hash + Debug,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "HybridId({:?}, {})",
-            self.inode,
-            match &self.first_path() {
-                Some(path) => path.display().to_string(),
-                None => "<orphaned inode>".to_string(),
-            }
-        )
+        write!(f, "HybridId({:?})", self.inode)
     }
 }
 
@@ -296,14 +239,7 @@ where
     type MinimalMetadata = (Option<BackingId>, FileKind);
 
     fn display(&self) -> impl Display {
-        format!(
-            "HybridId({:?}, {})",
-            self.inode,
-            match &self.first_path() {
-                Some(path) => path.display().to_string(),
-                None => "<orphaned inode>".to_string(),
-            }
-        )
+        format!("HybridId({:?})", self.inode)
     }
 
     fn is_filesystem_root(&self) -> bool {

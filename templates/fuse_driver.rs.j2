@@ -1,6 +1,7 @@
 {% let send_sync = mode != "serial" %}
 
 use std::{
+    io,
     sync::Arc,
     collections::{HashMap, VecDeque},
     ffi::{OsStr, OsString},
@@ -41,6 +42,9 @@ type DirIter<TAttr> = HashMap<(u64, i64), VecDeque<(OsString, u64, TAttr)>>;
     use tokio::sync::Mutex;
 {% endif %}
 
+{% macro async_keyword() -%}{% if mode == "async" %}async{% endif %}{%- endmacro %}
+{% macro await_keyword() -%}{% if mode == "async" %}.await{% endif %}{%- endmacro %}
+
 pub(crate) struct FuseDriver<TId, THandler>
 where
     TId: FileIdType,
@@ -49,7 +53,7 @@ where
     pub resolver: Arc<TId::Resolver>,
 
     {% if !send_sync %}
-        handler: THandler,
+        handler: Arc<THandler>,
         dirmap_iter: RefCell<DirIter<FileKind>>,
         dirmapplus_iter: RefCell<DirIter<FileAttribute>>,
     {% else %}
@@ -84,23 +88,37 @@ where
     TId: FileIdType,
     THandler: FuseHandler<TId>,
 {
-    pub fn new(
+    pub {{ async_keyword() }} fn new(
         handler: THandler,
         {% if send_sync %}
             num_threads: usize
         {% else %}
             _num_threads: usize
         {% endif %}
-    ) -> FuseDriver<TId, THandler> {
+    ) -> io::Result<FuseDriver<TId, THandler>> {
         {% if mode == "parallel" %}
             #[cfg(feature = "deadlock_detection")]
             spawn_deadlock_checker();
         {% endif %}
 
-        FuseDriver {
-            resolver: Arc::new(TId::create_resolver()),
+        let resolver = Arc::new(TId::create_resolver());
+        {% if mode == "async" %}
+            let runtime = Arc::new(Runtime::new().unwrap());
+            runtime.block_on(async {
+                Self::bootstrap_handler(&handler, resolver.clone()).await.map_err(|e| {
+                    io::Error::from_raw_os_error(e.raw_error())
+                })
+            })?;
+        {% else %}
+            Self::bootstrap_handler(&handler, resolver.clone()).map_err(|e| {
+                io::Error::from_raw_os_error(e.raw_error())
+            })?;
+        {% endif %}
+
+        Ok(FuseDriver {
+            resolver: resolver,
             {% if mode == "serial" %}
-                handler,
+                handler: Arc::new(handler),
                 dirmap_iter: RefCell::new(HashMap::new()),
                 dirmapplus_iter: RefCell::new(HashMap::new()),
             {% else %}
@@ -113,14 +131,14 @@ where
                 threadpool: ThreadPool::new(num_threads),
                 reply_threadpool: ThreadPool::new(num_threads),
             {% elif mode == "async" %}
-                runtime: Arc::new(Runtime::new().unwrap()),
+                runtime: runtime,
             {% endif %}
-        }
+        })
     }
 
     {% if !send_sync %}
-        pub fn get_handler(&self) -> &THandler {
-            &self.handler
+        pub {{ async_keyword() }} fn get_handler(&self) -> Arc<THandler> {
+            self.handler.clone()
         }
 
         pub fn get_dirmap_iter(&self) -> &RefCell<DirIter<FileKind>> {
@@ -143,9 +161,26 @@ where
             self.dirmapplus_iter.clone()
         }
     {% endif %}
+
+    {{ async_keyword() }} pub fn bootstrap_handler(
+        handler: &THandler,
+        resolver: Arc<TId::Resolver>,
+    ) -> FuseResult<()> {
+        handler.setup(resolver.clone()){{ await_keyword() }}?;
+        let lookup_root_result = handler.lookup_root(){{ await_keyword() }};
+        match lookup_root_result {
+            Ok(metadata) => {
+                let (id, _file_attr) = TId::extract_metadata(metadata);
+                resolver.lookup_root(id);
+            },
+            Err(e) => {
+                // This is normal if the filesystem is not using HybridId, we'll just put a warning instead
+                warn!("[{}] lookup_root", e);
+            }
+        }
+        Ok(())
+    }
 }
-
-
 
 impl<TId, THandler> fuser::Filesystem for FuseDriver<TId, THandler>
 where
@@ -213,7 +248,6 @@ where
             {% endcall %}
         },
     {%- endmacro %}
-
 
     fn init(&mut self, req: &Request, config: &mut KernelConfig) -> Result<(), c_int> {
         let req = RequestInfo::from(req);

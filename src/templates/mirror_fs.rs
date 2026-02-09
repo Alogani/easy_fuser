@@ -127,6 +127,11 @@ macro_rules! mirror_fs_readonly_methods {
             unix_fs::lookup(&file_path)
         }
 
+        fn lookup_root(&self) -> FuseResult<FileAttribute> {
+            let file_path = self.source_path.join(Path::new(""));
+            unix_fs::lookup(&file_path)
+        }
+
         fn open(
             &self,
             _req: &RequestInfo,
