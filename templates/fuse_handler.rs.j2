@@ -102,7 +102,7 @@ use async_trait::async_trait;
 
 #[async_trait]
 {% endif %}
-pub trait FuseHandler<TId: FileIdType>: 'static + Sync + Send {
+pub trait FuseHandler<TId: FileIdType>: 'static {% if send_sync %} + Sync + Send {% endif %} {
 
     {% macro async_keyword() -%}{% if mode == "async" %}async{% endif %}{%- endmacro %}
     {% macro await_keyword() -%}{% if mode == "async" %}.await{% endif %}{%- endmacro %}

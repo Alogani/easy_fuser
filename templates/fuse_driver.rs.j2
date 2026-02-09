@@ -53,7 +53,7 @@ where
     pub resolver: Arc<TId::Resolver>,
 
     {% if !send_sync %}
-        handler: Arc<THandler>,
+        handler: THandler,
         dirmap_iter: RefCell<DirIter<FileKind>>,
         dirmapplus_iter: RefCell<DirIter<FileAttribute>>,
     {% else %}
@@ -118,7 +118,7 @@ where
         Ok(FuseDriver {
             resolver: resolver,
             {% if mode == "serial" %}
-                handler: Arc::new(handler),
+                handler: handler,
                 dirmap_iter: RefCell::new(HashMap::new()),
                 dirmapplus_iter: RefCell::new(HashMap::new()),
             {% else %}
@@ -137,8 +137,8 @@ where
     }
 
     {% if !send_sync %}
-        pub {{ async_keyword() }} fn get_handler(&self) -> Arc<THandler> {
-            self.handler.clone()
+        pub fn get_handler(&self) -> &THandler {
+            &self.handler
         }
 
         pub fn get_dirmap_iter(&self) -> &RefCell<DirIter<FileKind>> {

@@ -94,7 +94,7 @@ pub fn spawn_mount<T, FS, P>(
 ) -> io::Result<FuseSession<T>>
 where
     T: FileIdType,
-    FS: FuseHandler<T>,
+    FS: FuseHandler<T> + Send,
     P: AsRef<Path>,
 {
     let driver = FuseDriver::new(
