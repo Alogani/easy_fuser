@@ -422,10 +422,7 @@ where
     }
 
     fn prune(&self, _keep: &HashSet<Self::ResolvedType>) {
-        let resolver_keep: HashSet<Inode> = _keep
-            .iter()
-            .map(|id| id.inode().clone())
-            .collect();
+        let resolver_keep: HashSet<Inode> = _keep.iter().map(|id| id.inode().clone()).collect();
         self.mapper
             .write()
             .expect("Failed to acquire write lock")
@@ -448,6 +445,9 @@ where
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HybridIdNotFound {}
+
 /// Specialized methods for hybrid resolver to deal with file paths and backing IDs.
 impl<BackingId> HybridResolver<BackingId>
 where
@@ -456,35 +456,54 @@ where
     /// Retrieves the first path to the hybrid ID's inode. This is a convenience method
     /// for users who do not need a more exhaustive list of paths that might occupy an inode.
     ///
+    /// # Returns
+    /// - `Ok(Some(path))` if the inode is found and the path is resolved.
+    /// - `Ok(None)` if the inode is found, but it belongs to an orphaned tree.
+    /// - `Err(HybridIdNotFound)` if the inode is not found at all. This usually happens
+    /// when you hold an inode past its lifetime, which ends at the last forget() call that
+    /// sets its lookup count to 0.
+    ///
     /// # Notes
     /// - Due to the nature of an inode being able to have multiple links, there can be
     /// multiple combinations of path components that resolve to the same inode. This method
     /// only returns the first combination of path components that resolves to the inode.
-    pub fn first_path(&self, id: &HybridId<BackingId>) -> Option<PathBuf> {
+    pub fn first_path(
+        &self,
+        id: &HybridId<BackingId>,
+    ) -> Result<Option<PathBuf>, HybridIdNotFound> {
         let mapper = self
             .mapper
             .read()
             .expect("failed to acquire read lock on mapper");
-        let path = mapper.resolve(id.inode()).map(|components| {
-            components
-                .iter()
-                .map(|component| component.name.as_ref())
-                .rev()
-                .collect::<PathBuf>()
-        });
-        path
+        let path = mapper
+            .resolve(id.inode())
+            .map_err(|_| HybridIdNotFound {})?
+            .map(|components| {
+                components
+                    .into_iter()
+                    .map(|component| component.name.as_ref())
+                    .rev()
+                    .collect::<PathBuf>()
+            });
+        Ok(path)
     }
 
     /// Retrieves all paths to the hybrid ID's inode, up to a given limit.
     ///
     /// Inodes that are not found will result in an empty vector.
-    pub fn all_paths(&self, id: &HybridId<BackingId>, limit: Option<usize>) -> Vec<PathBuf> {
+    pub fn all_paths(
+        &self,
+        id: &HybridId<BackingId>,
+        limit: Option<usize>,
+    ) -> Result<Vec<PathBuf>, HybridIdNotFound> {
         let mapper = self
             .mapper
             .read()
             .expect("failed to acquire read lock on mapper");
-        let resolved = mapper.resolve_all(id.inode(), limit);
-        resolved
+        let resolved = mapper
+            .resolve_all(id.inode(), limit)
+            .map_err(|_| HybridIdNotFound {})?;
+        let paths = resolved
             .iter()
             .map(|components| {
                 components
@@ -493,7 +512,8 @@ where
                     .map(|component| component.name.as_ref())
                     .collect::<PathBuf>()
             })
-            .collect()
+            .collect();
+        Ok(paths)
     }
 
     /// Retrieves the backing ID of the inode.
@@ -653,17 +673,29 @@ mod tests {
         // Test lookup and resolve_id for root
         let root_ino = ROOT_INODE.into();
         let root_id = resolver.resolve_id(root_ino);
-        assert_eq!(resolver.first_path(&root_id), Some(PathBuf::from("")));
+        assert_eq!(
+            resolver
+                .first_path(&root_id)
+                .expect("root inode should be found"),
+            Some(PathBuf::from(""))
+        );
 
         // Test lookup and resolve_id for child and create nested structures
         let dir1_ino = resolver.lookup(root_ino, OsStr::new("dir1"), Some(1), true);
         let dir1_id = resolver.resolve_id(dir1_ino);
-        assert_eq!(resolver.first_path(&dir1_id), Some(PathBuf::from("dir1")));
+        assert_eq!(
+            resolver
+                .first_path(&dir1_id)
+                .expect("dir1 inode should be found"),
+            Some(PathBuf::from("dir1"))
+        );
 
         let dir2_ino = resolver.lookup(dir1_ino, OsStr::new("dir2"), Some(2), true);
         let dir2_id = resolver.resolve_id(dir2_ino);
         assert_eq!(
-            resolver.first_path(&dir2_id),
+            resolver
+                .first_path(&dir2_id)
+                .expect("dir2 inode should be found"),
             Some(PathBuf::from("dir1/dir2"))
         );
 
@@ -677,7 +709,9 @@ mod tests {
         for (name, ino) in added_grandchildren.iter() {
             let child_id = resolver.resolve_id(*ino);
             assert_eq!(
-                resolver.first_path(&child_id),
+                resolver
+                    .first_path(&child_id)
+                    .expect("child inode of dir1/dir2 should be found"),
                 Some(PathBuf::from("dir1/dir2").join(name))
             );
         }
@@ -692,9 +726,11 @@ mod tests {
             dir2_ino,
             OsStr::new("grandchild2_renamed"),
         );
-        let renamed_grandchild_path = resolver.resolve_id(added_grandchildren[1].1);
+        let renamed_grandchild_id = resolver.resolve_id(added_grandchildren[1].1);
         assert_eq!(
-            resolver.first_path(&renamed_grandchild_path),
+            resolver
+                .first_path(&renamed_grandchild_id)
+                .expect("renamed grandchild inode (dir1/dir2/grandchild2_renamed) should be found"),
             Some(PathBuf::from("dir1/dir2/grandchild2_renamed"))
         );
 
@@ -706,9 +742,11 @@ mod tests {
             dir3_ino,
             OsStr::new("grandchild2_renamed"),
         );
-        let renamed_grandchild_path = resolver.resolve_id(added_grandchildren[1].1);
+        let renamed_grandchild_id = resolver.resolve_id(added_grandchildren[1].1);
         assert_eq!(
-            resolver.first_path(&renamed_grandchild_path),
+            resolver
+                .first_path(&renamed_grandchild_id)
+                .expect("renamed grandchild inode (dir3/grandchild2_renamed) should exist"),
             Some(PathBuf::from("dir3/grandchild2_renamed"))
         );
 
@@ -718,7 +756,9 @@ mod tests {
         assert_ne!(non_existent_ino, 0);
         let non_existent_path = resolver.resolve_id(non_existent_ino);
         assert_eq!(
-            resolver.first_path(&non_existent_path),
+            resolver
+                .first_path(&non_existent_path)
+                .expect("ghost inode explicitly inserted with refcount = 0 should exist"),
             Some(PathBuf::from("non_existent"))
         );
 
@@ -726,7 +766,9 @@ mod tests {
         let hard_link_ino = resolver.lookup(root_ino, OsStr::new("hard_link"), Some(7), true);
         let hard_link_id = resolver.resolve_id(hard_link_ino);
         assert_eq!(
-            resolver.first_path(&hard_link_id),
+            resolver
+                .first_path(&hard_link_id)
+                .expect("hard link inode should be found"),
             Some(PathBuf::from("hard_link"))
         );
 
@@ -734,11 +776,17 @@ mod tests {
         let hard_link_id_2 = resolver.resolve_id(hard_link_ino_2);
         assert_eq!(
             hard_link_ino_2, hard_link_ino,
-            "hard link should be the same if callers supply the same ID"
+            "hard link inodes should be the same if callers supply the same backing ID"
+        );
+        assert_eq!(
+            hard_link_id_2, hard_link_id,
+            "hard link IDs should be the same if callers supply the same backing ID"
         );
 
         resolver.lookup(dir1_ino, OsStr::new("hard_linked_2"), Some(7), true);
-        let paths = resolver.all_paths(&hard_link_id_2, Some(100));
+        let paths = resolver
+            .all_paths(&hard_link_id_2, Some(100))
+            .expect("hard_link_id_2 should wrap an existing inode");
         assert!(paths.contains(&PathBuf::from("dir1/dir2/hard_linked")));
         assert!(paths.contains(&PathBuf::from("hard_link")));
         assert!(paths.contains(&PathBuf::from("dir1/hard_linked_2")));
@@ -752,7 +800,9 @@ mod tests {
         );
 
         // Test path resolution after overriding a location with a new backing ID
-        let paths = resolver.all_paths(&hard_link_id_2, Some(100));
+        let paths = resolver
+            .all_paths(&hard_link_id_2, Some(100))
+            .expect("hard_link_id_2 should wrap an existing inode");
         assert!(
             !paths.contains(&PathBuf::from("dir1/dir2/hard_linked")),
             "the path list should no longer contain the overridden location"
