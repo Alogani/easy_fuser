@@ -88,7 +88,7 @@ where
     TId: FileIdType,
     THandler: FuseHandler<TId>,
 {
-    pub {{ async_keyword() }} fn new(
+    pub fn new(
         handler: THandler,
         {% if send_sync %}
             num_threads: usize
