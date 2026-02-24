@@ -797,8 +797,11 @@ where
     }
 
     /// Retrieves the backing ID of a given inode
-    pub fn get_backing_id(&self, inode: &Inode) -> Option<&BackingId> {
-        self.data.backing.get_by_left(inode)
+    pub fn get_backing_id(&self, inode: &Inode) -> Result<Option<&BackingId>, InodeNotFound> {
+        if self.data.inodes.get(inode).is_none() {
+            return Err(InodeNotFound {});
+        }
+        Ok(self.data.backing.get_by_left(inode))
     }
 
     /// Retrieves all children of a given parent inode.

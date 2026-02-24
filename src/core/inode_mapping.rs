@@ -523,12 +523,18 @@ where
     /// condition, in which case another backing path could be tried, or an error
     /// could be returned. The stable backing ID can also be used as key for the
     /// inode's data as defined by the user.
-    pub fn backing_id(&self, id: &HybridId<BackingId>) -> Option<BackingId> {
+    pub fn backing_id(
+        &self,
+        id: &HybridId<BackingId>,
+    ) -> Result<Option<BackingId>, HybridIdNotFound> {
         let mapper = self
             .mapper
             .read()
             .expect("failed to acquire read lock on mapper");
-        mapper.get_backing_id(id.inode()).cloned()
+        Ok(mapper
+            .get_backing_id(id.inode())
+            .map_err(|_| HybridIdNotFound {})?
+            .cloned())
     }
 }
 
