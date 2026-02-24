@@ -1,5 +1,7 @@
 use super::inode_mapper::HasLookupCount;
-use crate::types::{Inode, ROOT_INODE};
+use crate::{
+    types::{Inode, ROOT_INODE},
+};
 use bimap::BiHashMap;
 use std::{
     borrow::Borrow,
@@ -954,6 +956,63 @@ where
         } else {
             None
         }
+    }
+
+    /// Invalidates an inode's path alias without deferencing or
+    /// removing the inode from the mapper.
+    pub fn invalidate_inode_path(
+        &mut self,
+        inode: &Inode,
+        path: &[OsString],
+    ) -> Result<(), InodeNotFound> {
+        // Check if the inode exists, and bail immediately if it doesn't.
+        self.get(inode).ok_or(InodeNotFound {})?;
+        // Empty path means that the inode has no parent inode, and therefore has nothing to invalidate.
+        if path.is_empty() {
+            return Ok(());
+        }
+        let mut current_inode = self.root_inode.clone();
+        let mut parent_inode = None;
+        for component in path.iter() {
+            let inode_children = match self.data.children.get(&current_inode) {
+                Some(children) => children,
+                None => return Ok(()),
+            };
+            let child_inode = match inode_children.get(component.as_os_str()) {
+                Some(child_inode) => child_inode,
+                None => return Ok(()),
+            };
+            parent_inode = Some(current_inode.clone());
+            current_inode = child_inode.clone();
+        }
+        // The path is not occupied by the inode, so it is ignored.
+        if current_inode != *inode {
+            return Ok(());
+        }
+        let parent_inode =
+            parent_inode.expect("parent inode should be present because the loop runs once");
+        let last_component = path.last().expect("path should be non-empty");
+        // Unassociate the last component, which is a name linking to the target inode, from the parent inode's children map.
+        let parent_children = self.data.children.get_mut(&parent_inode);
+        if let Some(parent_children) = parent_children {
+            parent_children.remove(last_component.as_os_str());
+            if parent_children.is_empty() {
+                self.data.children.remove(&parent_inode);
+            }
+        }
+        // Unassociate the last component from the current inode's association map.
+        let current_inode_info = self
+            .data
+            .inodes
+            .get_mut(&current_inode)
+            .expect("current inode should exist");
+        if let Some(links_to_parent) = current_inode_info.links.get_mut(&parent_inode) {
+            links_to_parent.remove(last_component.as_os_str());
+            if links_to_parent.is_empty() {
+                current_inode_info.links.remove(&parent_inode);
+            }
+        }
+        Ok(())
     }
 }
 

@@ -3,7 +3,7 @@ use std::{
     ffi::{OsStr, OsString},
     fmt::Debug,
     hash::Hash,
-    path::PathBuf,
+    path::{Path, PathBuf},
     sync::{Arc, atomic::Ordering},
 };
 
@@ -536,6 +536,32 @@ where
             .map_err(|_| HybridIdNotFound {})?
             .cloned())
     }
+
+    /// Invalidate a hybrid ID's path, which is useful when a path from [`Self::all_paths`]
+    /// no longer represents the hybrid ID due to upstream changes. A full path that does not
+    /// start with a forward slash is expected.
+    ///
+    /// The method ignores paths that do not point to the inode.
+    pub fn invalidate_path_of_id(
+        &self,
+        id: &HybridId<BackingId>,
+        path: &Path,
+    ) -> Result<(), HybridIdNotFound> {
+        let mut mapper = self
+            .mapper
+            .write()
+            .expect("failed to acquire write lock on mapper");
+        mapper
+            .invalidate_inode_path(
+                id.inode(),
+                &path
+                    .components()
+                    .map(|c| c.as_os_str().to_os_string())
+                    .collect::<Vec<_>>(),
+            )
+            .map_err(|_| HybridIdNotFound {})?;
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -815,6 +841,18 @@ mod tests {
         );
         assert!(paths.contains(&PathBuf::from("hard_link")));
         assert!(paths.contains(&PathBuf::from("dir1/hard_linked_2")));
+
+        // Test invalidate_path_of_id
+        resolver
+            .invalidate_path_of_id(&hard_link_id_2, &PathBuf::from("dir1/hard_linked_2"))
+            .expect("hard_link_id_2 should wrap an existing inode");
+        let paths = resolver
+            .all_paths(&hard_link_id_2, Some(100))
+            .expect("hard_link_id_2 should wrap an existing inode");
+        assert!(
+            !paths.contains(&PathBuf::from("dir1/hard_linked_2")),
+            "the path list should no longer contain the invalidated location"
+        );
     }
 
     #[test]
