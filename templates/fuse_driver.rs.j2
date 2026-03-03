@@ -713,7 +713,7 @@ where
                 Some(file_kind) => file_kind,
                 None => {
                     {% call spawn_reply() %}
-                        reply.error(ErrorKind::InvalidArgument.into());
+                        reply.error(PosixError::new(ErrorKind::InvalidArgument, "unknown file kind").into());
                     {% endcall %}
                     return;
                 }
