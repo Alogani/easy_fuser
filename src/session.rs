@@ -38,8 +38,19 @@ impl<T: FileIdType> FuseSession<T> {
     /// Join the background session, waiting for the filesystem to unmount.
     ///
     /// This method blocks until the filesystem is unmounted.
-    pub fn join(self, flags: &[UnmountOption]) -> Result<(), (Option<Self>, io::Error)> {
-        let Self { session, resolver } = self;
+    pub fn join(self) -> Result<(), io::Error> {
+        let Self { session, .. } = self;
+        session.join()
+    }
+
+    /// Unmount the filesystem and join the background session.
+    ///
+    /// This method unmounts the filesystem and joins the background session.
+    ///
+    /// # Parameters
+    /// * `flags`: Flags to pass to the unmount operation.
+    pub fn umount_and_join(self, flags: &[UnmountOption]) -> Result<(), (Option<Self>, io::Error)> {
+        let Self { session, .. } = self;
         session
             .umount_and_join(flags)
             .map_err(|(session, error)| (session.map(|session| Self { session, resolver }), error))
