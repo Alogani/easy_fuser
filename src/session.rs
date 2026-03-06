@@ -50,7 +50,7 @@ impl<T: FileIdType> FuseSession<T> {
     /// # Parameters
     /// * `flags`: Flags to pass to the unmount operation.
     pub fn umount_and_join(self, flags: &[UnmountOption]) -> Result<(), (Option<Self>, io::Error)> {
-        let Self { session, .. } = self;
+        let Self { session, resolver } = self;
         session
             .umount_and_join(flags)
             .map_err(|(session, error)| (session.map(|session| Self { session, resolver }), error))
