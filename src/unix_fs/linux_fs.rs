@@ -23,7 +23,21 @@ pub(super) unsafe fn renameat2(
     newpath: *const c_char,
     flags: c_uint,
 ) -> c_int {
-    unsafe { libc::renameat2(olddirfd, oldpath, newdirfd, newpath, flags) }
+    #[cfg(target_env = "gnu")]
+    unsafe {
+        libc::renameat2(olddirfd, oldpath, newdirfd, newpath, flags)
+    }
+    #[cfg(not(target_env = "gnu"))]
+    unsafe {
+        libc::syscall(
+            libc::SYS_renameat2,
+            olddirfd,
+            oldpath,
+            newdirfd,
+            newpath,
+            flags,
+        ) as c_int
+    }
 }
 
 pub(super) unsafe fn fdatasync(fd: c_int) -> c_int {
