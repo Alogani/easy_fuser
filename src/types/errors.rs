@@ -383,6 +383,12 @@ impl From<ErrorKind> for i32 {
     }
 }
 
+impl Into<i32> for PosixError {
+    fn into(self) -> i32 {
+        self.code
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

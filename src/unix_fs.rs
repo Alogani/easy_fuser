@@ -133,7 +133,7 @@ fn convert_stat_struct(statbuf: libc::stat) -> Option<FileAttribute> {
         mtime,
         ctime,
         crtime: mtime,
-        kind: stat_to_kind(statbuf)?,
+        kind: mode_to_kind(statbuf.st_mode)?,
         perm: perm,
         nlink: statbuf.st_nlink as u32,
         uid: statbuf.st_uid as u32,
@@ -146,16 +146,15 @@ fn convert_stat_struct(statbuf: libc::stat) -> Option<FileAttribute> {
     })
 }
 
-fn stat_to_kind(statbuf: libc::stat) -> Option<FileKind> {
-    use libc::*;
-    Some(match statbuf.st_mode & S_IFMT {
-        S_IFREG => FileKind::RegularFile,
-        S_IFDIR => FileKind::Directory,
-        S_IFCHR => FileKind::CharDevice,
-        S_IFBLK => FileKind::BlockDevice,
-        S_IFIFO => FileKind::NamedPipe,
-        S_IFLNK => FileKind::Symlink,
-        S_IFSOCK => FileKind::Socket,
+pub(crate) fn mode_to_kind(mode: u32) -> Option<FileKind> {
+    Some(match mode & libc::S_IFMT {
+        libc::S_IFREG => FileKind::RegularFile,
+        libc::S_IFDIR => FileKind::Directory,
+        libc::S_IFCHR => FileKind::CharDevice,
+        libc::S_IFBLK => FileKind::BlockDevice,
+        libc::S_IFIFO => FileKind::NamedPipe,
+        libc::S_IFLNK => FileKind::Symlink,
+        libc::S_IFSOCK => FileKind::Socket,
         _ => return None, // Unsupported or unknown file type
     })
 }
