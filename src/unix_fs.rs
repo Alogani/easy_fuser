@@ -63,7 +63,7 @@ pub(crate) mod macos_fs;
 use macos_fs as unix_impl;
 
 pub(crate) use unix_impl::get_errno;
-pub(crate) use unix_impl::{ftruncate, lseek as lseek_raw, pread, pwrite};
+pub(crate) use unix_impl::lseek as lseek_raw;
 pub use unix_impl::{copy_file_range, statfs};
 
 /// Converts a `std::fs::FileType` to the corresponding `FileKind` expected by fuse_api.
