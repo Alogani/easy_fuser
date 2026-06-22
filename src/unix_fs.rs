@@ -63,6 +63,7 @@ pub(crate) mod macos_fs;
 use macos_fs as unix_impl;
 
 pub(crate) use unix_impl::get_errno;
+pub(crate) use unix_impl::lseek as lseek_raw;
 pub use unix_impl::{copy_file_range, statfs};
 
 /// Converts a `std::fs::FileType` to the corresponding `FileKind` expected by fuse_api.
@@ -167,8 +168,8 @@ fn system_time_to_timespec(time: SystemTime) -> Result<timespec, PosixError> {
         )
     })?;
     Ok(timespec {
-        tv_sec: duration.as_secs() as i64,
-        tv_nsec: duration.subsec_nanos() as i64,
+        tv_sec: duration.as_secs() as _,
+        tv_nsec: duration.subsec_nanos() as _,
     })
 }
 
@@ -270,7 +271,7 @@ pub fn setattr(path: &Path, attrs: SetAttrRequest) -> Result<FileAttribute, Posi
                 )));
             }
             let res = unsafe {
-                libc::ftruncate(
+                unix_impl::ftruncate(
                     fd,
                     i64::try_from(size).map_err(|_| {
                         PosixError::new(
@@ -500,11 +501,11 @@ pub fn open(path: &Path, flags: OpenFlags) -> Result<OwnedFd, PosixError> {
 /// remains where it was before the read, regardless of how much data was read.
 pub fn read(fd: BorrowedFd, seek: SeekFrom, size: usize) -> Result<Vec<u8>, PosixError> {
     let mut buffer = vec![0; size as usize];
-    let offset: libc::off_t = match seek {
-        SeekFrom::Start(offset) => offset.try_into().map_err(|_| {
+    let offset: i64 = match seek {
+        SeekFrom::Start(offset) => i64::try_from(offset).map_err(|_| {
             PosixError::new(
                 ErrorKind::InvalidArgument,
-                "Offset too large for off_t".to_string(),
+                "Offset too large for i64".to_string(),
             )
         })?,
         SeekFrom::Current(offset) => {
@@ -527,7 +528,7 @@ pub fn read(fd: BorrowedFd, seek: SeekFrom, size: usize) -> Result<Vec<u8>, Posi
         }
     };
     let bytes_read = unsafe {
-        libc::pread(
+        unix_impl::pread(
             fd.as_raw_fd(),
             buffer.as_mut_ptr() as *mut libc::c_void,
             size,
@@ -552,11 +553,11 @@ pub fn read(fd: BorrowedFd, seek: SeekFrom, size: usize) -> Result<Vec<u8>, Posi
 /// remains where it was before the read, regardless of how much data was read.
 pub fn write(fd: BorrowedFd, seek: SeekFrom, data: &[u8]) -> Result<usize, PosixError> {
     let bytes_to_write = data.len() as usize;
-    let offset: libc::off_t = match seek {
-        SeekFrom::Start(offset) => offset.try_into().map_err(|_| {
+    let offset: i64 = match seek {
+        SeekFrom::Start(offset) => i64::try_from(offset).map_err(|_| {
             PosixError::new(
                 ErrorKind::InvalidArgument,
-                "Offset too large for off_t".to_string(),
+                "Offset too large for i64".to_string(),
             )
         })?,
         SeekFrom::Current(offset) => {
@@ -579,7 +580,7 @@ pub fn write(fd: BorrowedFd, seek: SeekFrom, data: &[u8]) -> Result<usize, Posix
         }
     };
     let bytes_written = unsafe {
-        libc::pwrite(
+        unix_impl::pwrite(
             fd.as_raw_fd(),
             data.as_ptr() as *const libc::c_void,
             bytes_to_write,
@@ -982,11 +983,19 @@ pub fn fallocate(
 /// offset and whence values. The new position is returned as a 64-bit integer.
 pub fn lseek(fd: BorrowedFd, seek: SeekFrom) -> Result<i64, PosixError> {
     let (whence, offset) = match seek {
-        SeekFrom::Start(offset) => (libc::SEEK_SET, offset as libc::off_t),
-        SeekFrom::Current(offset) => (libc::SEEK_CUR, offset as libc::off_t),
-        SeekFrom::End(offset) => (libc::SEEK_END, offset as libc::off_t),
+        SeekFrom::Start(offset) => (
+            libc::SEEK_SET,
+            i64::try_from(offset).map_err(|_| {
+                PosixError::new(
+                    ErrorKind::InvalidArgument,
+                    "Offset too large for i64".to_string(),
+                )
+            })?,
+        ),
+        SeekFrom::Current(offset) => (libc::SEEK_CUR, offset),
+        SeekFrom::End(offset) => (libc::SEEK_END, offset),
     };
-    let result = unsafe { libc::lseek(fd.as_raw_fd(), offset, whence) };
+    let result = unsafe { lseek_raw(fd.as_raw_fd(), offset, whence) };
     if result == -1 {
         return Err(PosixError::last_error(format!(
             "{:?}: lseek failed. Offset: {:?}, whence: {:?}",
