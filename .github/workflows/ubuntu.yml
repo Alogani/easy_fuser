@@ -50,3 +50,21 @@ jobs:
       run: echo "PKG_CONFIG_PATH=/usr/lib/x86_64-linux-gnu/pkgconfig" >> $GITHUB_ENV
     - name: Run tests of crates inside examples folder
       run: ./tests/test_all_examples.sh
+
+  check_i686:
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    name: "Check i686 compilation"
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: Install libfuse-dev and gcc-multilib
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y libfuse-dev gcc-multilib
+    - name: Setup Rust
+      run: |
+        rustup update stable
+        rustup default stable
+        rustup target add i686-unknown-linux-gnu
+    - name: Check
+      run: cargo check --target=i686-unknown-linux-gnu --all-features
