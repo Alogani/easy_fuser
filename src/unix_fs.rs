@@ -1014,7 +1014,7 @@ mod tests {
     2. Test copy_file_range by copying data between two files.
     3. Test create by creating a new file with specific permissions and flags.
     4. Test fallocate by allocating space for a file and verifying the allocation.
-    5. Test_flush and fsync by writing data and ensuring it's persisted to disk.
+    5. Test flush and fsync by writing data and ensuring it's persisted to disk.
     6. Test getxattr, listxattr, and setxattr by working with extended attributes.
     7. Test mknod by creating special files (e.g., named pipes).
     8. Test release by opening and then releasing file descriptors.
