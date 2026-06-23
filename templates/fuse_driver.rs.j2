@@ -17,6 +17,7 @@ use fuser::{
     ReplyStatfs, ReplyWrite, ReplyXattr, Request, TimeOrNow,
 };
 
+use crate::unix_fs;
 use crate::fuse_handler::FuseHandler;
 use crate::types::*;
 use crate::core::helpers::*;
@@ -708,13 +709,22 @@ where
         let resolver = self.resolver.clone();
         let name = name.to_owned();
         {% call spawn() %}
+            let file_kind = match unix_fs::mode_to_kind(mode) {
+                Some(file_kind) => file_kind,
+                None => {
+                    {% call spawn_reply() %}
+                        reply.error(PosixError::new(ErrorKind::InvalidArgument, "unknown file kind").into());
+                    {% endcall %}
+                    return;
+                }
+            };
             match handler.mknod(
                 &req,
                 resolver.resolve_id(parent),
                 &name,
                 mode,
                 umask,
-                DeviceType::from_rdev(rdev.try_into().unwrap())
+                DeviceType::from_file_type_and_rdev(file_kind, rdev.try_into().unwrap())
             ) {
                 {% call reply_entry("parent", "name") %}{% endcall %}
                 Err(e) => {

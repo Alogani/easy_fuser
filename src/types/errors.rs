@@ -209,6 +209,12 @@ impl ErrorKind {
     }
 }
 
+impl Into<i32> for PosixError {
+    fn into(self) -> i32 {
+        self.code
+    }
+}
+
 impl From<i32> for ErrorKind {
     fn from(code: i32) -> Self {
         match code {

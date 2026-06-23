@@ -19,7 +19,6 @@ use std::time::{Duration, SystemTime};
 
 use fuser::FileAttr as FuseFileAttr;
 use fuser::{FileType, Request, TimeOrNow};
-use libc::mode_t;
 
 use super::BorrowedFileHandle;
 use super::LockType;
@@ -63,40 +62,29 @@ pub enum DeviceType {
 }
 
 impl DeviceType {
-    pub fn from_rdev(rdev: mode_t) -> Self {
-        use libc::*;
-        // Extract major and minor device numbers (assuming the device number format).
-        let major: u32 = (rdev >> 8).into(); // Major is the upper part of the 32-bit value (16 bit on macos)
-        let minor: u32 = (rdev & 0xFF).into(); // Minor is the lower 8 bits
-        match rdev {
-            x if x & S_IFREG != 0 => DeviceType::RegularFile,
-            x if x & S_IFDIR != 0 => DeviceType::Directory,
-            x if x & S_IFCHR != 0 => DeviceType::CharacterDevice { major, minor },
-            x if x & S_IFBLK != 0 => DeviceType::BlockDevice { major, minor },
-            x if x & S_IFIFO != 0 => DeviceType::NamedPipe,
-            x if x & S_IFSOCK != 0 => DeviceType::Socket,
-            x if x & S_IFLNK != 0 => DeviceType::Symlink,
-            _ => DeviceType::Unknown,
+    pub fn from_file_type_and_rdev(file_type: FileType, rdev: libc::dev_t) -> Self {
+        let major: u32 = libc::major(rdev) as u32;
+        let minor: u32 = libc::minor(rdev) as u32;
+        match file_type {
+            FileType::RegularFile => DeviceType::RegularFile,
+            FileType::Directory => DeviceType::Directory,
+            FileType::CharDevice => DeviceType::CharacterDevice { major, minor },
+            FileType::BlockDevice => DeviceType::BlockDevice { major, minor },
+            FileType::NamedPipe => DeviceType::NamedPipe,
+            FileType::Socket => DeviceType::Socket,
+            FileType::Symlink => DeviceType::Symlink,
         }
     }
 
-    pub fn to_rdev(&self) -> mode_t {
-        use libc::*;
-
+    pub fn to_rdev(&self) -> libc::dev_t {
         match self {
-            DeviceType::RegularFile => S_IFREG,
-            DeviceType::Directory => S_IFDIR,
-            DeviceType::CharacterDevice { major, minor } => {
-                let device = ((major & 0xFF) << 8) | (minor & 0xFF);
-                (device as mode_t) | S_IFCHR
-            }
-            DeviceType::BlockDevice { major, minor } => {
-                let device = ((major & 0xFF) << 8) | (minor & 0xFF);
-                (device as mode_t) | S_IFBLK
-            }
-            DeviceType::NamedPipe => S_IFIFO,
-            DeviceType::Socket => S_IFSOCK,
-            DeviceType::Symlink => S_IFLNK,
+            DeviceType::RegularFile => 0,
+            DeviceType::Directory => 0,
+            DeviceType::CharacterDevice { major, minor } => libc::makedev(*major, *minor),
+            DeviceType::BlockDevice { major, minor } => libc::makedev(*major, *minor),
+            DeviceType::NamedPipe => 0,
+            DeviceType::Socket => 0,
+            DeviceType::Symlink => 0,
             DeviceType::Unknown => 0, // Represents an unknown device
         }
     }
