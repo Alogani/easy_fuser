@@ -168,11 +168,11 @@ bitflags! {
     /// Flags representing different types of file locks.
     pub struct LockType: i32 {
         /// No lock held.
-        const UNLOCKED = libc::F_UNLCK;
+        const UNLOCKED = libc::F_UNLCK as i32;
         /// Shared or read lock.
-        const READ_LOCK = libc::F_RDLCK;
+        const READ_LOCK = libc::F_RDLCK as i32;
         /// Exclusive or write lock.
-        const WRITE_LOCK = libc::F_WRLCK;
+        const WRITE_LOCK = libc::F_WRLCK as i32;
         const _ = !0;
     }
 }
