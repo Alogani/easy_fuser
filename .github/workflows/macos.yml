@@ -30,6 +30,6 @@ jobs:
     - name: Setup Rust
       run: rustup update ${{ matrix.toolchain }} && rustup default ${{ matrix.toolchain }}
     - name: Build
-      run: cargo build --verbose --features "${{ matrix.feature }} libfuse"
+      run: cargo build --verbose --no-default-features --features "${{ matrix.feature }} libfuse"
     - name: Run tests
-      run: cargo test --verbose --features "${{ matrix.feature }} libfuse"
+      run: cargo test --verbose --no-default-features --features "${{ matrix.feature }} libfuse"

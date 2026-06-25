@@ -34,9 +34,9 @@ jobs:
     - name: Setup Rust
       run: rustup update ${{ matrix.toolchain }} && rustup default ${{ matrix.toolchain }}
     - name: Build
-      run: cargo build --verbose --features ${{ matrix.feature }}
+      run: cargo build --verbose --no-default-features --features ${{ matrix.feature }}
     - name: Run tests
-      run: cargo test  --verbose --features ${{ matrix.feature }}
+      run: cargo test  --verbose --no-default-features --features ${{ matrix.feature }}
 
   test_examples:
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false

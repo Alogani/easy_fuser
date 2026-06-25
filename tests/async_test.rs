@@ -84,5 +84,10 @@ fn test_async_mirror_fs() {
         }
     }
     assert!(unmounted, "Failed to unmount async filesystem");
+    #[cfg(not(any(target_os = "freebsd", target_os = "macos")))]
     handle.join().unwrap();
+    #[cfg(target_os = "freebsd")]
+    let _ = handle.join();
+    #[cfg(target_os = "macos")]
+    drop(handle);
 }
