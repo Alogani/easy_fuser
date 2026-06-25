@@ -1,7 +1,7 @@
 use libc::{self, c_char, c_int, c_uint};
 use std::os::fd::*;
 
-use crate::{ErrorKind, PosixError};
+use crate::types::{ErrorKind, PosixError};
 
 pub(crate) fn get_errno() -> i32 {
     unsafe { *libc::__error() }
