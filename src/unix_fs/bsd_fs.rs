@@ -5,10 +5,12 @@ use crate::PosixError;
 
 use libc::{self, c_char, c_int, size_t, ssize_t, off_t, c_void};
 
+pub(crate) use super::bsd_like_fs::{ftruncate, lseek, pread, pwrite};
+
 use super::{StatFs, cstring_from_path};
 
-pub(super) unsafe fn fallocate(fd: c_int, _mode: c_int, offset: off_t, len: off_t) -> c_int {
-    unsafe { libc::posix_fallocate(fd, offset, len) }
+pub(super) unsafe fn fallocate(fd: c_int, _mode: c_int, offset: i64, len: i64) -> c_int {
+    unsafe { libc::posix_fallocate(fd, offset as off_t, len as off_t) }
 }
 
 /// Warning: untested function

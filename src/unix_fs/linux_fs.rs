@@ -1,5 +1,4 @@
 use std::{
-    ffi::c_void,
     os::fd::{AsRawFd, BorrowedFd},
     path::Path,
 };
@@ -24,15 +23,45 @@ pub(super) unsafe fn renameat2(
     newpath: *const c_char,
     flags: c_uint,
 ) -> c_int {
-    unsafe { libc::renameat2(olddirfd, oldpath, newdirfd, newpath, flags) }
+    #[cfg(target_env = "gnu")]
+    unsafe {
+        libc::renameat2(olddirfd, oldpath, newdirfd, newpath, flags)
+    }
+    #[cfg(not(target_env = "gnu"))]
+    unsafe {
+        libc::syscall(
+            libc::SYS_renameat2,
+            olddirfd,
+            oldpath,
+            newdirfd,
+            newpath,
+            flags,
+        ) as c_int
+    }
 }
 
 pub(super) unsafe fn fdatasync(fd: c_int) -> c_int {
     unsafe { libc::fdatasync(fd) }
 }
 
-pub(super) unsafe fn fallocate(fd: c_int, mode: c_int, offset: off_t, len: off_t) -> c_int {
-    unsafe { libc::fallocate(fd, mode, offset, len) }
+pub(super) unsafe fn fallocate(fd: c_int, mode: c_int, offset: i64, len: i64) -> c_int {
+    unsafe { libc::fallocate64(fd, mode, offset as libc::off64_t, len as libc::off64_t) }
+}
+
+pub(crate) unsafe fn ftruncate(fd: c_int, length: i64) -> c_int {
+    unsafe { libc::ftruncate64(fd, length as libc::off64_t) }
+}
+
+pub(crate) unsafe fn lseek(fd: c_int, offset: i64, whence: c_int) -> i64 {
+    unsafe { libc::lseek64(fd, offset as libc::off64_t, whence) as i64 }
+}
+
+pub(crate) unsafe fn pread(fd: c_int, buf: *mut c_void, count: size_t, offset: i64) -> ssize_t {
+    unsafe { libc::pread64(fd, buf, count, offset as libc::off64_t) }
+}
+
+pub(crate) unsafe fn pwrite(fd: c_int, buf: *const c_void, count: size_t, offset: i64) -> ssize_t {
+    unsafe { libc::pwrite64(fd, buf, count, offset as libc::off64_t) }
 }
 
 pub(super) unsafe fn setxattr(
@@ -107,12 +136,14 @@ pub fn copy_file_range(
     offset_out: i64,
     len: u64,
 ) -> Result<u32, PosixError> {
+    let mut off_in = offset_in as libc::off64_t;
+    let mut off_out = offset_out as libc::off64_t;
     let result = unsafe {
         libc::copy_file_range(
             fd_in.as_raw_fd(),
-            offset_in as *mut libc::off_t,
+            &mut off_in,
             fd_out.as_raw_fd(),
-            offset_out as *mut libc::off_t,
+            &mut off_out,
             len as usize,
             0, // placeholder
         )
