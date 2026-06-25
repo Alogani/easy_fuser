@@ -141,11 +141,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("Unmounting filesystem...");
         let mut unmounted = false;
         for cmd_name in &["fusermount3", "fusermount", "umount"] {
-            if let Ok(status) = Command::new(cmd_name)
-                .arg("-u")
-                .arg(mntpoint)
-                .status()
-            {
+            let mut cmd = Command::new(cmd_name);
+            if cmd_name == &"umount" {
+                cmd.arg(mntpoint);
+            } else {
+                cmd.arg("-u").arg(mntpoint);
+            }
+            if let Ok(status) = cmd.status() {
                 if status.success() {
                     unmounted = true;
                     break;

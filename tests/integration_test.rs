@@ -75,14 +75,28 @@ fn test_mirror_fs_operations() {
 
     // We won't use spawn_mount because it MirrorFs doesn't implement Send in serial mode
     let mntpoint_clone = mntpoint.clone();
+    let source_path_clone = source_path.clone();
+    let sentinel = source_path.join("sentinel.txt");
+    fs::write(&sentinel, "").unwrap();
+
     let handle = std::thread::spawn(move || {
         let fs = MyFs {
-            mirror_fs: MirrorFs::new(source_path.clone()),
+            mirror_fs: MirrorFs::new(source_path_clone),
             default_fs: DefaultFuseHandler::new()
         };
         mount(fs, &mntpoint_clone, &[], Some(4)).unwrap();
     });
-    std::thread::sleep(Duration::from_millis(50)); // Wait for the mount to finish
+
+    let mnt_sentinel = mntpoint.join("sentinel.txt");
+    let mut mounted = false;
+    for _ in 0..100 {
+        if mnt_sentinel.exists() {
+            mounted = true;
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    assert!(mounted, "Mount timed out");
 
     {
         // Create a file and check its existence
@@ -155,11 +169,13 @@ fn test_mirror_fs_operations() {
     eprintln!("Unmounting filesystem...");
     let mut unmounted = false;
     for cmd_name in &["fusermount3", "fusermount", "umount"] {
-        if let Ok(status) = std::process::Command::new(cmd_name)
-            .arg("-u")
-            .arg(&mntpoint)
-            .status()
-        {
+        let mut cmd = std::process::Command::new(cmd_name);
+        if cmd_name == &"umount" {
+            cmd.arg(&mntpoint);
+        } else {
+            cmd.arg("-u").arg(&mntpoint);
+        }
+        if let Ok(status) = cmd.status() {
             if status.success() {
                 eprintln!("Unmounted successfully using {}", cmd_name);
                 unmounted = true;
@@ -207,7 +223,17 @@ fn test_mirror_fs_readonly_operations() {
         };
         mount(fs, &mntpoint_clone, &[], Some(4)).unwrap();
     });
-    std::thread::sleep(Duration::from_millis(50)); // Wait for the mount to finish
+
+    let mnt_file = mntpoint.join(test_file_name);
+    let mut mounted = false;
+    for _ in 0..100 {
+        if mnt_file.exists() {
+            mounted = true;
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    assert!(mounted, "Mount timed out");
 
     {
         // Read file via mount point should succeed
@@ -227,11 +253,13 @@ fn test_mirror_fs_readonly_operations() {
     eprintln!("Unmounting filesystem...");
     let mut unmounted = false;
     for cmd_name in &["fusermount3", "fusermount", "umount"] {
-        if let Ok(status) = std::process::Command::new(cmd_name)
-            .arg("-u")
-            .arg(&mntpoint)
-            .status()
-        {
+        let mut cmd = std::process::Command::new(cmd_name);
+        if cmd_name == &"umount" {
+            cmd.arg(&mntpoint);
+        } else {
+            cmd.arg("-u").arg(&mntpoint);
+        }
+        if let Ok(status) = cmd.status() {
             if status.success() {
                 eprintln!("Unmounted successfully using {}", cmd_name);
                 unmounted = true;

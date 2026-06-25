@@ -51,17 +51,28 @@ fn test_mirror_fs_recursion() {
 
     // We won't use spawn_mount because it MirrorFs doesn't implement Send in serial mode
     let mntpoint_clone = mntpoint.clone();
+    let source_path_clone = source_path.clone();
+    let sentinel = source_path.join("sentinel.txt");
+    fs::write(&sentinel, "").unwrap();
+
     let handle = std::thread::spawn(move || {
         let fs = MyFs {
-            mirror_fs: MirrorFs::new(source_path.clone()),
+            mirror_fs: MirrorFs::new(source_path_clone),
             default_fs: DefaultFuseHandler::new()
         };
         mount(fs, &mntpoint_clone, &[], Some(4)).unwrap();
     });
-    std::thread::sleep(Duration::from_millis(50)); // Wait for the mount to finish
 
-    // Allow some time for the filesystem to mount
-    std::thread::sleep(Duration::from_secs(1));
+    let mnt_sentinel = mntpoint.join("sentinel.txt");
+    let mut mounted = false;
+    for _ in 0..100 {
+        if mnt_sentinel.exists() {
+            mounted = true;
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    assert!(mounted, "Mount timed out");
 
     // Construct the deep recursive path
     let deep_path = mntpoint
@@ -105,11 +116,13 @@ fn test_mirror_fs_recursion() {
     eprintln!("Unmounting filesystem...");
     let mut unmounted = false;
     for cmd_name in &["fusermount3", "fusermount", "umount"] {
-        if let Ok(status) = std::process::Command::new(cmd_name)
-            .arg("-u")
-            .arg(&mntpoint)
-            .status()
-        {
+        let mut cmd = std::process::Command::new(cmd_name);
+        if cmd_name == &"umount" {
+            cmd.arg(&mntpoint);
+        } else {
+            cmd.arg("-u").arg(&mntpoint);
+        }
+        if let Ok(status) = cmd.status() {
             if status.success() {
                 eprintln!("Unmounted successfully using {}", cmd_name);
                 unmounted = true;

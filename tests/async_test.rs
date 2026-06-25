@@ -50,11 +50,19 @@ fn test_async_mirror_fs() {
         };
         mount(fs, &mntpoint_clone, &[], Some(4)).unwrap();
     });
-    std::thread::sleep(Duration::from_millis(100)); // Wait for the mount to finish
+    // Wait for the mount to finish
+    let mnt_file = mntpoint.join("test_async.txt");
+    let mut mounted = false;
+    for _ in 0..100 {
+        if mnt_file.exists() {
+            mounted = true;
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    assert!(mounted, "Mount timed out");
 
     {
-        let mnt_file = mntpoint.join("test_async.txt");
-        assert!(mnt_file.exists());
         let content = fs::read_to_string(&mnt_file).unwrap();
         assert_eq!(content, "Async FUSE test");
     }
@@ -62,11 +70,13 @@ fn test_async_mirror_fs() {
     // Unmount
     let mut unmounted = false;
     for cmd_name in &["fusermount3", "fusermount", "umount"] {
-        if let Ok(status) = std::process::Command::new(cmd_name)
-            .arg("-u")
-            .arg(&mntpoint)
-            .status()
-        {
+        let mut cmd = std::process::Command::new(cmd_name);
+        if cmd_name == &"umount" {
+            cmd.arg(&mntpoint);
+        } else {
+            cmd.arg("-u").arg(&mntpoint);
+        }
+        if let Ok(status) = cmd.status() {
             if status.success() {
                 unmounted = true;
                 break;
