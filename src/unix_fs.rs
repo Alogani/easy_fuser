@@ -133,13 +133,13 @@ fn convert_stat_struct(statbuf: libc::stat) -> Option<FileAttribute> {
         ctime,
         crtime: mtime,
         kind: stat_to_kind(statbuf)?,
-        perm: perm,
+        perm,
         nlink: statbuf.st_nlink as u32,
-        uid: statbuf.st_uid as u32,
-        gid: statbuf.st_gid as u32,
+        uid: statbuf.st_uid,
+        gid: statbuf.st_gid,
         rdev: statbuf.st_rdev as u32,
         blksize: statbuf.st_blksize as u32,
-        flags: flags,
+        flags,
         ttl: None,
         generation: None,
     })
@@ -194,14 +194,14 @@ pub fn lookup(path: &Path) -> Result<FileAttribute, PosixError> {
             path.display()
         )));
     }
-    Ok(convert_stat_struct(statbuf).ok_or(PosixError::new(
+    convert_stat_struct(statbuf).ok_or(PosixError::new(
         ErrorKind::InvalidArgument,
         format!(
             "{}: statbuf conversion failed {:?}",
             path.display(),
             statbuf
         ),
-    ))?)
+    ))
 }
 
 /// Retrieves file attributes for a given file descriptor.
@@ -220,10 +220,10 @@ pub fn getattr(fd: BorrowedFd) -> Result<FileAttribute, PosixError> {
             fd
         )));
     }
-    Ok(convert_stat_struct(statbuf).ok_or(PosixError::new(
+    convert_stat_struct(statbuf).ok_or(PosixError::new(
         ErrorKind::InvalidArgument,
         format!("{:?}: statbuf conversion failed {:?}", fd, statbuf),
-    ))?)
+    ))
 }
 
 /// Modifies file attributes for a given path.
@@ -486,7 +486,7 @@ pub fn open(path: &Path, flags: OpenFlags) -> Result<OwnedFd, PosixError> {
             path.display()
         )));
     }
-    Ok(unsafe { OwnedFd::from_raw_fd(fd.into()) })
+    Ok(unsafe { OwnedFd::from_raw_fd(fd) })
 }
 
 /// Reads data from a file descriptor at a specified offset.
@@ -499,7 +499,7 @@ pub fn open(path: &Path, flags: OpenFlags) -> Result<OwnedFd, PosixError> {
 /// then reads from there. In all cases, the file's position after the read operation
 /// remains where it was before the read, regardless of how much data was read.
 pub fn read(fd: BorrowedFd, seek: SeekFrom, size: usize) -> Result<Vec<u8>, PosixError> {
-    let mut buffer = vec![0; size as usize];
+    let mut buffer = vec![0; size];
     let offset: libc::off_t = match seek {
         SeekFrom::Start(offset) => offset.try_into().map_err(|_| {
             PosixError::new(
@@ -551,7 +551,7 @@ pub fn read(fd: BorrowedFd, seek: SeekFrom, size: usize) -> Result<Vec<u8>, Posi
 /// then reads from there. In all cases, the file's position after the read operation
 /// remains where it was before the read, regardless of how much data was read.
 pub fn write(fd: BorrowedFd, seek: SeekFrom, data: &[u8]) -> Result<usize, PosixError> {
-    let bytes_to_write = data.len() as usize;
+    let bytes_to_write = data.len();
     let offset: libc::off_t = match seek {
         SeekFrom::Start(offset) => offset.try_into().map_err(|_| {
             PosixError::new(
@@ -948,7 +948,7 @@ pub fn create(
         )));
     }
 
-    Ok((unsafe { OwnedFd::from_raw_fd(fd.into()) }, lookup(path)?))
+    Ok((unsafe { OwnedFd::from_raw_fd(fd) }, lookup(path)?))
 }
 
 /// Manipulates the allocated disk space for a file.

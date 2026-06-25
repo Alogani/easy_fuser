@@ -1,3 +1,14 @@
+use std::ffi::{OsStr, OsString};
+use std::path::Path;
+use std::time::Duration;
+
+use crate::types::*;
+use easy_fuser_macro::fuse_handler_fnsig;
+
+{% if mode == "async" %}
+use async_trait::async_trait;
+{% endif %}
+
 /// The `FuseHandler` trait is the core interface for implementing a userspace filesystem via FUSE (Filesystem in Userspace).
 ///
 /// This trait defines methods that correspond to various filesystem operations. By implementing this trait,
@@ -14,41 +25,56 @@
 ///
 /// ## Example: Custom Filesystem with MirrorFs as base
 ///
-/// ```rust, no_run
-/// use easy_fuser::templates::{DefaultFuseHandler, mirror_fs::*};
-/// use easy_fuser::prelude::*;
-/// use std::path::{Path, PathBuf};
+/// ```rust,ignore
+/// use easy_fuser::fuse_presets::mirror_fs::*;
+/// use easy_fuser::fuse_presets::DefaultFuseHandler;
+/// {% if mode == "async" -%}
+/// use easy_fuser::fuse_async::prelude::*;
+/// use easy_fuser_macro::delegate_fs_sync_to_async;
+/// {% else -%}
+/// use easy_fuser::fuse_parallel::prelude::*; // or fuse_serial::prelude::*
+/// use easy_fuser_macro::delegate_fs;
+/// {% endif -%}
+/// use std::path::PathBuf;
 /// use std::ffi::OsStr;
 ///
 /// struct MyCustomFs {
-///     inner: Box<dyn FuseHandler<PathBuf>>,
-///     // other fields...
+///     mirror_fs: MirrorFs,
+///     default_fs: DefaultFuseHandler<PathBuf>,
 /// }
 ///
-/// impl MyCustomFs {
-///     pub fn new(source_path: PathBuf) -> Self {
-///         MyCustomFs { inner: Box::new(MirrorFsReadOnly::new(source_path, DefaultFuseHandler::new())) }
+/// {% if mode == "async" -%}
+/// #[async_trait]
+/// impl FuseHandler for MyCustomFs {
+///     type TId = PathBuf;
 ///
+///     // Custom implementation for lookup:
+///     async fn lookup(&self, req: &RequestInfo, parent_id: PathBuf, name: &OsStr) -> FuseResult<FileAttribute> {
+///         // Custom logic for lookup operation...
+///         // Delegate to mirror_fs:
+///         self.mirror_fs.lookup(req, parent_id, name)
 ///     }
+///
+///     // Delegate other methods:
+///     delegate_fs_sync_to_async! { mirror_fs, [ read, write, getattr ] }
+///     delegate_fs_sync_to_async! { default_fs, [ statfs, link ] }
 /// }
+/// {% else -%}
+/// impl FuseHandler for MyCustomFs {
+///     type TId = PathBuf;
 ///
-/// impl FuseHandler<PathBuf> for MyCustomFs {
-///     fn get_inner(&self) -> &dyn FuseHandler<PathBuf> {
-///         // Delegate to MirrorFsReadOnly for standard behavior
-///         self.inner.as_ref()
-///     }
-///
+///     // Custom implementation for lookup:
 ///     fn lookup(&self, req: &RequestInfo, parent_id: PathBuf, name: &OsStr) -> FuseResult<FileAttribute> {
-///         // Custom logic for lookup operation
-///         // ...
-///
-///         // Delegate to inner handler for standard behavior
-///         self.inner.lookup(req, parent_id, name)
+///         // Custom logic for lookup operation...
+///         // Delegate to mirror_fs:
+///         self.mirror_fs.lookup(req, parent_id, name)
 ///     }
 ///
-///     // Implement other FuseHandler methods as needed, delegating to self.inner as appropriate
-///     // ...
+///     // Delegate other methods:
+///     delegate_fs! { mirror_fs, [ read, write, getattr ] }
+///     delegate_fs! { default_fs, [ statfs, link ] }
 /// }
+/// {% endif -%}
 /// ```
 ///
 /// # Important Methods
@@ -83,23 +109,13 @@
 /// **Important:** FUSE will lock some operations to run at the same time with the same inode, such as `readdir`.
 /// This behaviour is not well documented and cannot be guaranteed for now.
 ///
-//// # Additional Resources:
+/// # Additional Resources:
 /// For more detailed information, refer to the fuser project documentation, which serves as the foundation for this crate: https://docs.rs/fuser
 ///
 /// Documentation is inspired by the original fuser documentation
-
-use std::ffi::{OsStr, OsString};
-use std::path::Path;
-use std::time::Duration;
-
-use crate::types::*;
-use easy_fuser_macro::fuse_handler_fnsig;
-
-{% if mode == "async" %}
-use async_trait::async_trait;
-
+{%- if mode == "async" %}
 #[async_trait]
-{% endif %}
+{%- endif %}
 pub trait FuseHandler: 'static
     {% if mode != "serial" %}
         + Send + Sync{# Never put this on serial mode #}
@@ -199,6 +215,7 @@ pub trait FuseHandler: 'static
         lock_owner: u64,
     ) -> FuseResult<()>;
 
+    #[allow(unused_variables)]
     /// Release references to an inode, if the nlookup count reaches zero (to substract from the number of lookups).
     /// 
     /// A default implementation is provided that does nothing. It is advised to implement in case of manual Inode handling to release memory
@@ -432,12 +449,11 @@ pub trait FuseHandler: 'static
     /// Remove a directory
     {{ async_keyword() }} fn rmdir(&self, req: &RequestInfo, parent_id: Self::TId, name: &OsStr) -> FuseResult<()>;
 
-    /// Set file attributes.
     {{ async_keyword() }} fn setattr(
         &self,
         req: &RequestInfo,
         file_id: Self::TId,
-        attrs: SetAttrRequest,
+        attrs: SetAttrRequest<'_>,
     ) -> FuseResult<FileAttribute>;
 
     /// Acquire, modify or release a POSIX file lock

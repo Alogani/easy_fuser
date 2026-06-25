@@ -12,6 +12,7 @@ use clap::Parser;
 use ctrlc;
 
 use filesystem::ZipFs;
+use easy_fuser::fuse_serial::prelude::mount;
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -79,7 +80,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Mount point: {:?}", &mount_point);
 
     // Mount the filesystem
-    easy_fuser::mount(zip_fs, &mount_point, &[])?;
+    mount(zip_fs, &mount_point, &[], None)?;
 
     // If we reach here, the filesystem has been unmounted normally
     cleanup(&mount_point, &once_flag);

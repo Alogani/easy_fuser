@@ -15,6 +15,7 @@ pub struct FuseHandlerTemplate<'a> {
 #[derive(Template)]
 #[template(path = "mounting.rs.j2")]
 pub struct MountingTemplate<'a> {
+    #[allow(unused)]
     pub mode: &'a str,
 }
 
@@ -23,12 +24,3 @@ pub struct MountingTemplate<'a> {
 pub struct FuseLibTemplate<'a> {
     pub mode: &'a str,
 }
-
-/*
-#[derive(Template)]
-#[template(path = "fuse_presets/xxx__handler.rs.j2")]
-pub struct PresetXxxHandler {
-    pub is_async: bool,
-}
-    */
-

@@ -20,6 +20,7 @@ jobs:
         feature:
           - serial
           - parallel
+          - async
     
     steps:
     - uses: actions/checkout@v4

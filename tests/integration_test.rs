@@ -1,3 +1,10 @@
+// This test uses delegate_fs! (sync) which is incompatible with async-only builds.
+// Async mode is covered by tests/async_test.rs instead.
+#![cfg(any(feature = "serial", feature = "parallel"))]
+
+#[cfg(feature = "serial")]
+use easy_fuser::fuse_serial::prelude::*;
+#[cfg(all(feature = "parallel", not(feature = "serial")))]
 use easy_fuser::fuse_parallel::prelude::*;
 use easy_fuser::fuse_presets::mirror_fs::*;
 use easy_fuser::fuse_presets::DefaultFuseHandler;
@@ -34,8 +41,31 @@ impl FuseHandler for MyFs {
     delegate_fs! {default_fs, [ bmap, forget, fsyncdir, getlk, ioctl, link, opendir, releasedir, setlk, statfs ]}
 }
 
+struct MyFsReadOnly {
+    mirror_fs: MirrorFsReadOnly,
+    default_fs: DefaultFuseHandler<PathBuf>,
+}
+
+impl FuseHandler for MyFsReadOnly {
+    type TId = PathBuf;
+
+    delegate_fs! { mirror_fs, [
+        flush, fsync, lseek, read, release,
+        access, getattr, getxattr, listxattr, lookup, open, readdir, readlink
+    ]}
+
+    delegate_fs! { default_fs, [
+        copy_file_range, fallocate, write,
+        create, mkdir, mknod, removexattr, rename, rmdir, setattr, setxattr, symlink, unlink,
+        bmap, forget, fsyncdir, getlk, ioctl, link, opendir, releasedir, setlk, statfs
+    ]}
+}
+
+static MOUNT_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 #[test]
 fn test_mirror_fs_operations() {
+    let _lock = MOUNT_LOCK.lock().unwrap();
     // Create temporary directories for mount point and source
     let mount_dir = TempDir::new().unwrap();
     let source_dir = TempDir::new().unwrap();
@@ -50,7 +80,7 @@ fn test_mirror_fs_operations() {
             mirror_fs: MirrorFs::new(source_path.clone()),
             default_fs: DefaultFuseHandler::new()
         };
-        mount(fs, &mntpoint_clone, &[], 4).unwrap();
+        mount(fs, &mntpoint_clone, &[], Some(4)).unwrap();
     });
     std::thread::sleep(Duration::from_millis(50)); // Wait for the mount to finish
 
@@ -123,20 +153,105 @@ fn test_mirror_fs_operations() {
     }
 
     eprintln!("Unmounting filesystem...");
-    #[cfg(not(any(target_os = "freebsd", target_os = "macos")))]
-    let _ = std::process::Command::new("fusermount")
-        .arg("-u")
-        .arg(&mntpoint)
-        .status();
-    #[cfg(any(target_os = "freebsd", target_os = "macos"))]
-    let _ = std::process::Command::new("umount")
-        .arg(&mntpoint)
-        .status();
+    let mut unmounted = false;
+    for cmd_name in &["fusermount3", "fusermount", "umount"] {
+        if let Ok(status) = std::process::Command::new(cmd_name)
+            .arg("-u")
+            .arg(&mntpoint)
+            .status()
+        {
+            if status.success() {
+                eprintln!("Unmounted successfully using {}", cmd_name);
+                unmounted = true;
+                break;
+            }
+        }
+    }
+    assert!(unmounted, "Failed to unmount using fusermount3, fusermount, or umount");
+    // To allow integration tests to not fail if unmount fails, comment the assert above and uncomment the block below:
+    // if !unmounted {
+    //     eprintln!("Warning: Failed to unmount using fusermount3, fusermount, or umount");
+    // }
+    eprintln!("Joining thread...");
     #[cfg(not(any(target_os = "freebsd", target_os = "macos")))]
     handle.join().unwrap();
     #[cfg(target_os = "freebsd")] // TODO: explore why error: no such file or directory happens there
     let _ = handle.join();
     #[cfg(target_os = "macos")] // TODO: why handle.join is blocking ?
     drop(handle); 
+    eprintln!("Thread joined successfully!");
     drop(mntpoint);
 }
+
+#[test]
+fn test_mirror_fs_readonly_operations() {
+    let _lock = MOUNT_LOCK.lock().unwrap();
+    // Create temporary directories for mount point and source
+    let mount_dir = TempDir::new().unwrap();
+    let source_dir = TempDir::new().unwrap();
+
+    let mntpoint = mount_dir.path().to_path_buf();
+    let source_path = source_dir.path().to_path_buf();
+
+    // Create a file in the source directory
+    let test_file_name = "readonly_test.txt";
+    let source_file = source_path.join(test_file_name);
+    fs::write(&source_file, "Read-only test content").unwrap();
+
+    let mntpoint_clone = mntpoint.clone();
+    let source_path_clone = source_path.clone();
+    let handle = std::thread::spawn(move || {
+        let fs = MyFsReadOnly {
+            mirror_fs: MirrorFsReadOnly::new(source_path_clone),
+            default_fs: DefaultFuseHandler::new()
+        };
+        mount(fs, &mntpoint_clone, &[], Some(4)).unwrap();
+    });
+    std::thread::sleep(Duration::from_millis(50)); // Wait for the mount to finish
+
+    {
+        // Read file via mount point should succeed
+        let mnt_file = mntpoint.join(test_file_name);
+        assert!(mnt_file.exists());
+        let content = fs::read_to_string(&mnt_file).unwrap();
+        assert_eq!(content, "Read-only test content");
+
+        // Write/Create file via mount point should fail with ENOSYS
+        let new_file = mntpoint.join("new_file.txt");
+        let write_result = fs::write(&new_file, "This should fail");
+        assert!(write_result.is_err());
+        let err = write_result.unwrap_err();
+        assert_eq!(err.raw_os_error(), Some(libc::ENOSYS));
+    }
+
+    eprintln!("Unmounting filesystem...");
+    let mut unmounted = false;
+    for cmd_name in &["fusermount3", "fusermount", "umount"] {
+        if let Ok(status) = std::process::Command::new(cmd_name)
+            .arg("-u")
+            .arg(&mntpoint)
+            .status()
+        {
+            if status.success() {
+                eprintln!("Unmounted successfully using {}", cmd_name);
+                unmounted = true;
+                break;
+            }
+        }
+    }
+    assert!(unmounted, "Failed to unmount using fusermount3, fusermount, or umount");
+    // To allow integration tests to not fail if unmount fails, comment the assert above and uncomment the block below:
+    // if !unmounted {
+    //     eprintln!("Warning: Failed to unmount using fusermount3, fusermount, or umount");
+    // }
+    eprintln!("Joining thread...");
+    #[cfg(not(any(target_os = "freebsd", target_os = "macos")))]
+    handle.join().unwrap();
+    #[cfg(target_os = "freebsd")]
+    let _ = handle.join();
+    #[cfg(target_os = "macos")]
+    drop(handle);
+    eprintln!("Thread joined successfully!");
+    drop(mntpoint);
+}
+

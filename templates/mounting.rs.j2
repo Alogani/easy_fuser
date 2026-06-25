@@ -35,9 +35,7 @@ pub fn mount<TId, FS, P>(
     filesystem: FS,
     mountpoint: P,
     options: &[MountOption],
-    {% if mode == "parallel" %}
-        num_threads: usize,
-    {% endif %}
+    num_threads: Option<usize>,
 ) -> io::Result<()>
 where
     TId: FileIdType,
@@ -46,11 +44,7 @@ where
 {
     let driver = FuseDriver::new(
         filesystem,
-        {% if mode == "parallel" %}
-            num_threads,
-        {% else %}
-            1,
-        {% endif %}
+        num_threads,
         );
     mount2(driver, mountpoint, options)
 }
@@ -90,9 +84,7 @@ pub fn spawn_mount<TId, FS, P>(
     filesystem: FS,
     mountpoint: P,
     options: &[MountOption],
-    {% if mode == "parallel" %}
-        num_threads: usize,
-    {% endif %}
+    num_threads: Option<usize>,
 ) -> io::Result<FuseSession<TId>>
 where
     TId: FileIdType,
@@ -101,11 +93,7 @@ where
 {
     let driver = FuseDriver::new(
         filesystem,
-        {% if mode == "parallel" %}
-            num_threads,
-        {% else %}
-            1,
-        {% endif %}
+        num_threads,
         );
     let resolver = driver.resolver.clone();
     let session = spawn_mount2(driver, mountpoint, options)?;

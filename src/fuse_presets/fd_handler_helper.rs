@@ -188,6 +188,12 @@ pub struct FdHandlerHelper<TId: FileIdType> {
     phantom: PhantomData<TId>,
 }
 
+impl<TId: FileIdType> Default for FdHandlerHelper<TId> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<TId: FileIdType> FdHandlerHelper<TId> {
     pub fn new() -> Self {
         Self {
@@ -204,6 +210,12 @@ impl<TId: FileIdType> FdHandlerHelper<TId> {
 /// Specific documentation is located in parent module documentation.
 pub struct FdHandlerHelperReadOnly<TId: FileIdType> {
     phantom: PhantomData<TId>,
+}
+
+impl<TId: FileIdType> Default for FdHandlerHelperReadOnly<TId> {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl<TId: FileIdType> FdHandlerHelperReadOnly<TId> {

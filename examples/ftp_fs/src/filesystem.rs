@@ -1,5 +1,5 @@
-use easy_fuser::prelude::*;
-use easy_fuser::templates::DefaultFuseHandler;
+use easy_fuser::fuse_parallel::prelude::*;
+use easy_fuser::fuse_presets::DefaultFuseHandler;
 use io::{Read, Seek, SeekFrom};
 use std::error;
 use std::ffi::{OsStr, OsString};
@@ -13,7 +13,7 @@ use crate::{helpers::*, DirectoryDetectionMethod};
 pub struct FtpFs {
     ftp_client: Mutex<FtpStream>,
     detection_method: DirectoryDetectionMethod,
-    inner_fs: DefaultFuseHandler,
+    inner_fs: DefaultFuseHandler<PathBuf>,
 }
 
 impl FtpFs {
@@ -43,10 +43,12 @@ impl FtpFs {
     }
 }
 
-impl FuseHandler<PathBuf> for FtpFs {
-    fn get_inner(&self) -> &dyn FuseHandler<PathBuf> {
-        &self.inner_fs
-    }
+impl FuseHandler for FtpFs {
+    type TId = PathBuf;
+
+    easy_fuser::delegate_fs! { inner_fs, [
+        access, bmap, copy_file_range, create, fallocate, flush, forget, fsync, fsyncdir, getlk, getxattr, ioctl, link, listxattr, lseek, mkdir, mknod, open, opendir, readlink, release, releasedir, removexattr, rename, rmdir, setattr, setlk, setxattr, statfs, symlink, write, unlink
+    ] }
 
     fn getattr(
         &self,

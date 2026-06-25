@@ -28,7 +28,7 @@ type DirIter<TAttr> = HashMap<(u64, i64), VecDeque<(OsString, u64, TAttr)>>;
     {% if mode == "serial" %}
         borrow_mut()
     {% elif mode == "parallel" %}
-        lock().unwrap() // TODO: parking_lot support
+        lock_unwrap()
     {% elif mode == "async" %}
         lock().await
     {% endif %}
@@ -45,6 +45,28 @@ type DirIter<TAttr> = HashMap<(u64, i64), VecDeque<(OsString, u64, TAttr)>>;
     use parking_lot::Mutex;
     #[cfg(not(feature = "deadlock_detection"))]
     use std::sync::Mutex;
+
+    #[cfg(feature = "deadlock_detection")]
+    trait LockMutex<T> {
+        fn lock_unwrap(&self) -> parking_lot::MutexGuard<'_, T>;
+    }
+    #[cfg(feature = "deadlock_detection")]
+    impl<T> LockMutex<T> for Mutex<T> {
+        fn lock_unwrap(&self) -> parking_lot::MutexGuard<'_, T> {
+            self.lock()
+        }
+    }
+
+    #[cfg(not(feature = "deadlock_detection"))]
+    trait LockMutex<T> {
+        fn lock_unwrap(&self) -> std::sync::MutexGuard<'_, T>;
+    }
+    #[cfg(not(feature = "deadlock_detection"))]
+    impl<T> LockMutex<T> for Mutex<T> {
+        fn lock_unwrap(&self) -> std::sync::MutexGuard<'_, T> {
+            self.lock().unwrap()
+        }
+    }
 
 {% elif mode == "async" %}
     use tokio::runtime::Runtime;
@@ -96,12 +118,9 @@ where
 {
     pub fn new(
         handler: THandler,
-        {% if mode == "parallel" %}
-            num_threads: usize
-        {% else %}
-            _num_threads: usize
-        {% endif %}
+        num_threads: Option<usize>,
     ) -> FuseDriver<TId, THandler> {
+        let _ = num_threads;
         {% if mode == "parallel" %}
             #[cfg(feature = "deadlock_detection")]
             spawn_deadlock_checker();
@@ -120,10 +139,27 @@ where
             {% endif %}
 
             {% if mode == "parallel" %}
-                threadpool: ThreadPool::new(num_threads),
-                reply_threadpool: ThreadPool::new(num_threads),
+                threadpool: {
+                    let threads = num_threads.or_else(|| {
+                        std::thread::available_parallelism().map(|n| n.get()).ok()
+                    }).unwrap_or(4);
+                    ThreadPool::new(threads)
+                },
+                reply_threadpool: {
+                    let threads = num_threads.or_else(|| {
+                        std::thread::available_parallelism().map(|n| n.get()).ok()
+                    }).unwrap_or(4);
+                    ThreadPool::new(threads)
+                },
             {% elif mode == "async" %}
-                runtime: Arc::new(Runtime::new().unwrap()),
+                runtime: Arc::new({
+                    let mut builder = tokio::runtime::Builder::new_multi_thread();
+                    builder.enable_all();
+                    if let Some(threads) = num_threads {
+                        builder.worker_threads(threads);
+                    }
+                    builder.build().unwrap()
+                }),
             {% endif %}
         }
     }
@@ -1145,12 +1181,12 @@ where
             uid,
             gid,
             size,
-            atime: atime,
-            mtime: mtime,
-            ctime: ctime,
-            crtime: crtime,
-            chgtime: chgtime,
-            bkuptime: bkuptime,
+            atime,
+            mtime,
+            ctime,
+            crtime,
+            chgtime,
+            bkuptime,
             flags: None,
             file_handle: fh.map(|fh| unsafe { BorrowedFileHandle::from_raw(fh) }),
         };

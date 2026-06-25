@@ -9,7 +9,7 @@ homepage = "https://github.com/Alogani/easy_fuser"
 repository = "https://github.com/Alogani/easy_fuser"
 
 [features]
-default = []
+default = ["serial", "parallel", "async"]
 serial = []
 parallel = ["dep:threadpool"]
 async = ["dep:async-trait", "dep:tokio"]

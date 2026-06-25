@@ -1,7 +1,7 @@
 #![doc = include_str!("../README.md")]
 
-use easy_fuser::prelude::*;
-use easy_fuser::templates::DefaultFuseHandler;
+use easy_fuser::fuse_serial::prelude::*;
+use easy_fuser::fuse_presets::DefaultFuseHandler;
 use std::ffi::{OsStr, OsString};
 use std::path::Path;
 use std::time::{Duration, UNIX_EPOCH};
@@ -56,7 +56,7 @@ const HELLO_TXT_ATTR: (Inode, FileAttribute) = (
 
 struct HelloFS {
     // To avoid implemeting all fuse methods
-    inner: DefaultFuseHandler,
+    inner: DefaultFuseHandler<Inode>,
 }
 
 impl HelloFS {
@@ -67,10 +67,12 @@ impl HelloFS {
     }
 }
 
-impl FuseHandler<Inode> for HelloFS {
-    fn get_inner(&self) -> &dyn FuseHandler<Inode> {
-        &self.inner
-    }
+impl FuseHandler for HelloFS {
+    type TId = Inode;
+
+    easy_fuser::delegate_fs! { inner, [
+        access, bmap, copy_file_range, create, fallocate, flush, forget, fsync, fsyncdir, getlk, getxattr, ioctl, link, listxattr, lseek, mkdir, mknod, open, opendir, readlink, release, releasedir, removexattr, rename, rmdir, setattr, setlk, setxattr, statfs, symlink, write, unlink
+    ] }
 
     fn get_default_ttl(&self) -> Duration {
         TTL
@@ -169,5 +171,5 @@ fn main() {
     let options = vec![MountOption::RO, MountOption::FSName("hello".to_string())];
 
     println!("Mounting FTP filesystem...");
-    easy_fuser::mount(HelloFS::new(), Path::new(&mountpoint), &options).unwrap();
+    mount(HelloFS::new(), Path::new(&mountpoint), &options, None).unwrap();
 }

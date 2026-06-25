@@ -200,14 +200,14 @@ where
             .mapper
             .read()
             .expect("failed to acquire read lock on mapper");
-        let path = mapper.resolve(&self.inode).map(|components| {
+        
+        mapper.resolve(&self.inode).map(|components| {
             components
                 .iter()
                 .map(|component| component.name.as_ref())
                 .rev()
                 .collect::<PathBuf>()
-        });
-        path
+        })
     }
 
     /// Retrieves the inode of the hybrid ID.

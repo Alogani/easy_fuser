@@ -345,7 +345,9 @@ pub fn make_method_call_expr(method: &TraitItemFn) -> Expr {
         })
         .collect();
 
-    let call = Expr::Call(ExprCall {
+    
+
+    Expr::Call(ExprCall {
         attrs: vec![],
         func: Box::new(Expr::Path(ExprPath {
             attrs: vec![],
@@ -354,7 +356,5 @@ pub fn make_method_call_expr(method: &TraitItemFn) -> Expr {
         })),
         paren_token: syn::token::Paren::default(),
         args: syn::punctuated::Punctuated::from_iter(args),
-    });
-
-    call
+    })
 }

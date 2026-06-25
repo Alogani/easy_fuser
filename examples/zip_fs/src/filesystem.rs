@@ -1,8 +1,8 @@
 use zip::ZipArchive;
 
 use easy_fuser::inode_mapper::*;
-use easy_fuser::prelude::*;
-use easy_fuser::templates::DefaultFuseHandler;
+use easy_fuser::fuse_serial::prelude::*;
+use easy_fuser::fuse_presets::DefaultFuseHandler;
 
 use std::ffi::{OsStr, OsString};
 use std::fs::File;
@@ -19,7 +19,7 @@ pub struct ZipFs {
     archive: Mutex<ZipArchive<File>>,
     // index and is_dir are stored in a tuple
     mapper: RwLock<InodeMapper<(usize, bool)>>,
-    inner_fs: DefaultFuseHandler,
+    inner_fs: DefaultFuseHandler<Inode>,
 }
 
 impl ZipFs {
@@ -79,10 +79,12 @@ impl ZipFs {
     }
 }
 
-impl FuseHandler<Inode> for ZipFs {
-    fn get_inner(&self) -> &dyn FuseHandler<Inode> {
-        &self.inner_fs
-    }
+impl FuseHandler for ZipFs {
+    type TId = Inode;
+
+    easy_fuser::delegate_fs! { inner_fs, [
+        access, bmap, copy_file_range, create, fallocate, flush, fsync, fsyncdir, getlk, getxattr, ioctl, link, listxattr, lseek, mkdir, mknod, open, opendir, readlink, release, releasedir, removexattr, rename, rmdir, setattr, setlk, setxattr, statfs, symlink, write, unlink
+    ] }
 
     fn getattr(
         &self,

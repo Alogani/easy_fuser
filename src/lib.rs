@@ -17,7 +17,8 @@ pub mod unix_fs;
 
 pub mod fuse_async;
 pub mod fuse_parallel;
-pub mod fuse_serial;
 pub mod fuse_presets;
+pub mod fuse_serial;
 
+pub use easy_fuser_macro::{delegate_fs, delegate_fs_async, delegate_fs_sync_to_async};
 pub use session::{FusePruner, FuseSession};
