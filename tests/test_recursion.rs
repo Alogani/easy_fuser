@@ -2,10 +2,10 @@
 // Async mode is covered by tests/async_test.rs instead.
 #![cfg(any(feature = "serial", feature = "parallel"))]
 
-#[cfg(feature = "serial")]
-use easy_fuser::fuse_serial::prelude::*;
 #[cfg(all(feature = "parallel", not(feature = "serial")))]
 use easy_fuser::fuse_parallel::prelude::*;
+#[cfg(feature = "serial")]
+use easy_fuser::fuse_serial::prelude::*;
 
 use easy_fuser::fuse_presets::{DefaultFuseHandler, mirror_fs::*};
 
@@ -17,7 +17,6 @@ use std::time::{Duration, Instant};
 /// In theory, this test shouldn't work, but for an unknown reason it works
 ///
 /// However, when trying this kind of mount in a terminal, it hangs
-
 use easy_fuser_macro::delegate_fs;
 
 struct MyFs {
@@ -58,7 +57,7 @@ fn test_mirror_fs_recursion() {
     let handle = std::thread::spawn(move || {
         let fs = MyFs {
             mirror_fs: MirrorFs::new(source_path_clone),
-            default_fs: DefaultFuseHandler::new()
+            default_fs: DefaultFuseHandler::new(),
         };
         mount(fs, &mntpoint_clone, &[], Some(4)).unwrap();
     });
@@ -70,7 +69,7 @@ fn test_mirror_fs_recursion() {
             mounted = true;
             break;
         }
-        std::thread::sleep(Duration::from_millis(20));
+        std::thread::sleep(Duration::from_millis(500));
     }
     assert!(mounted, "Mount timed out");
 
@@ -130,16 +129,20 @@ fn test_mirror_fs_recursion() {
             }
         }
     }
-    assert!(unmounted, "Failed to unmount using fusermount3, fusermount, or umount");
+    assert!(
+        unmounted,
+        "Failed to unmount using fusermount3, fusermount, or umount"
+    );
     // To allow integration tests to not fail if unmount fails, comment the assert above and uncomment the block below:
     // if !unmounted {
     //     eprintln!("Warning: Failed to unmount using fusermount3, fusermount, or umount");
     // }
     #[cfg(not(any(target_os = "freebsd", target_os = "macos")))]
     handle.join().unwrap();
-    #[cfg(target_os = "freebsd")] // TODO: explore why error: no such file or directory happens there
+    #[cfg(target_os = "freebsd")]
+    // TODO: explore why error: no such file or directory happens there
     let _ = handle.join();
     #[cfg(target_os = "macos")] // TODO: why handle.join is blocking ?
-    drop(handle); 
+    drop(handle);
     drop(mntpoint);
 }

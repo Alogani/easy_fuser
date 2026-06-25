@@ -1,15 +1,15 @@
 #![cfg(feature = "async")]
 
 use easy_fuser::fuse_async::prelude::*;
-use easy_fuser::fuse_presets::mirror_fs::*;
 use easy_fuser::fuse_presets::DefaultFuseHandler;
+use easy_fuser::fuse_presets::mirror_fs::*;
 use easy_fuser_macro::delegate_fs_sync_to_async;
 
+use async_trait::async_trait;
 use std::fs;
 use std::path::PathBuf;
 use std::time::Duration;
 use tempfile::TempDir;
-use async_trait::async_trait;
 
 struct MyAsyncFs {
     mirror_fs: MirrorFs,
@@ -58,7 +58,7 @@ fn test_async_mirror_fs() {
             mounted = true;
             break;
         }
-        std::thread::sleep(Duration::from_millis(20));
+        std::thread::sleep(Duration::from_millis(500));
     }
     assert!(mounted, "Mount timed out");
 
