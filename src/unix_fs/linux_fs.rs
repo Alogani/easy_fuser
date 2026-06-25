@@ -4,7 +4,7 @@ use std::{
 };
 
 use crate::types::PosixError;
-use libc::{self, c_char, c_int, c_uint, off_t, size_t, ssize_t};
+use libc::{self, c_char, c_int, c_uint, c_void, off_t, size_t, ssize_t};
 
 use super::{StatFs, cstring_from_path};
 
