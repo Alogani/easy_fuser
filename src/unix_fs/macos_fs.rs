@@ -1,18 +1,20 @@
 pub use super::bsd_like_fs::*;
-use std::os::fd::*;
-
 use std::ffi::c_void;
 
 use super::{StatFs, cstring_from_path};
-use crate::PosixError;
+use crate::types::PosixError;
 use libc::{self, c_char, c_int, size_t, ssize_t};
-use libc::{ENOTSUP, F_ALLOCATECONTIG, F_PREALLOCATE, fcntl, fstore_t, ftruncate, off_t};
+use libc::{ENOTSUP, F_ALLOCATECONTIG, F_PREALLOCATE, fcntl, fstore_t, off_t};
 use std::path::Path;
+
+pub(crate) use super::bsd_like_fs::{ftruncate, lseek, pread, pwrite};
 
 // Define FALLOC_FL_KEEP_SIZE constant
 const FALLOC_FL_KEEP_SIZE: c_int = 1;
 
-pub(super) unsafe fn fallocate(fd: c_int, mode: c_int, offset: off_t, len: off_t) -> c_int {
+pub(super) unsafe fn fallocate(fd: c_int, mode: c_int, offset: i64, len: i64) -> c_int {
+    let offset = offset as off_t;
+    let len = len as off_t;
     // Check for unsupported modes
     if mode != 0 && mode != FALLOC_FL_KEEP_SIZE {
         // Set errno to "Operation not supported"

@@ -1,6 +1,6 @@
 #![doc = include_str!("../README.md")]
 
-use easy_fuser::prelude::*;
+use easy_fuser::fuse_parallel::prelude::*;
 use std::ffi::OsStr;
 use std::path::Path;
 
@@ -66,5 +66,5 @@ fn main() {
     let memoryfs = create_memory_fs();
 
     println!("Mounting filesystem...");
-    easy_fuser::mount(memoryfs, Path::new(&mountpoint), &options, 1).unwrap();
+    mount(memoryfs, Path::new(&mountpoint), &options, Some(1)).unwrap();
 }

@@ -1,3 +1,15 @@
 {
-    "rust-analyzer.cargo.features": ["serial"]
+    "files.associations": {
+        "*.rs.j2": "rust",
+    },
+    "rust-analyzer.cargo.features": [
+        "serial",
+        "parallel",
+        "async"
+    ],
+    "rust-analyzer.files.exclude": [
+        "templates"
+    ] /*,
+    "rust-analyzer.check.command": "clippy",
+    "rust-analyzer.check.extraArgs": ["--all-features"]*/
 }

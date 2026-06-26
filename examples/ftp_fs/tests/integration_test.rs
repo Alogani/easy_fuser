@@ -87,12 +87,22 @@ fn test_ftp_fs_mount_and_read() {
         "The test_folder should contain exactly one file (hello.txt)"
     );
 
-    // Unmount the filesystem
-    Command::new("fusermount")
-        .arg("-u")
-        .arg(&mount_path)
-        .status()
-        .expect("Failed to unmount filesystem");
+    let mut unmounted = false;
+    for cmd_name in &["fusermount3", "fusermount", "umount"] {
+        let mut cmd = Command::new(cmd_name);
+        if cmd_name == &"umount" {
+            cmd.arg(&mount_path);
+        } else {
+            cmd.arg("-u").arg(&mount_path);
+        }
+        if let Ok(status) = cmd.status() {
+            if status.success() {
+                unmounted = true;
+                break;
+            }
+        }
+    }
+    assert!(unmounted, "Failed to unmount filesystem");
 
     // Terminate the ftp_fs process
     child.kill().expect("Failed to kill ftp_fs process");

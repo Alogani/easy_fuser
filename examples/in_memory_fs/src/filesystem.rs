@@ -1,12 +1,12 @@
-use easy_fuser::prelude::*;
-use easy_fuser::templates::DefaultFuseHandler;
+use easy_fuser::fuse_parallel::prelude::*;
+use easy_fuser::fuse_presets::DefaultFuseHandler;
 use std::collections::HashMap;
 use std::ffi::{OsStr, OsString};
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 pub struct InMemoryFS {
-    inner: DefaultFuseHandler,
+    inner: DefaultFuseHandler<Inode>,
     fs: Arc<Mutex<DataBank>>,
 }
 
@@ -64,10 +64,12 @@ impl InMemoryFS {
     }
 }
 
-impl FuseHandler<Inode> for InMemoryFS {
-    fn get_inner(&self) -> &dyn FuseHandler<Inode> {
-        &self.inner
-    }
+impl FuseHandler for InMemoryFS {
+    type TId = Inode;
+
+    easy_fuser::delegate_fs! { inner, [
+        bmap, copy_file_range, fsyncdir, getlk, getxattr, ioctl, link, listxattr, lseek, mknod, open, opendir, readlink, release, releasedir, removexattr, setlk, setxattr, statfs, symlink
+    ] }
 
     // Access is not called for every operation
     fn access(&self, req: &RequestInfo, file_id: Inode, mask: AccessMask) -> FuseResult<()> {

@@ -1,8 +1,6 @@
-mod fuse_driver;
-mod fuse_driver_types;
-mod inode_mapping;
-mod macros;
-mod thread_mode;
+// TODO: move or remove ?
+pub(crate) mod helpers;
 
-pub(crate) use fuse_driver_types::FuseDriver;
-pub(crate) use inode_mapping::{InodeResolvable, ROOT_INO};
+mod inode_mapping;
+
+pub(crate) use inode_mapping::{FileIdResolver, InodeResolvable, ROOT_INO};

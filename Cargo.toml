@@ -1,6 +1,6 @@
 [package]
 name = "easy_fuser"
-version = "0.4.5"
+version = "0.5.0"
 edition = "2024"
 description = "A flexible and idiomatic Fuse implementation for Rust"
 license = "MIT"
@@ -9,18 +9,19 @@ homepage = "https://github.com/Alogani/easy_fuser"
 repository = "https://github.com/Alogani/easy_fuser"
 
 [features]
-default = []
+default = ["serial", "parallel", "async"]
 serial = []
 parallel = ["dep:threadpool"]
 async = ["dep:async-trait", "dep:tokio"]
 deadlock_detection = ["parallel", "dep:parking_lot"]
-
+libfuse = ["fuser/libfuse"]
 
 [dependencies]
 # Core dependencies
+easy_fuser_macro = { version = "0.1", path = "easy_fuser_macro"}
+fuser = { version = "0.16.0" }
 log = "0.4"
 libc = "0.2"
-fuser = "0.16"
 bitflags = "2.10"
 
 # Parallel dependencies
@@ -37,6 +38,9 @@ bimap = { version = "0.6.3", features = ["std"] }
 [dev-dependencies]
 tempfile = "3.23"
 env_logger = "0.11"
+
+[build-dependencies]
+askama = { version = "0.15.4", features = ["derive"] }
 
 [package.metadata.docs.rs]
 features = ["parallel"]

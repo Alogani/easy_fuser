@@ -33,7 +33,7 @@ use fuser::FileType as FileKind;
 ///    - Pros: Slightly lower overhead than PathBuf, allows path to be divided into parts.
 ///    - Cons: Path components are stored in reverse order, which may require additional handling.
 ///    - Root: Represented by an empty vector.
-/// 
+///
 /// 3. `Inode`: The user provides their own unique inode numbers.
 ///    - Pros: Direct control over inode assignment.
 ///    - Cons: Requires manual management of inode uniqueness.
@@ -60,7 +60,8 @@ use fuser::FileType as FileKind;
 ///       - The user can use the hardlinks of the current filesystem by using `libc::fstat(...).f_fsid` (Persistent) or libc::fstatfs(...).f_dev` (Ephemeral)
 ///       - When a Fuse operation provides an inode, the user can use `BackingId::all_paths()` to retrieve all the paths associated to that inode
 pub trait FileIdType:
-    'static + Debug + Clone + PartialEq + Eq + std::hash::Hash + InodeResolvable
+    'static + Debug + Clone + PartialEq + Eq
+    + Send + std::hash::Hash + InodeResolvable
 {
     /// Full metadata type for the file system.
     ///
@@ -199,14 +200,14 @@ where
             .mapper
             .read()
             .expect("failed to acquire read lock on mapper");
-        let path = mapper.resolve(&self.inode).map(|components| {
+        
+        mapper.resolve(&self.inode).map(|components| {
             components
                 .iter()
                 .map(|component| component.name.as_ref())
                 .rev()
                 .collect::<PathBuf>()
-        });
-        path
+        })
     }
 
     /// Retrieves the inode of the hybrid ID.
@@ -239,7 +240,6 @@ where
     /// file that a filesystem handler opened, which mitigates the risk of a race
     /// condition, in which case another backing path could be tried, or an error
     /// could be returned.
-    #[deprecated = "Unstable: need sanity check to resist TOCTOU bugs. _marked temporarly as deprecated_"]
     pub fn backing_id(&self) -> Option<BackingId> {
         let mapper = self
             .mapper

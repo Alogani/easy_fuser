@@ -1,6 +1,6 @@
 use std::time::UNIX_EPOCH;
 
-use easy_fuser::prelude::*;
+use easy_fuser::fuse_serial::prelude::*;
 use zip::read::ZipFile;
 
 pub fn get_root_attribute() -> FileAttribute {

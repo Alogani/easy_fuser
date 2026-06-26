@@ -28,16 +28,14 @@ pub use std::io::SeekFrom;
 
 pub fn seek_from_raw(whence: Option<i32>, offset: i64) -> SeekFrom {
     match whence {
-        Some(w) => match w {
-            libc::SEEK_SET => SeekFrom::Start(
-                offset
-                    .try_into()
-                    .expect("Invalid negative seek offset for file start"),
-            ),
-            libc::SEEK_CUR => SeekFrom::Current(offset),
-            libc::SEEK_END => SeekFrom::End(offset),
-            _ => panic!("Invalid seek code"),
-        },
+        Some(libc::SEEK_SET) => SeekFrom::Start(
+            offset
+                .try_into()
+                .expect("Invalid negative seek offset for file start"),
+        ),
+        Some(libc::SEEK_CUR) => SeekFrom::Current(offset),
+        Some(libc::SEEK_END) => SeekFrom::End(offset),
+        Some(_) => panic!("Invalid seek code"),
         None => SeekFrom::Start(
             offset
                 .try_into()
@@ -68,8 +66,8 @@ impl DeviceType {
     pub fn from_rdev(rdev: mode_t) -> Self {
         use libc::*;
         // Extract major and minor device numbers (assuming the device number format).
-        let major: u32 = (rdev >> 8).into(); // Major is the upper part of the 32-bit value (16 bit on macos)
-        let minor: u32 = (rdev & 0xFF).into(); // Minor is the lower 8 bits
+        let major: u32 = (rdev >> 8) as u32; // Major is the upper part of the 32-bit value (16 bit on macos)
+        let minor: u32 = (rdev & 0xFF) as u32; // Minor is the lower 8 bits
         match rdev {
             x if x & S_IFREG != 0 => DeviceType::RegularFile,
             x if x & S_IFDIR != 0 => DeviceType::Directory,
@@ -275,6 +273,12 @@ pub struct SetAttrRequest<'a> {
     pub flags: Option<()>,
     /// File handle for the file being modified
     pub file_handle: Option<BorrowedFileHandle<'a>>,
+}
+
+impl<'a> Default for SetAttrRequest<'a> {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl<'a> SetAttrRequest<'a> {
