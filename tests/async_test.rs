@@ -58,7 +58,7 @@ fn test_async_mirror_fs() {
             mounted = true;
             break;
         }
-        std::thread::sleep(Duration::from_millis(500));
+        std::thread::sleep(Duration::from_millis(50));
     }
     assert!(mounted, "Mount timed out");
 
@@ -84,10 +84,8 @@ fn test_async_mirror_fs() {
         }
     }
     assert!(unmounted, "Failed to unmount async filesystem");
-    #[cfg(not(any(target_os = "freebsd", target_os = "macos")))]
+    #[cfg(not(any(target_os = "freebsd")))]
     handle.join().unwrap();
     #[cfg(target_os = "freebsd")]
     let _ = handle.join();
-    #[cfg(target_os = "macos")]
-    drop(handle);
 }

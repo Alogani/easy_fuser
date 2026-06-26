@@ -65,7 +65,7 @@ fn test_mirror_fs_file_offsets() {
             mounted = true;
             break;
         }
-        std::thread::sleep(Duration::from_millis(500));
+        std::thread::sleep(Duration::from_millis(50));
     }
     assert!(mounted, "Mount timed out");
 
@@ -161,12 +161,10 @@ fn test_mirror_fs_file_offsets() {
     // if !unmounted {
     //     eprintln!("Warning: Failed to unmount using fusermount3, fusermount, or umount");
     // }
-    #[cfg(not(any(target_os = "freebsd", target_os = "macos")))]
+    #[cfg(not(any(target_os = "freebsd")))]
     handle.join().unwrap();
     #[cfg(target_os = "freebsd")]
     // TODO: explore why error: no such file or directory happens there
     let _ = handle.join();
-    #[cfg(target_os = "macos")] // TODO: why handle.join is blocking ?
-    drop(handle);
     drop(mntpoint);
 }

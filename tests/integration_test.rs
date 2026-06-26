@@ -94,7 +94,7 @@ fn test_mirror_fs_operations() {
             mounted = true;
             break;
         }
-        std::thread::sleep(Duration::from_millis(500));
+        std::thread::sleep(Duration::from_millis(50));
     }
     assert!(mounted, "Mount timed out");
 
@@ -192,13 +192,11 @@ fn test_mirror_fs_operations() {
     //     eprintln!("Warning: Failed to unmount using fusermount3, fusermount, or umount");
     // }
     eprintln!("Joining thread...");
-    #[cfg(not(any(target_os = "freebsd", target_os = "macos")))]
+    #[cfg(not(any(target_os = "freebsd")))]
     handle.join().unwrap();
     #[cfg(target_os = "freebsd")]
     // TODO: explore why error: no such file or directory happens there
     let _ = handle.join();
-    #[cfg(target_os = "macos")] // TODO: why handle.join is blocking ?
-    drop(handle);
     eprintln!("Thread joined successfully!");
     drop(mntpoint);
 }
@@ -235,7 +233,7 @@ fn test_mirror_fs_readonly_operations() {
             mounted = true;
             break;
         }
-        std::thread::sleep(Duration::from_millis(20));
+        std::thread::sleep(Duration::from_millis(50));
     }
     assert!(mounted, "Mount timed out");
 
@@ -280,12 +278,10 @@ fn test_mirror_fs_readonly_operations() {
     //     eprintln!("Warning: Failed to unmount using fusermount3, fusermount, or umount");
     // }
     eprintln!("Joining thread...");
-    #[cfg(not(any(target_os = "freebsd", target_os = "macos")))]
+    #[cfg(not(any(target_os = "freebsd")))]
     handle.join().unwrap();
     #[cfg(target_os = "freebsd")]
     let _ = handle.join();
-    #[cfg(target_os = "macos")]
-    drop(handle);
     eprintln!("Thread joined successfully!");
     drop(mntpoint);
 }
