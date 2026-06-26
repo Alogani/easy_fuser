@@ -79,7 +79,7 @@ use crate::unix_fs;
 
 macro_rules! mirror_fs_readonly_methods {
     () => {
-        pub fn access(&self, _req: &RequestInfo, file_id: std::path:: PathBuf, mask: AccessMask) -> FuseResult<()> {
+        pub fn access(&self, _req: &RequestInfo, file_id: std::path:: PathBuf, mask: AccessFlags) -> FuseResult<()> {
             let file_path = self.source_path.join(file_id);
             unix_fs::access(&file_path, mask)
         }
@@ -130,12 +130,12 @@ macro_rules! mirror_fs_readonly_methods {
             _req: &RequestInfo,
             file_id: std::path:: PathBuf,
             flags: OpenFlags,
-        ) -> FuseResult<(OwnedFileHandle, FUSEOpenResponseFlags)> {
+        ) -> FuseResult<(OwnedFileHandle, FopenFlags)> {
             let file_path = self.source_path.join(file_id);
             let fd = unix_fs::open(file_path.as_ref(), flags)?;
             // Open by definition returns positive Fd or error
             let file_handle = OwnedFileHandle::from_owned_fd(fd).unwrap();
-            Ok((file_handle, FUSEOpenResponseFlags::empty()))
+            Ok((file_handle, FopenFlags::empty()))
         }
 
         pub fn readdir(
@@ -177,12 +177,12 @@ macro_rules! mirror_fs_readwrite_methods {
             mode: u32,
             umask: u32,
             flags: OpenFlags,
-        ) -> FuseResult<(OwnedFileHandle, FileAttribute, FUSEOpenResponseFlags)> {
+        ) -> FuseResult<(OwnedFileHandle, FileAttribute, FopenFlags)> {
             let file_path = self.source_path.join(parent_id).join(name);
             let (fd, file_attr) = unix_fs::create(&file_path, mode, umask, flags)?;
             // Open by definition returns positive Fd or error
             let file_handle = OwnedFileHandle::from_owned_fd(fd).unwrap();
-            Ok((file_handle, file_attr, FUSEOpenResponseFlags::empty()))
+            Ok((file_handle, file_attr, FopenFlags::empty()))
         }
 
         pub fn mkdir(
@@ -255,7 +255,7 @@ macro_rules! mirror_fs_readwrite_methods {
             file_id: std::path:: PathBuf,
             name: &std::ffi::OsStr,
             value: Vec<u8>,
-            flags: FUSESetXAttrFlags,
+            flags: SetXAttrFlags,
             position: u32,
         ) -> FuseResult<()> {
             let file_path = self.source_path.join(file_id);

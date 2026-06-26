@@ -37,7 +37,7 @@ impl<T: FileIdType> FuseSession<T> {
     /// Join the background session, waiting for the filesystem to unmount.
     ///
     /// This method blocks until the filesystem is unmounted.
-    pub fn join(self) {
+    pub fn join(self) -> std::io::Result<()> {
         self.session.join()
     }
 }

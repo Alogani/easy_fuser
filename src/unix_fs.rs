@@ -480,7 +480,7 @@ pub fn rename(oldpath: &Path, newpath: &Path, flags: RenameFlags) -> Result<(), 
 /// Although this function returns a Fd, it is guaranted to be positive and valid.
 pub fn open(path: &Path, flags: OpenFlags) -> Result<OwnedFd, PosixError> {
     let c_path = cstring_from_path(path)?;
-    let fd = unsafe { libc::open(c_path.as_ptr(), flags.bits()) };
+    let fd = unsafe { libc::open(c_path.as_ptr(), flags.0) };
     if fd == -1 {
         return Err(PosixError::last_error(format!(
             "{}: open failed",
@@ -733,7 +733,7 @@ pub fn setxattr(
     path: &Path,
     name: &OsStr,
     value: &[u8],
-    flags: FUSESetXAttrFlags,
+    flags: SetXAttrFlags,
     position: u32,
 ) -> Result<(), PosixError> {
     let c_path = cstring_from_path(path)?;
@@ -900,7 +900,7 @@ pub fn removexattr(path: &Path, name: &OsStr) -> Result<(), PosixError> {
 ///
 /// It verifies whether the calling process can access the file specified by the path
 /// according to the given access mask.
-pub fn access(path: &Path, mask: AccessMask) -> Result<(), PosixError> {
+pub fn access(path: &Path, mask: AccessFlags) -> Result<(), PosixError> {
     let c_path = cstring_from_path(path)?;
     let ret = unsafe { libc::access(c_path.as_ptr(), mask.bits()) };
     if ret == -1 {
@@ -919,7 +919,7 @@ pub fn access(path: &Path, mask: AccessMask) -> Result<(), PosixError> {
 ///
 /// It creates a new file if it doesn't exist, opens it with write access. It returns a file descriptor
 /// which may not necessarily be equivalent to the FUSE file handle, along with its attributes.
-/// An error is returned if the file already exists and the [OpenFlags::CREATE_EXCLUSIVE] flag is set.
+/// An error is returned if the file already exists and the `O_EXCL` flag is set.
 ///
 /// Although this function returns a Fd, it is guaranted to be positive and valid.
 pub fn create(
@@ -929,7 +929,7 @@ pub fn create(
     flags: OpenFlags,
 ) -> Result<(OwnedFd, FileAttribute), PosixError> {
     let c_path = cstring_from_path(path)?;
-    let open_flags = flags.bits();
+    let open_flags = flags.0;
     let final_mode = mode & !umask;
 
     // Ensure the file is opened with write access if not specified
@@ -1076,7 +1076,7 @@ mod tests {
         let tmpfile = NamedTempFile::new().unwrap();
         fs::write(&tmpfile.path(), "blah").unwrap();
         let attr1 = lookup(&tmpfile.path()).unwrap();
-        let fd = open(&tmpfile.path(), OpenFlags::READ_ONLY).unwrap();
+        let fd = open(&tmpfile.path(), OpenFlags(libc::O_RDONLY)).unwrap();
         let attr2 = getattr(fd.as_fd()).unwrap();
         assert!(attr1.size > 0);
         assert_eq!(attr1, attr2);
@@ -1160,7 +1160,7 @@ mod tests {
     fn test_open() {
         let tmpfile = NamedTempFile::new().unwrap();
 
-        let fd = open(&tmpfile.path(), OpenFlags::empty()).unwrap();
+        let fd = open(&tmpfile.path(), OpenFlags(0)).unwrap();
         assert!(fd.as_raw_fd() > 0);
         drop(tmpfile);
     }
@@ -1170,7 +1170,7 @@ mod tests {
         let tmpfile = NamedTempFile::new().unwrap();
         fs::write(&tmpfile.path(), b"Hello, world!").unwrap();
 
-        let fd = open(&tmpfile.path(), OpenFlags::READ_ONLY).unwrap();
+        let fd = open(&tmpfile.path(), OpenFlags(libc::O_RDONLY)).unwrap();
         let result = read(fd.as_fd(), SeekFrom::Current(0), 5).unwrap();
         assert_eq!(result, b"Hello");
 
@@ -1187,7 +1187,7 @@ mod tests {
     #[test]
     fn test_write() {
         let tmpfile = NamedTempFile::new().unwrap();
-        let fd = open(&tmpfile.path(), OpenFlags::READ_WRITE).unwrap();
+        let fd = open(&tmpfile.path(), OpenFlags(libc::O_RDWR)).unwrap();
 
         // Write data to the file
         let bytes_written = write(fd.as_fd(), SeekFrom::Current(0), b"Hello, world!").unwrap();
@@ -1241,7 +1241,7 @@ mod tests {
             file.write_all(b"Hello, World!").unwrap();
         }
 
-        let fd = open(&path, OpenFlags::READ_WRITE).unwrap();
+        let fd = open(&path, OpenFlags(libc::O_RDWR)).unwrap();
         let borrowed_fd = fd.as_fd();
 
         // Test SeekFrom::Start
