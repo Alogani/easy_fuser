@@ -22,7 +22,7 @@ easy_fuser_macro = { version = "0.1", path = "easy_fuser_macro"}
 fuser = { version = "0.16.0" }
 log = "0.4"
 libc = "0.2"
-bitflags = "2.10"
+bitflags = "2.13"
 
 # Parallel dependencies
 threadpool = { version = "1.8", optional = true }
@@ -31,16 +31,16 @@ parking_lot = { version = "0.12", features = ["deadlock_detection"], optional = 
 
 # Async dependencies
 # easy_fuser_async_macro = { path = "./easy_fuser_async_macro", optional = true }
-tokio = { version = "1.48", features = ["full"], optional = true }
+tokio = { version = "1.52", features = ["full"], optional = true }
 async-trait = { version = "0.1.89", optional = true }
 bimap = { version = "0.6.3", features = ["std"] }
 
 [dev-dependencies]
-tempfile = "3.23"
+tempfile = "3.27"
 env_logger = "0.11"
 
 [build-dependencies]
-askama = { version = "0.15.4", features = ["derive"] }
+askama = { version = "0.16.0", features = ["derive"] }
 
 [package.metadata.docs.rs]
 features = ["parallel"]
