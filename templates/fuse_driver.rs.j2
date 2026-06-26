@@ -258,7 +258,7 @@ where
                 reply.entry(
                     &ttl.unwrap_or(default_ttl),
                     &fuse_attr,
-                    fuser::Generation(generation.unwrap_or(get_random_generation())),
+                    fuser::Generation(generation.unwrap_or(get_default_generation())),
                 );
             {% endcall %}
         }
@@ -399,7 +399,7 @@ where
                         reply.created(
                             &ttl.unwrap_or(default_ttl),
                             &fuse_attr,
-                            fuser::Generation(generation.unwrap_or(get_random_generation())),
+                            fuser::Generation(generation.unwrap_or(get_default_generation())),
                             fuser::FileHandle(file_handle.as_raw()),
                             response_flags,
                         );
@@ -965,7 +965,7 @@ where
                             &name,
                             &ttl.unwrap_or(default_ttl),
                             &fuse_attr,
-                            fuser::Generation(generation.unwrap_or(get_random_generation())),
+                            fuser::Generation(generation.unwrap_or(get_default_generation())),
                         ) {
                             dir_iter.push_front((name, ino, file_attr.clone()));
                             if new_offset > 0 {
