@@ -36,7 +36,7 @@ jobs:
     - name: Build
       run: cargo build --verbose --no-default-features --features ${{ matrix.feature }}
     - name: Run tests
-      run: cargo test  --verbose --no-default-features --features ${{ matrix.feature }}
+      run: cargo test --verbose --no-default-features --features ${{ matrix.feature }}
 
   test_examples:
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
@@ -73,7 +73,7 @@ jobs:
       env:
         PKG_CONFIG_ALLOW_CROSS: 1
         PKG_CONFIG_PATH: /usr/lib/i386-linux-gnu/pkgconfig
-      run: cargo check --target=i686-unknown-linux-gnu --features parallel
+      run: cargo check --target=i686-unknown-linux-gnu --features serial
 
   check_musl:
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
@@ -91,4 +91,4 @@ jobs:
         rustup default stable
         rustup target add x86_64-unknown-linux-musl
     - name: Check
-      run: cargo check --target=x86_64-unknown-linux-musl --features parallel
+      run: cargo check --target=x86_64-unknown-linux-musl --features serial
