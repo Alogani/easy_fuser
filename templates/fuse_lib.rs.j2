@@ -1,4 +1,4 @@
-pub mod fuse_driver {
+mod fuse_driver {
     include!(concat!(env!("OUT_DIR"), "/{{ mode }}/fuse_driver.rs"));
 }
 pub mod fuse_handler {
