@@ -17,13 +17,23 @@ use fuser::{
     ReplyStatfs, ReplyWrite, ReplyXattr, Request, TimeOrNow,
 };
 
-use crate::fuse_handler::FuseHandler;
 use crate::types::*;
 use crate::core::helpers::*;
-use crate::core::thread_mode::*;
-use crate::core::inode_mapping::FileIdResolver;
+use crate::core::FileIdResolver;
+
+use super::fuse_handler::FuseHandler;
 
 type DirIter<TAttr> = HashMap<(u64, i64), VecDeque<(OsString, u64, TAttr)>>;
+{% macro borrow_mut() -%}
+    {% if mode == "serial" %}
+        borrow_mut()
+    {% elif mode == "parallel" %}
+        lock_unwrap()
+    {% elif mode == "async" %}
+        lock().await
+    {% endif %}
+{%- endmacro %}
+
 
 {% if mode == "serial" %}
     use std::cell::RefCell;
@@ -36,6 +46,28 @@ type DirIter<TAttr> = HashMap<(u64, i64), VecDeque<(OsString, u64, TAttr)>>;
     #[cfg(not(feature = "deadlock_detection"))]
     use std::sync::Mutex;
 
+    #[cfg(feature = "deadlock_detection")]
+    trait LockMutex<T> {
+        fn lock_unwrap(&self) -> parking_lot::MutexGuard<'_, T>;
+    }
+    #[cfg(feature = "deadlock_detection")]
+    impl<T> LockMutex<T> for Mutex<T> {
+        fn lock_unwrap(&self) -> parking_lot::MutexGuard<'_, T> {
+            self.lock()
+        }
+    }
+
+    #[cfg(not(feature = "deadlock_detection"))]
+    trait LockMutex<T> {
+        fn lock_unwrap(&self) -> std::sync::MutexGuard<'_, T>;
+    }
+    #[cfg(not(feature = "deadlock_detection"))]
+    impl<T> LockMutex<T> for Mutex<T> {
+        fn lock_unwrap(&self) -> std::sync::MutexGuard<'_, T> {
+            self.lock().unwrap()
+        }
+    }
+
 {% elif mode == "async" %}
     use tokio::runtime::Runtime;
     use tokio::sync::Mutex;
@@ -44,7 +76,7 @@ type DirIter<TAttr> = HashMap<(u64, i64), VecDeque<(OsString, u64, TAttr)>>;
 pub(crate) struct FuseDriver<TId, THandler>
 where
     TId: FileIdType,
-    THandler: FuseHandler<TId>,
+    THandler: FuseHandler<TId = TId>,
 {
     pub resolver: Arc<TId::Resolver>,
 
@@ -70,7 +102,7 @@ where
     impl<TId, THandler> Drop for FuseDriver<TId, THandler>
     where
         TId: FileIdType,
-        THandler: FuseHandler<TId>,
+        THandler: FuseHandler<TId = TId>,
     {
         fn drop(&mut self) {
             self.threadpool.join();
@@ -82,16 +114,13 @@ where
 impl<TId, THandler> FuseDriver<TId, THandler>
 where
     TId: FileIdType,
-    THandler: FuseHandler<TId>,
+    THandler: FuseHandler<TId = TId>,
 {
     pub fn new(
         handler: THandler,
-        {% if send_sync %}
-            num_threads: usize
-        {% else %}
-            _num_threads: usize
-        {% endif %}
+        num_threads: Option<usize>,
     ) -> FuseDriver<TId, THandler> {
+        let _ = num_threads;
         {% if mode == "parallel" %}
             #[cfg(feature = "deadlock_detection")]
             spawn_deadlock_checker();
@@ -110,10 +139,27 @@ where
             {% endif %}
 
             {% if mode == "parallel" %}
-                threadpool: ThreadPool::new(num_threads),
-                reply_threadpool: ThreadPool::new(num_threads),
+                threadpool: {
+                    let threads = num_threads.or_else(|| {
+                        std::thread::available_parallelism().map(|n| n.get()).ok()
+                    }).unwrap_or(4);
+                    ThreadPool::new(threads)
+                },
+                reply_threadpool: {
+                    let threads = num_threads.or_else(|| {
+                        std::thread::available_parallelism().map(|n| n.get()).ok()
+                    }).unwrap_or(4);
+                    ThreadPool::new(threads)
+                },
             {% elif mode == "async" %}
-                runtime: Arc::new(Runtime::new().unwrap()),
+                runtime: Arc::new({
+                    let mut builder = tokio::runtime::Builder::new_multi_thread();
+                    builder.enable_all();
+                    if let Some(threads) = num_threads {
+                        builder.worker_threads(threads);
+                    }
+                    builder.build().unwrap()
+                }),
             {% endif %}
         }
     }
@@ -150,7 +196,7 @@ where
 impl<TId, THandler> fuser::Filesystem for FuseDriver<TId, THandler>
 where
     TId: FileIdType,
-    THandler: FuseHandler<TId>,
+    THandler: FuseHandler<TId = TId>,
 {
     {% macro spawn() -%}
         {% if mode == "parallel" %}
@@ -158,7 +204,7 @@ where
             self.threadpool.execute(move || {
         {% elif mode == "async" %}
             let runtime = self.runtime.clone();
-            runtime.spawn(async move {
+            self.runtime.spawn(async move {
         {% endif %}
         
         {{ caller() }}
@@ -239,7 +285,7 @@ where
                 &req,
                 resolver.resolve_id(ino),
                 AccessMask::from_bits_retain(mask),
-            ) {
+            ){% if mode == "async" %}.await{% endif %} {
                 Ok(()) => { {% call spawn_reply() %}reply.ok();{% endcall %} }
                 Err(e) => {
                     warn!("access: ino {:x?}, [{}], {:?}", ino, e, req);
@@ -255,7 +301,12 @@ where
         let handler = self.get_handler();
         let resolver = self.resolver.clone();
         {% call spawn() %}
-            match handler.bmap(&req, resolver.resolve_id(ino), blocksize, idx) {
+            match handler.bmap(
+                &req,
+                resolver.resolve_id(ino),
+                blocksize,
+                idx
+            ){% if mode == "async" %}.await{% endif %} {
                 Ok(block) => { {% call spawn_reply() %}reply.bmap(block);{% endcall %} }
                 Err(e) => {
                     warn!("bmap: ino {:x?}, [{}], {:?}", ino, e, req);
@@ -292,7 +343,7 @@ where
                 offset_out,
                 len,
                 flags,
-            ) {
+            ){% if mode == "async" %}.await{% endif %} {
                 Ok(bytes_written) => { {% call spawn_reply() %} reply.written(bytes_written);{% endcall %} }
                 Err(e) => {
                     warn!("copy_file_range: ino {:x?}, [{}], {:?}", ino_in, e, req);
@@ -324,7 +375,7 @@ where
                 mode,
                 umask,
                 OpenFlags::from_bits_retain(flags),
-            ) {
+            ){% if mode == "async" %}.await{% endif %} {
                 Ok((file_handle, metadata, response_flags)) => {
                     let default_ttl = handler.get_default_ttl();
                     let (id, file_attr) = TId::extract_metadata(metadata);
@@ -369,7 +420,7 @@ where
                 offset,
                 length,
                 FallocateFlags::from_bits_retain(mode),
-            ) {
+            ){% if mode == "async" %}.await{% endif %} {
                 Ok(()) => { {% call spawn_reply() %} reply.ok(); {% endcall %} }
                 Err(e) => {
                     warn!("fallocate: ino {:x?}, [{}], {:?}", ino, e, req);
@@ -389,7 +440,7 @@ where
                 resolver.resolve_id(ino),
                 unsafe { BorrowedFileHandle::from_raw(fh) },
                 lock_owner,
-            ) {
+            ){% if mode == "async" %}.await{% endif %} {
                 Ok(()) => { {% call spawn_reply() %} reply.ok(); {% endcall %} }
                 Err(e) => {
                     warn!("flush: ino {:x?}, [{}], {:?}", ino, e, req);
@@ -403,8 +454,12 @@ where
         let req = RequestInfo::from(req);
         let handler = self.get_handler();
         let resolver = self.resolver.clone();
-        handler.forget(&req, resolver.resolve_id(ino), nlookup);
-        resolver.forget(ino, nlookup);
+        #[allow(unused_variables)] // No need for replies
+        {% call spawn() %}
+            handler.forget(&req, resolver.resolve_id(ino), nlookup)
+                {% if mode == "async" %}.await{% endif %};
+            resolver.forget(ino, nlookup);
+        {% endcall %}
     }
 
     fn fsync(&mut self, req: &Request, ino: u64, fh: u64, datasync: bool, reply: ReplyEmpty) {
@@ -417,7 +472,7 @@ where
                 resolver.resolve_id(ino),
                 unsafe { BorrowedFileHandle::from_raw(fh) },
                 datasync,
-            ) {
+            ){% if mode == "async" %}.await{% endif %} {
                 Ok(()) => { {% call spawn_reply() %} reply.ok(); {% endcall %} }
                 Err(e) => {
                     warn!("fsync: ino {:x?}, [{}], {:?}", ino, e, req);
@@ -437,7 +492,7 @@ where
                 resolver.resolve_id(ino),
                 unsafe { BorrowedFileHandle::from_raw(fh) },
                 datasync,
-            ) {
+            ){% if mode == "async" %}.await{% endif %} {
                 Ok(()) => { {% call spawn_reply() %} reply.ok(); {% endcall %} }
                 Err(e) => {
                     warn!("fsyncdir: ino {:x?}, [{}], {:?}", ino, e, req);
@@ -456,7 +511,7 @@ where
                 &req,
                 resolver.resolve_id(ino),
                 fh.map(|fh| unsafe { BorrowedFileHandle::from_raw(fh) })
-            ) {
+            ){% if mode == "async" %}.await{% endif %} {
                 {{ reply_attr() }}
                 Err(e) => {
                     warn!("getattr: ino {:x?}, [{}], {:?}", ino, e, req);
@@ -494,7 +549,7 @@ where
                 unsafe { BorrowedFileHandle::from_raw(fh) },
                 lock_owner,
                 lock_info,
-            ) {
+            ){% if mode == "async" %}.await{% endif %} {
                 Ok(lock_info) => { {% call spawn_reply() %}
                     reply.locked(
                         lock_info.start,
@@ -517,7 +572,11 @@ where
         let resolver = self.resolver.clone();
         let name = name.to_owned();
         {% call spawn() %}
-            match handler.getxattr(&req, resolver.resolve_id(ino), &name, size) {
+            match handler.getxattr(
+                &req,
+                resolver.resolve_id(ino),
+                &name, size
+            ){% if mode == "async" %}.await{% endif %} {
                 Ok(xattr_data) => { {% call spawn_reply() %}
                     if size == 0 {
                         reply.size(xattr_data.len() as u32);
@@ -559,7 +618,7 @@ where
                 cmd,
                 in_data,
                 out_size,
-            ) {
+            ){% if mode == "async" %}.await{% endif %} {
                 Ok((result, data)) => { {% call spawn_reply() %} reply.ioctl(result, &data); {% endcall %} }
                 Err(e) => {
                     warn!("ioctl: ino {:x?}, [{}], {:?}", ino, e, req);
@@ -582,11 +641,12 @@ where
         let resolver = self.resolver.clone();
         let newname = newname.to_owned();
         {% call spawn() %}
-            match handler.link(&req,
+            match handler.link(
+                &req,
                 resolver.resolve_id(ino),
                 resolver.resolve_id(newparent),
                 &newname
-            ) {
+            ){% if mode == "async" %}.await{% endif %} {
                 {% call reply_entry("newparent", "newname") %}{% endcall %}
                 Err(e) => {
                     warn!("link: parent_ino {:x?}, [{}], {:?}", ino, e, req);
@@ -601,7 +661,11 @@ where
         let handler = self.get_handler();
         let resolver = self.resolver.clone();
         {% call spawn() %}
-            match handler.listxattr(&req, resolver.resolve_id(ino), size) {
+            match handler.listxattr(
+                &req,
+                resolver.resolve_id(ino),
+                size
+            ){% if mode == "async" %}.await{% endif %} {
                 Ok(xattr_data) => { {% call spawn_reply() %}
                     if size == 0 {
                         reply.size(xattr_data.len() as u32);
@@ -625,7 +689,11 @@ where
         let resolver = self.resolver.clone();
         let name = name.to_owned();
         {% call spawn() %}
-            match handler.lookup(&req, resolver.resolve_id(parent), &name) {
+            match handler.lookup(
+                &req,
+                resolver.resolve_id(parent),
+                &name
+            ){% if mode == "async" %}.await{% endif %} {
                 {% call reply_entry("parent", "name") %}{% endcall %}
                 Err(e) => {
                     // Failure is expected if user try to lookup a nonexistent file, it should not emit a warning
@@ -654,7 +722,7 @@ where
                 resolver.resolve_id(ino),
                 unsafe { BorrowedFileHandle::from_raw(fh) },
                 seek_from_raw(Some(whence), offset),
-            ) {
+            ){% if mode == "async" %}.await{% endif %} {
                 Ok(new_offset) => { {% call spawn_reply() %} reply.offset(new_offset); {% endcall %} }
                 Err(e) => {
                     warn!("lseek: ino {:x?}, [{}], {:?}", ino, e, req);
@@ -678,12 +746,13 @@ where
         let resolver = self.resolver.clone();
         let name = name.to_owned();
         {% call spawn() %}
-            match handler.mkdir(&req,
+            match handler.mkdir(
+                &req,
                 resolver.resolve_id(parent),
                 &name,
                 mode,
                 umask
-            ) {
+            ){% if mode == "async" %}.await{% endif %} {
                 {% call reply_entry("parent", "name") %}{% endcall %}
                 Err(e) => {
                     warn!("mkdir: parent_ino {:x?}, [{}], {:?}", parent, e, req);
@@ -715,7 +784,7 @@ where
                 mode,
                 umask,
                 DeviceType::from_rdev(rdev.try_into().unwrap())
-            ) {
+            ){% if mode == "async" %}.await{% endif %} {
                 {% call reply_entry("parent", "name") %}{% endcall %}
                 Err(e) => {
                     warn!("mknod: parent_ino {:x?}, [{}], {:?}", parent, e, req);
@@ -734,7 +803,7 @@ where
                 &req,
                 resolver.resolve_id(ino),
                 OpenFlags::from_bits_retain(_flags),
-            ) {
+            ){% if mode == "async" %}.await{% endif %} {
                 Ok((file_handle, response_flags)) => { {% call spawn_reply() %}
                     reply.opened(file_handle.as_raw(), response_flags.bits())
                 {% endcall %} }
@@ -755,7 +824,7 @@ where
                 &req,
                 resolver.resolve_id(ino),
                 OpenFlags::from_bits_retain(_flags),
-            ) {
+            ){% if mode == "async" %}.await{% endif %} {
                 Ok((file_handle, response_flags)) => { {% call spawn_reply() %}
                     reply.opened(file_handle.as_raw(), response_flags.bits())
                 {% endcall %} }
@@ -790,7 +859,7 @@ where
                 size,
                 FUSEOpenFlags::from_bits_retain(flags),
                 lock_owner,
-            ) {
+            ){% if mode == "async" %}.await{% endif %} {
                 Ok(data_reply) => { {% call spawn_reply() %} reply.data(&data_reply); {% endcall %} }
                 Err(e) => {
                     warn!("read: ino {:x?}, [{}], {:?}", ino, e, req);
@@ -824,9 +893,11 @@ where
                 0 => match handler.{% if is_extended_readdir %}
                     readdirplus{% else %}
                     readdir{% endif %}
-                (&req_info, resolver.resolve_id(ino), unsafe {
-                    BorrowedFileHandle::from_raw(fh)
-                }) {
+                (
+                    &req_info,
+                    resolver.resolve_id(ino),
+                    unsafe {BorrowedFileHandle::from_raw(fh)}
+                ){% if mode == "async" %}.await{% endif %} {
                     Ok(children) => {
                         // Unpack and process children
                         let (child_list, attr_list): (Vec<_>, Vec<_>) = children
@@ -864,7 +935,7 @@ where
                     }
                 },
                 // Subsequent reads: retrieve saved iterator
-                _ => match { dirmap_iter.safe_borrow_mut().remove(&(ino, offset)) } {
+                _ => match { dirmap_iter.{{ borrow_mut() }}.remove(&(ino, offset)) } {
                     Some(dirmap_iter) => dirmap_iter,
                     None => {
                         // Case when fuse tries to read again after the final item
@@ -893,7 +964,7 @@ where
                         ) {
                             dir_iter.push_front((name, ino, file_attr.clone()));
                             dirmap_iter
-                                .safe_borrow_mut()
+                                .{{ borrow_mut() }}
                                 .insert((ino, new_offset - 1), dir_iter);
                             break;
                         }
@@ -906,7 +977,7 @@ where
                         if reply.add(ino, new_offset, kind, &name) {
                             dir_iter.push_front((name, ino, kind));
                             dirmap_iter
-                                .safe_borrow_mut()
+                                .{{ borrow_mut() }}
                                 .insert((ino, new_offset - 1), dir_iter);
                             break;
                         }
@@ -945,7 +1016,10 @@ where
         let handler = self.get_handler();
         let resolver = self.resolver.clone();
         {% call spawn() %}
-            match handler.readlink(&req, resolver.resolve_id(ino)) {
+            match handler.readlink(
+                &req,
+                resolver.resolve_id(ino)
+            ){% if mode == "async" %}.await{% endif %} {
                 Ok(link) => { {% call spawn_reply() %} reply.data(&link); {% endcall %} }
                 Err(e) => {
                     warn!("[{}] readlink, ino: {:x?}, {:?}", ino, e, req);
@@ -976,7 +1050,7 @@ where
                 OpenFlags::from_bits_retain(_flags),
                 _lock_owner,
                 _flush,
-            ) {
+            ){% if mode == "async" %}.await{% endif %} {
                 Ok(()) => { {% call spawn_reply() %} reply.ok(); {% endcall %} }
                 Err(e) => {
                     warn!("release: ino {:x?}, [{}], {:?}", ino, e, req);
@@ -996,7 +1070,7 @@ where
                 resolver.resolve_id(ino),
                 unsafe { OwnedFileHandle::from_raw(fh) },
                 OpenFlags::from_bits_retain(flags),
-            ) {
+            ){% if mode == "async" %}.await{% endif %} {
                 Ok(()) => { {% call spawn_reply() %} reply.ok(); {% endcall %} }
                 Err(e) => {
                     warn!("releasedir: ino {:x?}, [{}], {:?}", ino, e, req);
@@ -1012,7 +1086,11 @@ where
         let resolver = self.resolver.clone();
         let name = name.to_owned();
         {% call spawn() %}
-            match handler.removexattr(&req, resolver.resolve_id(ino), &name) {
+            match handler.removexattr(
+                &req,
+                resolver.resolve_id(ino),
+                &name
+            ){% if mode == "async" %}.await{% endif %} {
                 Ok(()) => { {% call spawn_reply() %} reply.ok(); {% endcall %} }
                 Err(e) => {
                     warn!("removexattr: ino {:x?}, [{}], {:?}", ino, e, req);
@@ -1045,7 +1123,7 @@ where
                 resolver.resolve_id(newparent),
                 &newname,
                 RenameFlags::from_bits_retain(flags),
-            ) {
+            ){% if mode == "async" %}.await{% endif %} {
                 Ok(()) => {
                     resolver.rename(parent, &name, newparent, &newname);
                     {% call spawn_reply() %} reply.ok(); {% endcall %} }
@@ -1063,7 +1141,11 @@ where
         let resolver = self.resolver.clone();
         let name = name.to_owned();
         {% call spawn() %}
-            match handler.rmdir(&req, resolver.resolve_id(parent), &name) {
+            match handler.rmdir(
+                &req,
+                resolver.resolve_id(parent),
+                &name
+            ){% if mode == "async" %}.await{% endif %} {
                 Ok(()) => { {% call spawn_reply() %} reply.ok(); {% endcall %} }
                 Err(e) => {
                     warn!("[{}] rmdir: parent_ino: {:x?}, {:?}", parent, e, req);
@@ -1099,12 +1181,12 @@ where
             uid,
             gid,
             size,
-            atime: atime,
-            mtime: mtime,
-            ctime: ctime,
-            crtime: crtime,
-            chgtime: chgtime,
-            bkuptime: bkuptime,
+            atime,
+            mtime,
+            ctime,
+            crtime,
+            chgtime,
+            bkuptime,
             flags: None,
             file_handle: fh.map(|fh| unsafe { BorrowedFileHandle::from_raw(fh) }),
         };
@@ -1113,7 +1195,7 @@ where
                 &req,
                 resolver.resolve_id(ino),
                 attrs
-            ) {
+            ){% if mode == "async" %}.await{% endif %} {
                 {{ reply_attr() }}
                 Err(e) => {
                     warn!("setattr: ino {:x?}, [{}], {:?}", ino, e, req);
@@ -1153,7 +1235,7 @@ where
                 lock_owner,
                 lock_info,
                 sleep,
-            ) {
+            ){% if mode == "async" %}.await{% endif %} {
                 Ok(()) => { {% call spawn_reply() %} reply.ok(); {% endcall %} }
                 Err(e) => {
                     warn!("setlk: ino {:x?}, [{}], {:?}", ino, e, req);
@@ -1186,7 +1268,7 @@ where
                 value,
                 FUSESetXAttrFlags::from_bits_retain(flags),
                 position,
-            ) {
+            ){% if mode == "async" %}.await{% endif %} {
                 Ok(()) => { {% call spawn_reply() %} reply.ok(); {% endcall %} }
                 Err(e) => {
                     warn!("setxattr: ino {:x?}, [{}], {:?}", ino, e, req);
@@ -1201,7 +1283,10 @@ where
         let handler = self.get_handler();
         let resolver = self.resolver.clone();
         {% call spawn() %}
-            match handler.statfs(&req, resolver.resolve_id(ino)) {
+            match handler.statfs(
+                &req,
+                resolver.resolve_id(ino)
+            ){% if mode == "async" %}.await{% endif %} {
                 Ok(statfs) => { {% call spawn_reply() %}
                     reply.statfs(
                         statfs.total_blocks,
@@ -1236,7 +1321,12 @@ where
         let link_name = link_name.to_owned();
         let target = target.to_owned();
         {% call spawn() %}
-            match handler.symlink(&req, resolver.resolve_id(parent), &link_name, &target) {
+            match handler.symlink(
+                &req,
+                resolver.resolve_id(parent),
+                &link_name,
+                &target
+            ){% if mode == "async" %}.await{% endif %} {
                 {% call reply_entry("parent", "link_name") %}{% endcall %}
                 Err(e) => {
                     warn!("symlink: parent_ino {:x?}, [{}], {:?}", parent, e, req);
@@ -1272,7 +1362,7 @@ where
                 FUSEWriteFlags::from_bits_retain(write_flags),
                 OpenFlags::from_bits_retain(flags),
                 lock_owner,
-            ) {
+            ){% if mode == "async" %}.await{% endif %} {
                 Ok(bytes_written) => { {% call spawn_reply() %} reply.written(bytes_written); {% endcall %} }
                 Err(e) => {
                     warn!("write: ino {:x?}, [{}], {:?}", ino, e, req);
@@ -1288,7 +1378,11 @@ where
         let resolver = self.resolver.clone();
         let name = name.to_owned();
         {% call spawn() %}
-            match handler.unlink(&req, resolver.resolve_id(parent), &name) {
+            match handler.unlink(
+                &req,
+                resolver.resolve_id(parent),
+                &name
+            ){% if mode == "async" %}.await{% endif %} {
                 Ok(()) => { {% call spawn_reply() %} reply.ok(); {% endcall %} }
                 Err(e) => {
                     warn!("[{}] unlink: parent_ino: {:x?}, {:?}", parent, e, req);

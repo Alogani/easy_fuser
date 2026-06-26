@@ -4,7 +4,7 @@ use std::ffi::{OsStr, OsString};
 use std::hash::Hash;
 use std::sync::Arc;
 
-use super::{Inode, ROOT_INODE};
+use crate::types::{Inode, ROOT_INODE};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 /// Helper structure for managing inodes and their relationships.
@@ -162,7 +162,7 @@ impl<Data: Send + Sync + 'static> InodeMapper<Data> {
             .data
             .children
             .entry(parent.clone())
-            .or_insert_with(HashMap::new)
+            .or_default()
             .entry(child.clone())
             .or_insert_with(|| {
                 is_new = true;
@@ -177,9 +177,9 @@ impl<Data: Send + Sync + 'static> InodeMapper<Data> {
                     parent: parent.clone(),
                     name: child.clone(),
                     data: value_creator(ValueCreatorParams {
-                        parent: &parent,
+                        parent,
                         new_inode: &inode,
-                        child_name: &child.as_ref(),
+                        child_name: child.as_ref(),
                         existing_data: None,
                     }),
                 },
@@ -187,13 +187,13 @@ impl<Data: Send + Sync + 'static> InodeMapper<Data> {
         } else {
             let inode_value = &mut self.data.inodes.get_mut(&inode).unwrap();
             inode_value.data = value_creator(ValueCreatorParams {
-                parent: &parent,
+                parent,
                 new_inode: &inode,
-                child_name: &child.as_ref(),
+                child_name: child.as_ref(),
                 existing_data: Some(&inode_value.data),
             });
         }
-        return inode;
+        inode
     }
 
     /// Safely inserts a child inode into the InodeMapper.
@@ -216,7 +216,7 @@ impl<Data: Send + Sync + 'static> InodeMapper<Data> {
     where
         F: Fn(ValueCreatorParams<Data>) -> Data,
     {
-        if self.data.inodes.get(parent).is_none() {
+        if !self.data.inodes.contains_key(parent) {
             return Err(InsertError::ParentNotFound);
         }
 
@@ -243,12 +243,12 @@ impl<Data: Send + Sync + 'static> InodeMapper<Data> {
     where
         F: Fn(ValueCreatorParams<Data>) -> Data,
     {
-        if self.data.inodes.get(parent).is_none() {
+        if !self.data.inodes.contains_key(parent) {
             return Err(InsertError::ParentNotFound);
         }
 
         // Reserve space in the parent's children HashMap
-        if let Some(parent_children) = self.data.children.get_mut(&parent) {
+        if let Some(parent_children) = self.data.children.get_mut(parent) {
             if parent_children.is_empty() {
                 parent_children.reserve(children.len());
             } else if children.len() > parent_children.len() {
@@ -480,12 +480,12 @@ impl<Data: Send + Sync + 'static> InodeMapper<Data> {
         });
 
         // Insert the child into the new parent's children map
-        if let Some(_) = self
+        if self
             .data
             .children
             .entry(newparent.clone())
-            .or_insert_with(HashMap::new)
-            .insert(newname, child_inode)
+            .or_default()
+            .insert(newname, child_inode).is_some()
         {
             // The FUSE file system owns the old inode until it issues enough forget calls
             // to reduce the inode's reference count to 0. Therefore, inodes may not be removed from
@@ -549,7 +549,9 @@ impl<Data: Send + Sync + 'static> InodeMapper<Data> {
 }
 
 impl<Data> InodeMapper<Data>
-where Data: HasLookupCount + Send + Sync + 'static {
+where
+    Data: HasLookupCount + Send + Sync + 'static,
+{
     pub fn prune(&mut self, keep: &HashSet<Vec<OsString>>) {
         let mut to_remove = Vec::new();
 
@@ -562,8 +564,11 @@ where Data: HasLookupCount + Send + Sync + 'static {
                 if let Some(path_info) = self.resolve(inode) {
                     // path_info is [leaf, parent...]
                     // We need [parent, leaf]
-                    let path_vec: Vec<OsString> =
-                        path_info.iter().rev().map(|info| (**info.name).clone()).collect();
+                    let path_vec: Vec<OsString> = path_info
+                        .iter()
+                        .rev()
+                        .map(|info| (**info.name).clone())
+                        .collect();
                     if !keep.contains(&path_vec) {
                         to_remove.push(inode.clone());
                     }
@@ -594,8 +599,7 @@ mod tests {
     use std::collections::HashSet;
     use std::ffi::OsString;
 
-    use crate::ROOT_INODE;
-    use crate::types::Inode;
+    use crate::types::{Inode, ROOT_INODE};
 
     #[test]
     fn test_insert_child_returns_old_inode() {

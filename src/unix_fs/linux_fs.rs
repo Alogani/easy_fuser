@@ -3,8 +3,8 @@ use std::{
     path::Path,
 };
 
-use crate::PosixError;
-use libc::{self, c_char, c_int, c_uint, c_void, size_t, ssize_t};
+use crate::types::PosixError;
+use libc::{self, c_char, c_int, c_uint, c_void, off_t, size_t, ssize_t};
 
 use super::{StatFs, cstring_from_path};
 

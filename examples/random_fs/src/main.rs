@@ -1,7 +1,7 @@
 #![doc = include_str!("../README.md")]
 
-use easy_fuser::prelude::*;
-use easy_fuser::templates::DefaultFuseHandler;
+use easy_fuser::fuse_parallel::prelude::*;
+use easy_fuser::fuse_presets::DefaultFuseHandler;
 use rand::rngs::ThreadRng;
 use rand::Rng;
 use std::ffi::{OsStr, OsString};
@@ -9,7 +9,7 @@ use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 pub struct RandomFS {
-    inner: DefaultFuseHandler,
+    inner: DefaultFuseHandler<Inode>,
 }
 
 const ROOT_ATTR: (Inode, FileAttribute) = (
@@ -60,10 +60,12 @@ impl RandomFS {
     }
 }
 
-impl FuseHandler<Inode> for RandomFS {
-    fn get_inner(&self) -> &dyn FuseHandler<Inode> {
-        &self.inner
-    }
+impl FuseHandler for RandomFS {
+    type TId = Inode;
+
+    easy_fuser::delegate_fs! { inner, [
+        bmap, copy_file_range, fallocate, flush, fsync, fsyncdir, getlk, getxattr, ioctl, link, listxattr, lseek, mknod, open, opendir, readlink, release, releasedir, removexattr, rename, setlk, setxattr, statfs, symlink
+    ] }
 
     fn access(&self, _req: &RequestInfo, _file_id: Inode, _mask: AccessMask) -> FuseResult<()> {
         Ok(())
@@ -260,5 +262,5 @@ fn main() {
     let fs = RandomFS::new();
 
     println!("Mounting filesystem...");
-    easy_fuser::mount(fs, Path::new(&mountpoint), &options, 1).unwrap();
+    mount(fs, Path::new(&mountpoint), &options, Some(1)).unwrap();
 }

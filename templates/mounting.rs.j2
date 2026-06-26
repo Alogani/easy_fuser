@@ -1,11 +1,13 @@
 use std::io;
 use std::path::Path;
 
-use core::FuseDriver;
-use types::*;
 use fuser::{mount2, spawn_mount2};
 use fuser::MountOption;
 
+use crate::types::*;
+use crate::FuseSession;
+use super::FuseHandler;
+use super::fuse_driver::FuseDriver;
 
 /// Mounts a FUSE filesystem at the specified mountpoint.
 /// 
@@ -29,26 +31,20 @@ use fuser::MountOption;
 /// # Returns
 /// 
 /// `io::Result<()>` indicating success or failure of the mount operation.
-pub fn mount<T, FS, P>(
+pub fn mount<TId, FS, P>(
     filesystem: FS,
     mountpoint: P,
     options: &[MountOption],
-    {% if mode == "parallel" %}
-        num_threads: usize,
-    {% endif %}
+    num_threads: Option<usize>,
 ) -> io::Result<()>
 where
-    T: FileIdType,
-    FS: FuseHandler<T>,
+    TId: FileIdType,
+    FS: FuseHandler<TId = TId>,
     P: AsRef<Path>,
 {
     let driver = FuseDriver::new(
         filesystem,
-        {% if mode == "parallel" %}
-            num_threads,
-        {% else %}
-            1,
-        {% endif %}
+        num_threads,
         );
     mount2(driver, mountpoint, options)
 }
@@ -84,26 +80,20 @@ where
 /// Returns `io::Result<BackgroundSession>`, which is:
 /// * `Ok(BackgroundSession)` on successful mount, providing a handle to manage the mounted filesystem.
 /// * `Err(io::Error)` if the mount operation fails.
-pub fn spawn_mount<T, FS, P>(
+pub fn spawn_mount<TId, FS, P>(
     filesystem: FS,
     mountpoint: P,
     options: &[MountOption],
-    {% if mode == "parallel" %}
-        num_threads: usize,
-    {% endif %}
-) -> io::Result<FuseSession<T>>
+    num_threads: Option<usize>,
+) -> io::Result<FuseSession<TId>>
 where
-    T: FileIdType,
-    FS: FuseHandler<T> + Send,
+    TId: FileIdType,
+    FS: FuseHandler<TId = TId> + Send,
     P: AsRef<Path>,
 {
     let driver = FuseDriver::new(
         filesystem,
-        {% if mode == "parallel" %}
-            num_threads,
-        {% else %}
-            1,
-        {% endif %}
+        num_threads,
         );
     let resolver = driver.resolver.clone();
     let session = spawn_mount2(driver, mountpoint, options)?;

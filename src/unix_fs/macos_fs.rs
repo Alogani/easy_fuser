@@ -1,10 +1,8 @@
 pub use super::bsd_like_fs::*;
-use std::os::fd::*;
-
 use std::ffi::c_void;
 
 use super::{StatFs, cstring_from_path};
-use crate::PosixError;
+use crate::types::PosixError;
 use libc::{self, c_char, c_int, size_t, ssize_t};
 use libc::{ENOTSUP, F_ALLOCATECONTIG, F_PREALLOCATE, fcntl, fstore_t, off_t};
 use std::path::Path;

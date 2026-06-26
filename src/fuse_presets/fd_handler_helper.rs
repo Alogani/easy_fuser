@@ -69,45 +69,46 @@ If you intend to enforce read-only at the fuse level,
 prefer the usage of option `MountOption::RO` instead of `FdHandlerHelperReadOnly`.
 */
 
-use crate::prelude::*;
+use std::marker::PhantomData;
+use crate::types::*;
 use crate::unix_fs;
 
 macro_rules! fd_handler_readonly_methods {
-    () => {
-        fn flush(
+    ($file_id:path) => {
+        pub fn flush(
             &self,
             _req: &RequestInfo,
-            _file_id: TId,
+            _file_id: $file_id,
             file_handle: BorrowedFileHandle,
             _lock_owner: u64,
         ) -> FuseResult<()> {
             unix_fs::flush(file_handle.as_borrowed_fd())
         }
 
-        fn fsync(
+        pub fn fsync(
             &self,
             _req: &RequestInfo,
-            _file_id: TId,
+            _file_id: $file_id,
             file_handle: BorrowedFileHandle,
             datasync: bool,
         ) -> FuseResult<()> {
             unix_fs::fsync(file_handle.as_borrowed_fd(), datasync)
         }
 
-        fn lseek(
+        pub fn lseek(
             &self,
             _req: &RequestInfo,
-            _file_id: TId,
+            _file_id: $file_id,
             file_handle: BorrowedFileHandle,
             seek: SeekFrom,
         ) -> FuseResult<i64> {
             unix_fs::lseek(file_handle.as_borrowed_fd(), seek)
         }
 
-        fn read(
+        pub fn read(
             &self,
             _req: &RequestInfo,
-            _file_id: TId,
+            _file_id: $file_id,
             file_handle: BorrowedFileHandle,
             seek: SeekFrom,
             size: u32,
@@ -117,10 +118,10 @@ macro_rules! fd_handler_readonly_methods {
             unix_fs::read(file_handle.as_borrowed_fd(), seek, size as usize)
         }
 
-        fn release(
+        pub fn release(
             &self,
             _req: &RequestInfo,
-            _file_id: TId,
+            _file_id: $file_id,
             file_handle: OwnedFileHandle,
             _flags: OpenFlags,
             _lock_owner: Option<u64>,
@@ -132,14 +133,14 @@ macro_rules! fd_handler_readonly_methods {
 }
 
 macro_rules! fd_handler_readwrite_methods {
-    () => {
-        fn copy_file_range(
+    ($file_id:path) => {
+        pub fn copy_file_range(
             &self,
             _req: &RequestInfo,
-            _file_in: TId,
+            _file_in: $file_id,
             file_handle_in: BorrowedFileHandle,
             offset_in: i64,
-            _file_out: TId,
+            _file_out: $file_id,
             file_handle_out: BorrowedFileHandle,
             offset_out: i64,
             len: u64,
@@ -154,10 +155,10 @@ macro_rules! fd_handler_readwrite_methods {
             )
         }
 
-        fn fallocate(
+        pub fn fallocate(
             &self,
             _req: &RequestInfo,
-            _file_id: TId,
+            _file_id: $file_id,
             file_handle: BorrowedFileHandle,
             offset: i64,
             length: i64,
@@ -166,10 +167,10 @@ macro_rules! fd_handler_readwrite_methods {
             unix_fs::fallocate(file_handle.as_borrowed_fd(), offset, length, mode)
         }
 
-        fn write(
+        pub fn write(
             &self,
             _req: &RequestInfo,
-            _file_id: TId,
+            _file_id: $file_id,
             file_handle: BorrowedFileHandle,
             seek: SeekFrom,
             data: Vec<u8>,
@@ -184,43 +185,50 @@ macro_rules! fd_handler_readwrite_methods {
 
 /// Specific documentation is located in parent module documentation.
 pub struct FdHandlerHelper<TId: FileIdType> {
-    inner: Box<dyn FuseHandler<TId>>,
+    phantom: PhantomData<TId>,
+}
+
+impl<TId: FileIdType> Default for FdHandlerHelper<TId> {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl<TId: FileIdType> FdHandlerHelper<TId> {
-    pub fn new<THandler: FuseHandler<TId>>(inner: THandler) -> Self {
+    pub fn new() -> Self {
         Self {
-            inner: Box::new(inner),
+            phantom: PhantomData,
         }
     }
 }
 
-impl<TId: FileIdType> FuseHandler<TId> for FdHandlerHelper<TId> {
-    fn get_inner(&self) -> &dyn FuseHandler<TId> {
-        self.inner.as_ref()
-    }
-
-    fd_handler_readonly_methods!();
-    fd_handler_readwrite_methods!();
+impl<TId: FileIdType> FdHandlerHelper<TId> {
+    fd_handler_readonly_methods!(TId);
+    fd_handler_readwrite_methods!(TId);
 }
 
 /// Specific documentation is located in parent module documentation.
 pub struct FdHandlerHelperReadOnly<TId: FileIdType> {
-    inner: Box<dyn FuseHandler<TId>>,
+    phantom: PhantomData<TId>,
+}
+
+impl<TId: FileIdType> Default for FdHandlerHelperReadOnly<TId> {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl<TId: FileIdType> FdHandlerHelperReadOnly<TId> {
-    pub fn new<THandler: FuseHandler<TId>>(inner: THandler) -> Self {
+    pub fn new() -> Self {
         Self {
-            inner: Box::new(inner),
+            phantom: PhantomData,
         }
     }
 }
 
-impl<TId: FileIdType> FuseHandler<TId> for FdHandlerHelperReadOnly<TId> {
-    fn get_inner(&self) -> &dyn FuseHandler<TId> {
-        self.inner.as_ref()
-    }
-
-    fd_handler_readonly_methods!();
+impl<TId: FileIdType> FdHandlerHelperReadOnly<TId> {
+    fd_handler_readonly_methods!(TId);
 }
+
+pub(super) use fd_handler_readonly_methods;
+pub(super) use fd_handler_readwrite_methods;

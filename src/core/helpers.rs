@@ -1,7 +1,7 @@
 use std::time::Instant;
 
 #[cfg(feature = "deadlock_detection")]
-pub(super) fn spawn_deadlock_checker() {
+pub(crate) fn spawn_deadlock_checker() {
     use log::{error, info};
     use parking_lot::deadlock;
     use std::thread;
@@ -28,6 +28,6 @@ pub(super) fn spawn_deadlock_checker() {
     });
 }
 
-pub(super) fn get_random_generation() -> u64 {
+pub(crate) fn get_random_generation() -> u64 {
     Instant::now().elapsed().as_nanos() as u64
 }

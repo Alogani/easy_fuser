@@ -85,8 +85,8 @@ where
 {
     fn clone(&self) -> Self {
         InodeInfo {
-            links: &self.links,
-            data: &self.data,
+            links: self.links,
+            data: self.data,
         }
     }
 }
@@ -107,8 +107,8 @@ where
 {
     fn clone(&self) -> Self {
         InodeResolveItem {
-            parent: &self.parent,
-            name: &self.name,
+            parent: self.parent,
+            name: self.name,
             inode: self.inode.clone(),
         }
     }
@@ -260,7 +260,7 @@ where
                 let hash = hasher.finish();
                 let mut preferred_inode = Inode::from(hash);
                 loop {
-                    if self.data.inodes.get(&preferred_inode).is_none() {
+                    if !self.data.inodes.contains_key(&preferred_inode) {
                         break preferred_inode;
                     }
                     preferred_inode = preferred_inode.add_one();
@@ -269,7 +269,7 @@ where
             None => loop {
                 let new_inode = self.next_inode.clone();
                 self.next_inode = new_inode.add_one();
-                if self.data.inodes.get(&new_inode).is_none() {
+                if !self.data.inodes.contains_key(&new_inode) {
                     break new_inode;
                 }
             },
@@ -302,13 +302,13 @@ where
     /// - If the child already exists:
     ///     - If the backing ID is specified and points to an existing inode:
     ///         - If the inode (A) pointed to by the backing ID is different, the old child inode (B) will be
-    ///         unassociated from the parent and be replaced with inode (A).
+    ///           unassociated from the parent and be replaced with inode (A).
     ///         - The data is updated using the value_creator function.
     ///     - If the backing ID (I1) is specified and does not point to any existing inode:
     ///         - If the child inode (A) does not have a backing ID, the backing ID (I1) will be associated with the child inode (A).
-    ///         The data is then updated using the value_creator function.
+    ///           The data is then updated using the value_creator function.
     ///         - If the child inode (A) has a backing ID (I2) therefore (I2 != I1), the child inode (A) will be unassociated from the
-    ///         parent. A new inode is then created and the value_creator function is then called.
+    ///           parent. A new inode is then created and the value_creator function is then called.
     /// - The value_creator function is called with the inode, parent, child name, and existing data (if any) as arguments.
     ///
     /// # Caveats
@@ -325,17 +325,15 @@ where
             .data
             .children
             .entry(parent.clone())
-            .or_insert_with(HashMap::new);
+            .or_default();
         let backing_inode = backing_id
             .clone()
-            .map(|backing_id| {
+            .and_then(|backing_id| {
                 self.data
                     .backing
-                    .get_by_right(&backing_id)
-                    .map(|inode| inode.clone())
-            })
-            .flatten();
-        let target_child_inode = parent_children.get(&child_name).map(|inode| inode.clone());
+                    .get_by_right(&backing_id).cloned()
+            });
+        let target_child_inode = parent_children.get(&child_name).cloned();
         match (backing_inode, target_child_inode) {
             (Some(backing_inode), Some(target_child_inode)) => {
                 if backing_inode != target_child_inode {
@@ -348,7 +346,7 @@ where
                     let links = target_child_inode_data
                         .links
                         .entry(parent.clone())
-                        .or_insert_with(HashSet::new);
+                        .or_default();
                     links.remove(&child_name.clone());
                     if links.is_empty() {
                         target_child_inode_data.links.remove(&parent.clone());
@@ -363,12 +361,12 @@ where
                 existing_inode_data
                     .links
                     .entry(parent.clone())
-                    .or_insert_with(HashSet::new)
+                    .or_default()
                     .insert(child_name.clone());
                 existing_inode_data.data = value_creator(ValueCreatorParams {
-                    parent: &parent,
+                    parent,
                     new_inode: &backing_inode,
-                    child_name: &child_name.as_ref(),
+                    child_name: child_name.as_ref(),
                     existing_data: Some(&existing_inode_data.data),
                 });
                 // Associate new child to parent
@@ -379,8 +377,7 @@ where
                 let target_child_inode_backing_id = self
                     .data
                     .backing
-                    .get_by_left(&target_child_inode)
-                    .map(|inode| inode.clone());
+                    .get_by_left(&target_child_inode).cloned();
                 let target_child_inode_data = self
                     .data
                     .inodes
@@ -398,7 +395,7 @@ where
                     let links = target_child_inode_data
                         .links
                         .entry(parent.clone())
-                        .or_insert_with(HashSet::new);
+                        .or_default();
                     links.remove(&child_name.clone());
                     if links.is_empty() {
                         target_child_inode_data.links.remove(&parent.clone());
@@ -414,9 +411,9 @@ where
                                 HashSet::from([child_name.clone()]),
                             )]),
                             data: value_creator(ValueCreatorParams {
-                                parent: &parent,
+                                parent,
                                 new_inode: &new_inode,
-                                child_name: &child_name.as_ref(),
+                                child_name: child_name.as_ref(),
                                 existing_data: None,
                             }),
                         },
@@ -431,15 +428,15 @@ where
                     target_child_inode_data
                         .links
                         .entry(parent.clone())
-                        .or_insert_with(HashSet::new)
+                        .or_default()
                         .insert(child_name.clone());
                     // Associate target child to parent
                     parent_children.insert(child_name.clone(), target_child_inode.clone());
                     // Update data
                     target_child_inode_data.data = value_creator(ValueCreatorParams {
-                        parent: &parent,
+                        parent,
                         new_inode: &target_child_inode,
-                        child_name: &child_name.as_ref(),
+                        child_name: child_name.as_ref(),
                         existing_data: Some(&target_child_inode_data.data),
                     });
                     // Associate target child to backing ID
@@ -461,15 +458,15 @@ where
                 backing_inode_data
                     .links
                     .entry(parent.clone())
-                    .or_insert_with(HashSet::new)
+                    .or_default()
                     .insert(child_name.clone());
                 // Associate child to parent
                 parent_children.insert(child_name.clone(), backing_inode.clone());
                 // Update data
                 backing_inode_data.data = value_creator(ValueCreatorParams {
-                    parent: &parent,
+                    parent,
                     new_inode: &backing_inode,
-                    child_name: &child_name.as_ref(),
+                    child_name: child_name.as_ref(),
                     existing_data: Some(&backing_inode_data.data),
                 });
                 // Backing inode is already associated with the backing ID, so this step is skipped
@@ -486,9 +483,9 @@ where
                             HashSet::from([child_name.clone()]),
                         )]),
                         data: value_creator(ValueCreatorParams {
-                            parent: &parent,
+                            parent,
                             new_inode: &new_inode,
-                            child_name: &child_name.as_ref(),
+                            child_name: child_name.as_ref(),
                             existing_data: None,
                         }),
                     },
@@ -498,7 +495,7 @@ where
                     .data
                     .children
                     .entry(parent.clone())
-                    .or_insert_with(HashMap::new);
+                    .or_default();
                 parent_children.insert(child_name.clone(), new_inode.clone());
                 if let Some(backing_id) = backing_id {
                     self.data.backing.insert(new_inode.clone(), backing_id);
@@ -661,11 +658,11 @@ where
     ///
     /// # Notes
     /// - Due to the nature of an inode being able to have multiple links, there can be multiple combinations of path components
-    /// that resolve to the same inode. This method only returns the first combination of path components that
-    /// resolves to the inode.
+    ///   that resolve to the same inode. This method only returns the first combination of path components that
+    ///   resolves to the inode.
     /// - Returns `None` if any inode in the path is not found, indicating an incomplete or invalid path, or
-    /// there is an infinite loop (eg: if the inode is linked to itself and there is no way to trace back to the
-    /// root inode).
+    ///   there is an infinite loop (eg: if the inode is linked to itself and there is no way to trace back to the
+    ///   root inode).
     /// - The root inode is identified when its parent is equal to itself and is never returned
     pub fn resolve(&self, inode: &Inode) -> Option<Vec<InodeResolveItem<'_, Data>>> {
         let mut visited = HashSet::new();
@@ -717,14 +714,14 @@ where
             current_inode: &Inode,
             resolve_item_stack: &mut Vec<InodeResolveItem<'a, Data>>,
             visited_stack: &mut HashSet<Inode>,
-        ) -> ()
+        )
         where
             BackingId: Clone + Eq + Hash + Debug,
             Data: Send + Sync,
         {
             let is_root_inode = *current_inode == ROOT_INODE;
             if is_root_inode {
-                if limit.map_or(true, |limit| result.len() < limit) {
+                if limit.is_none_or(|limit| result.len() < limit) {
                     // Freeze the result
                     result.push(resolve_item_stack.to_vec());
                 }
@@ -737,7 +734,7 @@ where
             };
             visited_stack.insert(current_inode.clone());
             'scan_loop: for (parent, names) in current_info.links.iter() {
-                if limit.map_or(false, |limit| result.len() >= limit) {
+                if limit.is_some_and(|limit| result.len() >= limit) {
                     break 'scan_loop;
                 }
                 if visited_stack.contains(parent) {
@@ -747,7 +744,7 @@ where
                     continue;
                 }
                 for name in names.iter() {
-                    if limit.map_or(false, |limit| result.len() >= limit) {
+                    if limit.is_some_and(|limit| result.len() >= limit) {
                         break 'scan_loop;
                     }
                     resolve_item_stack.push(InodeResolveItem {
@@ -773,7 +770,7 @@ where
             self,
             &mut result,
             limit,
-            &inode,
+            inode,
             &mut Vec::new(),
             &mut HashSet::new(),
         );
@@ -833,7 +830,7 @@ where
             .map(|inode| {
                 let inode_value = self.data.inodes.get(inode).unwrap();
                 LookupResult {
-                    inode: inode,
+                    inode,
                     backing_id: self.data.backing.get_by_left(inode),
                     links: &inode_value.links,
                     data: &inode_value.data,
@@ -890,7 +887,7 @@ where
                 .or_insert_with(HashSet::new);
             old_parent_associations.remove(oldname);
             if old_parent_associations.is_empty() {
-                inode_value.links.remove(&parent);
+                inode_value.links.remove(parent);
             }
 
             // Add an association to new parent
@@ -905,7 +902,7 @@ where
         self.data
             .children
             .entry(newparent.clone())
-            .or_insert_with(HashMap::new)
+            .or_default()
             .insert(newname, child_inode);
 
         Ok(None)
@@ -962,8 +959,7 @@ mod tests {
     use std::collections::HashSet;
     use std::ffi::OsString;
 
-    use crate::ROOT_INODE;
-    use crate::types::Inode;
+    use crate::types::{Inode, ROOT_INODE};
 
     #[test]
     fn test_insert_child_returns_old_inode() {

@@ -134,13 +134,13 @@ fn convert_stat_struct(statbuf: libc::stat) -> Option<FileAttribute> {
         ctime,
         crtime: mtime,
         kind: stat_to_kind(statbuf)?,
-        perm: perm,
+        perm,
         nlink: statbuf.st_nlink as u32,
-        uid: statbuf.st_uid as u32,
-        gid: statbuf.st_gid as u32,
+        uid: statbuf.st_uid,
+        gid: statbuf.st_gid,
         rdev: statbuf.st_rdev as u32,
         blksize: statbuf.st_blksize as u32,
-        flags: flags,
+        flags,
         ttl: None,
         generation: None,
     })
@@ -195,14 +195,14 @@ pub fn lookup(path: &Path) -> Result<FileAttribute, PosixError> {
             path.display()
         )));
     }
-    Ok(convert_stat_struct(statbuf).ok_or(PosixError::new(
+    convert_stat_struct(statbuf).ok_or(PosixError::new(
         ErrorKind::InvalidArgument,
         format!(
             "{}: statbuf conversion failed {:?}",
             path.display(),
             statbuf
         ),
-    ))?)
+    ))
 }
 
 /// Retrieves file attributes for a given file descriptor.
@@ -221,10 +221,10 @@ pub fn getattr(fd: BorrowedFd) -> Result<FileAttribute, PosixError> {
             fd
         )));
     }
-    Ok(convert_stat_struct(statbuf).ok_or(PosixError::new(
+    convert_stat_struct(statbuf).ok_or(PosixError::new(
         ErrorKind::InvalidArgument,
         format!("{:?}: statbuf conversion failed {:?}", fd, statbuf),
-    ))?)
+    ))
 }
 
 /// Modifies file attributes for a given path.
@@ -487,7 +487,7 @@ pub fn open(path: &Path, flags: OpenFlags) -> Result<OwnedFd, PosixError> {
             path.display()
         )));
     }
-    Ok(unsafe { OwnedFd::from_raw_fd(fd.into()) })
+    Ok(unsafe { OwnedFd::from_raw_fd(fd) })
 }
 
 /// Reads data from a file descriptor at a specified offset.
@@ -949,7 +949,7 @@ pub fn create(
         )));
     }
 
-    Ok((unsafe { OwnedFd::from_raw_fd(fd.into()) }, lookup(path)?))
+    Ok((unsafe { OwnedFd::from_raw_fd(fd) }, lookup(path)?))
 }
 
 /// Manipulates the allocated disk space for a file.

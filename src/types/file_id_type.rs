@@ -60,7 +60,8 @@ use fuser::FileType as FileKind;
 ///       - The user can use the hardlinks of the current filesystem by using `libc::fstat(...).f_fsid` (Persistent) or libc::fstatfs(...).f_dev` (Ephemeral)
 ///       - When a Fuse operation provides an inode, the user can use `BackingId::all_paths()` to retrieve all the paths associated to that inode
 pub trait FileIdType:
-    'static + Debug + Clone + PartialEq + Eq + std::hash::Hash + InodeResolvable
+    'static + Debug + Clone + PartialEq + Eq
+    + Send + std::hash::Hash + InodeResolvable
 {
     /// Full metadata type for the file system.
     ///
@@ -199,14 +200,14 @@ where
             .mapper
             .read()
             .expect("failed to acquire read lock on mapper");
-        let path = mapper.resolve(&self.inode).map(|components| {
+        
+        mapper.resolve(&self.inode).map(|components| {
             components
                 .iter()
                 .map(|component| component.name.as_ref())
                 .rev()
                 .collect::<PathBuf>()
-        });
-        path
+        })
     }
 
     /// Retrieves the inode of the hybrid ID.
