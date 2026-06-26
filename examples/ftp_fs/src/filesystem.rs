@@ -85,7 +85,7 @@ impl FuseHandler for FtpFs {
         _file_handle: BorrowedFileHandle,
         offset: SeekFrom,
         size: u32,
-        _flags: FUSEOpenFlags,
+        _flags: OpenFlags,
         _lock_owner: Option<u64>,
     ) -> FuseResult<Vec<u8>> {
         self.with_ftp(|ftp| {
