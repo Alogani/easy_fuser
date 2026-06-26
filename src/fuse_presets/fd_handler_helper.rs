@@ -112,7 +112,7 @@ macro_rules! fd_handler_readonly_methods {
             file_handle: BorrowedFileHandle,
             seek: SeekFrom,
             size: u32,
-            _flags: FUSEOpenFlags,
+            _flags: OpenFlags,
             _lock_owner: Option<u64>,
         ) -> FuseResult<Vec<u8>> {
             unix_fs::read(file_handle.as_borrowed_fd(), seek, size as usize)
@@ -139,18 +139,18 @@ macro_rules! fd_handler_readwrite_methods {
             _req: &RequestInfo,
             _file_in: $file_id,
             file_handle_in: BorrowedFileHandle,
-            offset_in: i64,
+            offset_in: u64,
             _file_out: $file_id,
             file_handle_out: BorrowedFileHandle,
-            offset_out: i64,
+            offset_out: u64,
             len: u64,
-            _flags: u32,
+            _flags: CopyFileRangeFlags,
         ) -> FuseResult<u32> {
             unix_fs::copy_file_range(
                 file_handle_in.as_borrowed_fd(),
-                offset_in,
+                offset_in as i64,
                 file_handle_out.as_borrowed_fd(),
-                offset_out,
+                offset_out as i64,
                 len,
             )
         }
@@ -174,7 +174,7 @@ macro_rules! fd_handler_readwrite_methods {
             file_handle: BorrowedFileHandle,
             seek: SeekFrom,
             data: Vec<u8>,
-            _write_flags: FUSEWriteFlags,
+            _write_flags: WriteFlags,
             _flags: OpenFlags,
             _lock_owner: Option<u64>,
         ) -> FuseResult<u32> {

@@ -69,8 +69,8 @@ impl PosixError {
         ErrorKind::from(self.code)
     }
 
-    pub fn raw_error(&self) -> i32 {
-        self.code
+    pub fn io_error(&self) -> std::io::Error {
+        std::io::Error::from_raw_os_error(self.code)
     }
 }
 
@@ -378,10 +378,17 @@ impl From<ErrorKind> for i32 {
             ErrorKind::MultihopAttempted => libc::EMULTIHOP,
             ErrorKind::LinkHasBeenSevered => libc::ENOLINK,
             ErrorKind::NoMessage => libc::ENOMSG,
-            ErrorKind::Unknown(code) => code, // Unknown variant retains its i32 value
+            ErrorKind::Unknown(code) => code,
         }
     }
 }
+
+impl From<ErrorKind> for fuser::Errno {
+    fn from(kind: ErrorKind) -> Self {
+        fuser::Errno::from_i32(i32::from(kind))
+    }
+}
+
 
 #[cfg(test)]
 mod tests {

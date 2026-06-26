@@ -3,4 +3,4 @@ pub(crate) mod helpers;
 
 mod inode_mapping;
 
-pub(crate) use inode_mapping::{FileIdResolver, InodeResolvable, ROOT_INO};
+pub(crate) use inode_mapping::{FileIdResolver, InodeResolvable};
