@@ -1,5 +1,3 @@
-use std::time::Instant;
-
 #[cfg(feature = "deadlock_detection")]
 pub(crate) fn spawn_deadlock_checker() {
     use log::{error, info};
@@ -28,6 +26,15 @@ pub(crate) fn spawn_deadlock_checker() {
     });
 }
 
-pub(crate) fn get_random_generation() -> u64 {
-    Instant::now().elapsed().as_nanos() as u64
+/// Returns the default generation number for FUSE replies.
+///
+/// We return 0 by default to avoid invalidating kernel dentries during lookup
+/// re-validation. Returning a different/random generation number on every lookup
+/// would cause the kernel to think the inode was replaced.
+///
+/// NOTE: Unique generation numbers are only required if exporting the FUSE filesystem
+/// over NFS. For NFS support, filesystems should explicitly track generation numbers
+/// and populate the `generation` field of `FileAttribute`.
+pub(crate) fn get_default_generation() -> u64 {
+    0
 }
