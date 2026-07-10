@@ -7,6 +7,7 @@
 [![dependency status](https://deps.rs/repo/github/Alogani/easy_fuser/status.svg)](https://deps.rs/repo/github/Alogani/easy_fuser)
 
 > [!IMPORTANT]
+> This crate is a school project and should not be considered production ready until proven otherwise, keep in mind and have fun !
 > **Breaking Changes in v0.5.0**: The crate has been reorganized to support separate code generation structures per mode.
 > - Instead of a single prelude (`easy_fuser::prelude`), use the mode-specific preludes: `easy_fuser::fuse_serial::prelude::*`, `easy_fuser::fuse_parallel::prelude::*`, or `easy_fuser::fuse_async::prelude::*`.
 > - Template/Preset implementations (like `DefaultFuseHandler` and `MirrorFs`) are now located in the `easy_fuser::fuse_presets` module (instead of `easy_fuser::templates`).
