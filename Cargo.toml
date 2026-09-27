@@ -5,7 +5,6 @@ edition = "2024"
 description = "A flexible and idiomatic Fuse implementation for Rust"
 license = "MIT"
 documentation = "https://docs.rs/easy_fuser"
-homepage = "https://github.com/Alogani/easy_fuser"
 repository = "https://github.com/Alogani/easy_fuser"
 
 [features]
