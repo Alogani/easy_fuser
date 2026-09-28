@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-09-28
+
+### ⚠️ Breaking Changes
+
+- **`fuser` 0.17 API adoption**: `FuseHandler` and related public APIs now use the types exposed by `fuser` 0.17. Inode values use `fuser::INodeNo` (re-exported as `Inode`) instead of `u64` or the crate's former `Inode` wrapper. `FileIdResolver` methods now take and return `Inode`; code that constructs or inspects inode numbers should use `INodeNo(value)` and `.0` as needed.
+- **Updated handler argument types**: access masks and open, rename, ioctl, write, and copy-file-range flags now use the corresponding `fuser` flag types (`AccessFlags`, `OpenFlags`, `RenameFlags`, `IoctlFlags`, `WriteFlags`, `CopyFileRangeFlags`, and `FopenFlags`). Several crate-defined flag types were renamed or removed; update `FuseHandler` implementations and imports to match the new signatures. Copy-file-range offsets are now `u64`.
+- **Request and setattr types**: `RequestInfo.id` is now `fuser::RequestId`, and `SetAttrRequest::flags` now accepts `fuser::BsdFileFlags` instead of `()`.
+- **Error API**: `PosixError::raw_error()` was replaced by `PosixError::io_error()`, which returns `std::io::Error`.
+
+### Fixed
+
+- Corrected TTL generation handling for filesystem entries.
+- Fixed a hang when unmounting and joining a mounted filesystem session.
+
+### Changed
+
+- Updated `fuser` to 0.17.0 and refreshed project dependencies.
+
 ## [0.5.0] - 2026-06-25
 
 ### ⚠️ Breaking Changes
@@ -91,6 +109,7 @@ Please refer to the [GitHub releases page](https://github.com/Alogani/easy_fuser
 
 ---
 
-[Unreleased]: https://github.com/Alogani/easy_fuser/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/Alogani/easy_fuser/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/Alogani/easy_fuser/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/Alogani/easy_fuser/compare/v0.4.5...v0.5.0
 [0.4.5]: https://github.com/Alogani/easy_fuser/compare/v0.4.4...v0.4.5
