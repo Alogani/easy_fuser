@@ -1,8 +1,8 @@
 use zip::ZipArchive;
 
-use easy_fuser::inode_mapper::*;
-use easy_fuser::fuse_serial::prelude::*;
 use easy_fuser::fuse_presets::DefaultFuseHandler;
+use easy_fuser::fuse_serial::prelude::*;
+use easy_fuser::inode_mapping::*;
 
 use std::ffi::{OsStr, OsString};
 use std::fs::File;
@@ -96,9 +96,8 @@ impl FuseHandler for ZipFs {
             return Ok(get_root_attribute());
         }
         let InodeInfo {
-            parent: _,
-            name: _,
             data: &(idx, is_dir),
+            ..
         } = self
             .mapper
             .read()
@@ -141,9 +140,7 @@ impl FuseHandler for ZipFs {
         _lock_owner: Option<u64>,
     ) -> FuseResult<Vec<u8>> {
         let InodeInfo {
-            parent: _,
-            name: _,
-            data: &(idx, _),
+            data: &(idx, _), ..
         } = self
             .mapper
             .read()
@@ -169,11 +166,9 @@ impl FuseHandler for ZipFs {
         let entries = mapper
             .get_children(&file_id)
             .into_iter()
-            .map(|(_, inode)| {
+            .map(|(name, inode)| {
                 let InodeInfo {
-                    parent: _,
-                    name,
-                    data: &(_, is_dir),
+                    data: &(_, is_dir), ..
                 } = mapper.get(inode).unwrap();
                 (
                     (**name).clone(),

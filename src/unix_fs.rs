@@ -133,7 +133,7 @@ fn convert_stat_struct(statbuf: libc::stat) -> Option<FileAttribute> {
         mtime,
         ctime,
         crtime: mtime,
-        kind: stat_to_kind(statbuf)?,
+        kind: mode_to_kind(statbuf.st_mode as u32)?,
         perm,
         nlink: statbuf.st_nlink as u32,
         uid: statbuf.st_uid,
@@ -146,16 +146,15 @@ fn convert_stat_struct(statbuf: libc::stat) -> Option<FileAttribute> {
     })
 }
 
-fn stat_to_kind(statbuf: libc::stat) -> Option<FileKind> {
-    use libc::*;
-    Some(match statbuf.st_mode & S_IFMT {
-        S_IFREG => FileKind::RegularFile,
-        S_IFDIR => FileKind::Directory,
-        S_IFCHR => FileKind::CharDevice,
-        S_IFBLK => FileKind::BlockDevice,
-        S_IFIFO => FileKind::NamedPipe,
-        S_IFLNK => FileKind::Symlink,
-        S_IFSOCK => FileKind::Socket,
+pub(crate) fn mode_to_kind(mode: u32) -> Option<FileKind> {
+    Some(match mode & libc::S_IFMT as u32 {
+        x if x == libc::S_IFREG as u32 => FileKind::RegularFile,
+        x if x == libc::S_IFDIR as u32 => FileKind::Directory,
+        x if x == libc::S_IFCHR as u32 => FileKind::CharDevice,
+        x if x == libc::S_IFBLK as u32 => FileKind::BlockDevice,
+        x if x == libc::S_IFIFO as u32 => FileKind::NamedPipe,
+        x if x == libc::S_IFLNK as u32 => FileKind::Symlink,
+        x if x == libc::S_IFSOCK as u32 => FileKind::Socket,
         _ => return None, // Unsupported or unknown file type
     })
 }
@@ -1034,6 +1033,19 @@ mod tests {
     use std::fs::{self, File};
     use std::path::{Path, PathBuf};
     use std::time::SystemTime;
+
+    #[test]
+    fn mode_to_kind_uses_file_type_bits() {
+        assert_eq!(
+            mode_to_kind(libc::S_IFCHR as u32 | 0o600),
+            Some(FileKind::CharDevice)
+        );
+        assert_eq!(
+            mode_to_kind(libc::S_IFIFO as u32 | 0o644),
+            Some(FileKind::NamedPipe)
+        );
+        assert_eq!(mode_to_kind(0o644), None);
+    }
 
     #[test]
     fn test_convert_filetype() {
