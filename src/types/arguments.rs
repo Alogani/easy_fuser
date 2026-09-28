@@ -18,8 +18,7 @@
 use std::time::{Duration, SystemTime};
 
 use fuser::FileAttr as FuseFileAttr;
-pub use fuser::RequestId;
-use fuser::{FileType, Request, TimeOrNow, INodeNo, BsdFileFlags};
+use fuser::{FileType, Request, TimeOrNow};
 use libc::mode_t;
 
 use super::BorrowedFileHandle;
@@ -160,13 +159,13 @@ impl StatFs {
 /// - `pid`: Process ID of the process that initiated the request
 #[derive(Debug, Clone)]
 pub struct RequestInfo {
-    pub id: RequestId,
+    pub id: u64,
     pub uid: u32,
     pub gid: u32,
     pub pid: u32,
 }
-impl From<&Request> for RequestInfo {
-    fn from(req: &Request) -> Self {
+impl<'a> From<&Request<'a>> for RequestInfo {
+    fn from(req: &Request<'a>) -> Self {
         Self {
             id: req.unique(),
             uid: req.uid(),
@@ -219,7 +218,7 @@ pub struct FileAttribute {
 
 /// `FuseFileAttr`, `Option<ttl>`, `Option<generation>`
 impl FileAttribute {
-    pub(crate) fn to_fuse(self, ino: INodeNo) -> (FuseFileAttr, Option<Duration>, Option<u64>) {
+    pub(crate) fn to_fuse(self, ino: u64) -> (FuseFileAttr, Option<Duration>, Option<u64>) {
         (
             FuseFileAttr {
                 ino,
@@ -271,7 +270,7 @@ pub struct SetAttrRequest<'a> {
     /// Backup time (for macOS)
     pub bkuptime: Option<SystemTime>,
     /// File flags (unused in FUSE)
-    pub flags: Option<BsdFileFlags>,
+    pub flags: Option<()>,
     /// File handle for the file being modified
     pub file_handle: Option<BorrowedFileHandle<'a>>,
 }
@@ -351,7 +350,7 @@ impl<'a> SetAttrRequest<'a> {
     }
 
     /// Unused by FUSE
-    pub fn flags(mut self, flags: BsdFileFlags) -> Self {
+    pub fn flags(mut self, flags: ()) -> Self {
         self.flags = Some(flags);
         self
     }
