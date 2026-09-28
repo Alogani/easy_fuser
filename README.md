@@ -28,7 +28,7 @@ many of the complexities, offering a more intuitive and Rust-idiomatic approach 
   use cases and performance requirements.
 
 - **Flexible File Identification**: Supports both path-based and inode-based operations,
-  allowing you to choose between `Inode`, `PathBuf`, or `Vec<OsString>` as your file identifier type. This
+  allowing you to choose between `Inode`, `PathBuf`, or `MappedInode` as your file identifier type. This
   offers flexibility in how you represent and manage file identities, suitable for different
   filesystem structures and performance requirements.
 
@@ -42,15 +42,16 @@ many of the complexities, offering a more intuitive and Rust-idiomatic approach 
 
 ## File Identification Flexibility
 
-`easy_fuser` supports two main approaches for file identification:
+`easy_fuser` supports three file identifier types:
 
-1. **Path-based Operations**: Work with file paths directly, which can be more intuitive for
-   certain use cases.
-2. **Inode-based Operations**: Use inode numbers for more efficient control, especially useful
-   for complex filesystem structures or when performance is critical.
+1. **`PathBuf`**: Work with paths relative to the mount root, without a leading `/`.
+   A simple choice when you do not need to track hard links.
+2. **`Inode`**: Work with inode numbers that you assign and manage yourself.
+3. **`MappedInode`**: Work with inode numbers assigned by easy_fuser, with access to
+   paths for hard links created through `FuseHandler::link`.
 
-You can choose the approach that best fits your filesystem's needs and switch between them
-as necessary.
+See the [`FileIdType` documentation](https://docs.rs/easy_fuser/latest/easy_fuser/types/trait.FileIdType.html)
+for the trade-offs and edge cases of each choice.
 
 ## Usage
 

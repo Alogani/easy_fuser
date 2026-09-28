@@ -662,7 +662,23 @@ where
                 resolver.resolve_id(newparent),
                 &newname
             ){% if mode == "async" %}.await{% endif %} {
-                {% call reply_entry("newparent", "newname") %}{% endcall %}
+                Ok(metadata) => {
+                    let default_ttl = handler.get_default_ttl();
+                    let (id, file_attr) = TId::extract_metadata(metadata);
+                    let linked_ino = if resolver.link(ino, newparent, &newname) {
+                        ino
+                    } else {
+                        resolver.lookup(newparent, &newname, id, true)
+                    };
+                    let (fuse_attr, ttl, generation) = file_attr.to_fuse(linked_ino);
+                    {% call spawn_reply() %}
+                        reply.entry(
+                            &ttl.unwrap_or(default_ttl),
+                            &fuse_attr,
+                            fuser::Generation(generation.unwrap_or(get_default_generation())),
+                        );
+                    {% endcall %}
+                }
                 Err(e) => {
                     warn!("link: parent_ino {:x?}, [{}], {:?}", ino, e, req);
                     {{ reply_error() }}
@@ -1144,6 +1160,13 @@ where
                 flags,
             ){% if mode == "async" %}.await{% endif %} {
                 Ok(()) => {
+                    #[cfg(target_os = "linux")]
+                    if flags.contains(RenameFlags::RENAME_EXCHANGE) {
+                        resolver.exchange(parent, &name, newparent, &newname);
+                    } else {
+                        resolver.rename(parent, &name, newparent, &newname);
+                    }
+                    #[cfg(not(target_os = "linux"))]
                     resolver.rename(parent, &name, newparent, &newname);
                     {% call spawn_reply() %} reply.ok(); {% endcall %} }
                 Err(e) => {
@@ -1165,7 +1188,10 @@ where
                 resolver.resolve_id(parent),
                 &name
             ){% if mode == "async" %}.await{% endif %} {
-                Ok(()) => { {% call spawn_reply() %} reply.ok(); {% endcall %} }
+                Ok(()) => {
+                    resolver.unlink(parent, &name);
+                    {% call spawn_reply() %} reply.ok(); {% endcall %}
+                }
                 Err(e) => {
                     warn!("[{}] rmdir: parent_ino: {:x?}, {:?}", parent, e, req);
                     {{ reply_error() }}
@@ -1402,7 +1428,10 @@ where
                 resolver.resolve_id(parent),
                 &name
             ){% if mode == "async" %}.await{% endif %} {
-                Ok(()) => { {% call spawn_reply() %} reply.ok(); {% endcall %} }
+                Ok(()) => {
+                    resolver.unlink(parent, &name);
+                    {% call spawn_reply() %} reply.ok(); {% endcall %}
+                }
                 Err(e) => {
                     warn!("[{}] unlink: parent_ino: {:x?}, {:?}", parent, e, req);
                     {{ reply_error() }}
