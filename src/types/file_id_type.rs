@@ -1,9 +1,8 @@
 //! File identification types and traits for FUSE filesystems.
 //!
 //! This module defines the `FileIdType` trait and its implementations, which provide
-//! flexible ways to identify files in a FUSE filesystem. It supports three main
-//! identification methods: inode-based, path-based, and component-based. Each method
-//! offers different trade-offs in terms of performance, ease of use, and memory usage.
+//! ways to identify files in a FUSE filesystem: `PathBuf`, `MappedInode`, and
+//! `Inode`. The older `Vec<OsString>` form remains for compatibility.
 //! The module also includes associated types for full and minimal metadata, which
 //! are different possible return values in FUSE operations.
 
@@ -17,58 +16,68 @@ use std::{
 
 use super::arguments::FileAttribute;
 use super::inode::*;
-use crate::{core::InodeResolvable, inode_multi_mapper::InodeMultiMapper};
+use crate::{core::InodeResolvable, inode_mapping::InodeMapper};
 use fuser::FileType as FileKind;
 
 /// Represents the type used to identify files in the file system.
 ///
-/// This trait allows different approaches to file identification:
+/// Choose the form that matches how your filesystem finds files:
 ///
-/// 1. `PathBuf`: Uses file paths for identification.
-///    - Pros: Automatic inode-to-path mapping and caching.
-///    - Cons: May have performance overhead for large file systems.
-///    - Root: Represented by an empty string. Paths are relative and never begin with a forward slash.
+/// 1. `PathBuf`: Receives one path relative to the mount root, without a
+///    leading `/` (for example, `dir/file.txt`, not `/dir/file.txt`).
+///    easy_fuser assigns the FUSE inode number.
+///    - Pros: Simple when your files are naturally addressed by path.
+///    - Cons: Two hard-link names are tracked as separate FUSE inodes.
+///    - Root: An empty path.
+///    - After unlink: If FUSE still refers to an inode, its `PathBuf` is the
+///      last remembered path. For example, after unlinking `a.txt`, a later
+///      operation can still receive `a.txt`, even though that name no longer
+///      exists. It is not replaced with an empty path, and the name could later
+///      refer to a different file. Use an open file handle when one is available.
 ///
-/// 2. `Vec<OsString>`: Uses a vector of path components for identification.
-///    - Pros: Slightly lower overhead than PathBuf, allows path to be divided into parts.
-///    - Cons: Path components are stored in reverse order, which may require additional handling.
-///    - Root: Represented by an empty vector.
+/// 2. `Inode`: Receives a FUSE inode number that you assign. Return that number
+///    with the metadata from `lookup`, `create`, `link`, and similar operations;
+///    later operations receive the same number for that file.
+///    - Pros: You control file identity directly, including hard links.
+///    - Cons: You must assign unique inode numbers and find the corresponding
+///      file yourself.
+///    - Root: [`ROOT_INODE`] (1).
 ///
-/// 3. `Inode`: The user provides their own unique inode numbers.
-///    - Pros: Direct control over inode assignment.
-///    - Cons: Requires manual management of inode uniqueness.
-///    - Root: Represented by the constant ROOT_INODE with a value of 1.
-///    - Usage:
-///      - The user should provide an inode value for each operation requiring as a return value `<Inode as TId>::Metadata` or `<Inode as TId>::MinimalMetadata` (eg: lookup, create, link, etc.)
-///      - Then for subsequent operations concerning the same file, Fuse system will return the provided inode as argument `Inode as TId` (eg: access, getattr, lookup _to reference parent_, etc.)
+/// 3. [`MappedInode`]: Receives an inode number assigned by easy_fuser and can
+///    ask for its known paths.
+///    - Pros: Tracks multiple hard-link names under one inode when a
+///      `FuseHandler::link` call succeeds.
+///    - Cons: Keeps link records in memory and rebuilds paths when requested.
+///      Hard links already present or created outside this filesystem are not
+///      discovered automatically.
+///    - `paths() -> Vec<PathBuf>`: All currently known paths to the inode,
+///      relative to the mount root and without a leading `/`. For example,
+///      after linking `a.txt` as `b.txt`, the result contains both.
+///    - `parts_paths() -> Vec<Vec<OsString>>`: The same paths represented as
+///      OS-native components in root-to-file order. A path `dir/file.txt` is
+///      represented as `["dir", "file.txt"]` within the outer list. This is
+///      faster when you can use components directly because it skips building
+///      `PathBuf`s.
+///    - `inode() -> Inode`: The assigned FUSE inode number.
+///    - Root: [`ROOT_INODE`] (1), with an empty path.
 ///
-/// 4. `HybridId<BackingId>`: Uses inode for identification; however, file paths are also provided for use.
-///     - Pros:
-///         - Supports automatic inode-to-path mapping, similar to PathBuf.
-///         - User can supply an optional backing ID to accurately reuse an existing inode and model a hard link
-///         if the underlying file system uses hard links, and allows for retrieving multiple paths to the same inode.
-///         - Hard link relationships and inode values persist after unmounting and remounting the file system.
-///     - Cons:
-///         - May have more overhead compared to PathBuf.
-///         - May lead to performance degradation or service denial if the user tries to exhaustively search all paths
-///         to an inode, and hard links were extensively used.
-///         - When using first_path method, the pre-supplied PathBuf can change over multiple requests to the same inode, so it should not be used as a
-///         comparison method.
-///     - Root: Represented by the constant ROOT_INODE with a value of 1 and an empty string.
-///     - Usage: (see <https://github.com/Alogani/easy_fuser/pull/77#issuecomment-3830951142>)
-///       - If two paths represents hardlinks, the user will return the same inode to the fuse filesystem
-///       - The user can use the hardlinks of the current filesystem by using `libc::fstat(...).f_fsid` (Persistent) or libc::fstatfs(...).f_dev` (Ephemeral)
-///       - When a Fuse operation provides an inode, the user can use `BackingId::all_paths()` to retrieve all the paths associated to that inode
+///    `paths()` and `parts_paths()` each reconstruct a new result when called;
+///    neither caches it. Keep the returned value if you need it again during
+///    the same operation, and call again after links or names change. After
+///    the last name is unlinked, both return an empty list while the inode can
+///    still be in use by an open file.
+///
+/// 4. `Vec<OsString>`: The older path-component form, deprecated since 0.7.0.
+///    Components are ordered from file back toward the root.
 pub trait FileIdType:
-    'static + Debug + Clone + PartialEq + Eq
-    + Send + std::hash::Hash + InodeResolvable
+    'static + Debug + Clone + PartialEq + Eq + Send + std::hash::Hash + InodeResolvable
 {
     /// Full metadata type for the file system.
     ///
     /// For Inode-based: (Inode, FileAttribute)
     /// - User must provide both Inode and FileAttribute.
     ///
-    /// For PathBuf-based: FileAttribute
+    /// For `PathBuf` and `MappedInode`: FileAttribute
     /// - User only needs to provide FileAttribute; Inode is managed internally.
     type Metadata: Send;
 
@@ -77,7 +86,7 @@ pub trait FileIdType:
     /// For Inode-based: (Inode, FileKind)
     /// - User must provide both Inode and FileKind.
     ///
-    /// For PathBuf-based: FileKind
+    /// For `PathBuf` and `MappedInode`: FileKind
     /// - User only needs to provide FileKind; Inode is managed internally.
     type MinimalMetadata: Send;
     #[doc(hidden)]
@@ -145,6 +154,8 @@ impl FileIdType for PathBuf {
     }
 }
 
+#[allow(useless_deprecated)]
+#[deprecated(since = "0.7.0", note = "please use `MappedInode` instead")]
 impl FileIdType for Vec<OsString> {
     type _Id = ();
     type Metadata = FileAttribute;
@@ -171,139 +182,84 @@ impl FileIdType for Vec<OsString> {
     }
 }
 
+/// An inode assigned by easy_fuser that can resolve its currently known paths.
+///
+/// `paths()` can be empty if the final name was unlinked while FUSE still
+/// holds the inode. A handler serving a pathless open file can use its open
+/// file handle. This type is created by the crate, not by a handler. Paths are
+/// reconstructed when requested and are not cached in this value.
 #[derive(Clone)]
-pub struct HybridId<BackingId>
-where
-    BackingId: Clone + Eq + std::hash::Hash + Debug,
-{
+pub struct MappedInode {
     inode: Inode,
-    mapper: Arc<RwLock<InodeMultiMapper<AtomicU64, BackingId>>>,
+    mapper: Arc<RwLock<InodeMapper<AtomicU64>>>,
 }
 
-impl<BackingId> HybridId<BackingId>
-where
-    BackingId: Clone + Eq + std::hash::Hash + Debug,
-{
-    /// Creates a new hybrid ID.
-    pub fn new(inode: Inode, mapper: Arc<RwLock<InodeMultiMapper<AtomicU64, BackingId>>>) -> Self {
+impl MappedInode {
+    pub(crate) fn new(inode: Inode, mapper: Arc<RwLock<InodeMapper<AtomicU64>>>) -> Self {
         Self { inode, mapper }
     }
 
-    /// Retrieves the first path to the inode.
+    /// The FUSE inode number shared by all registered hard-link names.
+    pub fn inode(&self) -> Inode {
+        self.inode
+    }
+
+    /// Every currently known path, relative to the mounted filesystem root.
+    /// Paths have no leading `/`; the root is an empty path.
     ///
-    /// # Notes
-    /// - Due to the nature of an inode being able to have multiple links, there can be multiple combinations of path components
-    /// that resolve to the same inode. This method only returns the first combination of path components that
-    /// resolves to the inode.
-    pub fn first_path(&self) -> Option<PathBuf> {
-        let mapper = self
-            .mapper
-            .read()
-            .expect("failed to acquire read lock on mapper");
-        
-        mapper.resolve(&self.inode).map(|components| {
-            components
-                .iter()
-                .map(|component| component.name.as_ref())
-                .rev()
-                .collect::<PathBuf>()
-        })
-    }
-
-    /// Retrieves the inode of the hybrid ID.
-    pub fn inode(&self) -> &Inode {
-        &self.inode
-    }
-
-    /// Retrieves all paths to the inode, up to a given limit.
-    pub fn all_paths(&self, limit: Option<usize>) -> Vec<PathBuf> {
-        let mapper = self
-            .mapper
-            .read()
-            .expect("failed to acquire read lock on mapper");
-        let resolved = mapper.resolve_all(&self.inode, limit);
-        resolved
-            .iter()
-            .map(|components| {
-                components
-                    .iter()
-                    .rev()
-                    .map(|component| component.name.as_ref())
-                    .collect::<PathBuf>()
-            })
+    /// Reconstructs the paths when called and returns an owned snapshot. It
+    /// converts the OS-native components returned by `parts_paths()` into
+    /// `PathBuf`s. Keep the result if you need to read it more than once during
+    /// an operation; call this again after links or names change.
+    pub fn paths(&self) -> Vec<PathBuf> {
+        self.parts_paths()
+            .into_iter()
+            .map(|parts| parts.iter().collect())
             .collect()
     }
 
-    /// Retrieves the backing ID of the inode.
+    /// The same paths as `paths()`, split into OS-native components.
     ///
-    /// This is useful for comparing to the backing ID of the actual underlying
-    /// file that a filesystem handler opened, which mitigates the risk of a race
-    /// condition, in which case another backing path could be tried, or an error
-    /// could be returned.
-    pub fn backing_id(&self) -> Option<BackingId> {
-        let mapper = self
-            .mapper
+    /// This avoids constructing `PathBuf`s, so it is faster than `paths()`
+    /// when you can use components directly. It still reconstructs every path
+    /// from the mapper's links and returns an owned snapshot on each call; it
+    /// does not borrow the stored links.
+    pub fn parts_paths(&self) -> Vec<Vec<OsString>> {
+        self.mapper
             .read()
-            .expect("failed to acquire read lock on mapper");
-        mapper.get_backing_id(&self.inode).cloned()
+            .expect("Failed to acquire read lock")
+            .resolve(&self.inode)
+            .unwrap_or_default()
     }
 }
 
-impl<BackingId> PartialEq for HybridId<BackingId>
-where
-    BackingId: Clone + Eq + std::hash::Hash + Debug,
-{
+impl PartialEq for MappedInode {
     fn eq(&self, other: &Self) -> bool {
         self.inode == other.inode && Arc::ptr_eq(&self.mapper, &other.mapper)
     }
 }
-
-impl<BackingId> Eq for HybridId<BackingId> where BackingId: Clone + Eq + std::hash::Hash + Debug {}
-
-impl<BackingId> std::hash::Hash for HybridId<BackingId>
-where
-    BackingId: Clone + Eq + std::hash::Hash + Debug,
-{
+impl Eq for MappedInode {}
+impl std::hash::Hash for MappedInode {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.inode.hash(state);
         Arc::as_ptr(&self.mapper).hash(state);
     }
 }
-
-impl<BackingId> Debug for HybridId<BackingId>
-where
-    BackingId: Clone + Eq + std::hash::Hash + Debug,
-{
+impl Debug for MappedInode {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "HybridId({:?}, {})",
-            self.inode,
-            match &self.first_path() {
-                Some(path) => path.display().to_string(),
-                None => "<orphaned inode>".to_string(),
-            }
-        )
+        f.debug_struct("MappedInode")
+            .field("inode", &self.inode)
+            .field("paths", &self.paths())
+            .finish()
     }
 }
-
-impl<BackingId> FileIdType for HybridId<BackingId>
-where
-    BackingId: Clone + Eq + std::hash::Hash + Send + Sync + Debug + 'static,
-{
-    type _Id = Option<BackingId>;
-    type Metadata = (Option<BackingId>, FileAttribute);
-    type MinimalMetadata = (Option<BackingId>, FileKind);
+impl FileIdType for MappedInode {
+    type _Id = ();
+    type Metadata = FileAttribute;
+    type MinimalMetadata = FileKind;
 
     fn display(&self) -> impl Display {
-        format!(
-            "HybridId({:?}, {})",
-            self.inode,
-            match &self.first_path() {
-                Some(path) => path.display().to_string(),
-                None => "<orphaned inode>".to_string(),
-            }
-        )
+        format!("{:?}", self)
     }
 
     fn is_filesystem_root(&self) -> bool {
@@ -311,10 +267,10 @@ where
     }
 
     fn extract_metadata(metadata: Self::Metadata) -> (Self::_Id, FileAttribute) {
-        metadata
+        ((), metadata)
     }
 
     fn extract_minimal_metadata(minimal_metadata: Self::MinimalMetadata) -> (Self::_Id, FileKind) {
-        minimal_metadata
+        ((), minimal_metadata)
     }
 }

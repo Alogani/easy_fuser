@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-09-28
+
+### Changed
+
+- `InodeMapper` records multiple directory entries for one inode. Its `link`
+  method registers an additional name after a handler successfully creates a
+  hard link. A central link index stores the names; `get` exposes all current
+  links, and `resolve` reconstructs their paths.
+- New `MappedInode` handler ID exposes `inode()`, `paths()`, and
+  `parts_paths()`. It uses ordinary `FileAttribute` and `FileKind` return values.
+- Successful `link`, `unlink`, and `rename` calls update the mapper. Explicitly
+  registered hard links remain associated after FUSE forgets lookup references.
+  The `MappedInode` resolver retains known names during a mount until namespace
+  operations remove them, including names of parent directories.
+
+### Breaking changes
+
+- Removed `InodeMultiMapper` and `HybridId<BackingId>`. Use `InodeMapper` and
+  `MappedInode` instead. Hard links must be created through `FuseHandler::link`
+  to share an automatically assigned FUSE inode.
+- Moved the mapper and resolver into `src/inode_mapping/`, with public mapper
+  types under `easy_fuser::inode_mapping`. The old `inode_mapper` module path
+  remains as a deprecated re-export.
+- Deprecated the `FileIdType` implementation for `Vec<OsString>` in favor of
+  `MappedInode`. Rust does not issue a warning when a standard-library type
+  implements a deprecated trait implementation, so migration is documented here.
+
 ## [0.5.0] - 2026-06-25
 
 ### ⚠️ Breaking Changes
@@ -91,6 +118,7 @@ Please refer to the [GitHub releases page](https://github.com/Alogani/easy_fuser
 
 ---
 
-[Unreleased]: https://github.com/Alogani/easy_fuser/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/Alogani/easy_fuser/compare/v0.7.0...HEAD
+[0.7.0]: https://github.com/Alogani/easy_fuser/compare/v0.6.0...v0.7.0
 [0.5.0]: https://github.com/Alogani/easy_fuser/compare/v0.4.5...v0.5.0
 [0.4.5]: https://github.com/Alogani/easy_fuser/compare/v0.4.4...v0.4.5
