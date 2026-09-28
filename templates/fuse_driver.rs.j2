@@ -2,8 +2,7 @@
 
 use std::{
     sync::Arc,
-    collections::{HashMap, VecDeque},
-    ffi::{OsStr, OsString},
+    ffi::OsStr,
     path::Path,
     time::SystemTime,
 };
@@ -19,11 +18,10 @@ use fuser::{
 
 use crate::types::*;
 use crate::core::helpers::*;
-use crate::core::FileIdResolver;
+use crate::core::{DirMapIter, FileIdResolver};
 
 use super::fuse_handler::FuseHandler;
 
-type DirIter<TAttr> = HashMap<(INodeNo, u64), VecDeque<(OsString, INodeNo, TAttr)>>;
 {% macro borrow_mut() -%}
     {% if mode == "serial" %}
         borrow_mut()
@@ -82,12 +80,12 @@ where
 
     {% if !send_sync %}
         handler: THandler,
-        dirmap_iter: RefCell<DirIter<FileKind>>,
-        dirmapplus_iter: RefCell<DirIter<FileAttribute>>,
+        dirmap_iter: RefCell<DirMapIter<FileKind>>,
+        dirmapplus_iter: RefCell<DirMapIter<FileAttribute>>,
     {% else %}
         handler: Arc<THandler>,
-        dirmap_iter: Arc<Mutex<DirIter<FileKind>>>,
-        dirmapplus_iter: Arc<Mutex<DirIter<FileAttribute>>>,
+        dirmap_iter: Arc<Mutex<DirMapIter<FileKind>>>,
+        dirmapplus_iter: Arc<Mutex<DirMapIter<FileAttribute>>>,
     {% endif %}
 
     {% if mode == "parallel" %}
@@ -130,12 +128,12 @@ where
             resolver: Arc::new(TId::create_resolver()),
             {% if mode == "serial" %}
                 handler,
-                dirmap_iter: RefCell::new(HashMap::new()),
-                dirmapplus_iter: RefCell::new(HashMap::new()),
+                dirmap_iter: RefCell::new(DirMapIter::default()),
+                dirmapplus_iter: RefCell::new(DirMapIter::default()),
             {% else %}
                 handler: Arc::new(handler),
-                dirmap_iter: Arc::new(Mutex::new(HashMap::new())),
-                dirmapplus_iter: Arc::new(Mutex::new(HashMap::new())),
+                dirmap_iter: Arc::new(Mutex::new(DirMapIter::default())),
+                dirmapplus_iter: Arc::new(Mutex::new(DirMapIter::default())),
             {% endif %}
 
             {% if mode == "parallel" %}
@@ -169,11 +167,11 @@ where
             &self.handler
         }
 
-        pub fn get_dirmap_iter(&self) -> &RefCell<DirIter<FileKind>> {
+        pub fn get_dirmap_iter(&self) -> &RefCell<DirMapIter<FileKind>> {
             &self.dirmap_iter
         }
 
-        pub fn get_dirmapplus_iter(&self) -> &RefCell<DirIter<FileAttribute>> {
+        pub fn get_dirmapplus_iter(&self) -> &RefCell<DirMapIter<FileAttribute>> {
             &self.dirmapplus_iter
         }
     {% else %}
@@ -181,11 +179,11 @@ where
             self.handler.clone()
         }
 
-        pub fn get_dirmap_iter(&self) -> Arc<Mutex<DirIter<FileKind>>> {
+        pub fn get_dirmap_iter(&self) -> Arc<Mutex<DirMapIter<FileKind>>> {
             self.dirmap_iter.clone()
         }
 
-        pub fn get_dirmapplus_iter(&self) -> Arc<Mutex<DirIter<FileAttribute>>> {
+        pub fn get_dirmapplus_iter(&self) -> Arc<Mutex<DirMapIter<FileAttribute>>> {
             self.dirmapplus_iter.clone()
         }
     {% endif %}
@@ -917,7 +915,7 @@ where
                             .unzip();
 
                         // Add children to resolver and create iterator
-                        resolver
+                        let entries = resolver
                             .add_children(
                                 ino,
                                 child_list,
@@ -931,7 +929,9 @@ where
                             .map(|((file_name, file_ino), file_attr)| {
                                 (file_name, file_ino, file_attr)
                             })
-                            .collect()
+                            .collect::<Vec<_>>();
+
+                        DirMapIter::start(ino, entries)
                     }
                     Err(e) => {
                         warn!("readdir {:?}: {:?}", req_info, e);
@@ -940,8 +940,8 @@ where
                     }
                 },
                 // Subsequent reads: retrieve saved iterator
-                _ => match { dirmap_iter.{{ borrow_mut() }}.remove(&(ino, offset)) } {
-                    Some(dirmap_iter) => dirmap_iter,
+                _ => match { dirmap_iter.{{ borrow_mut() }}.resume(ino, offset) } {
+                    Some(dir_iter) => dir_iter,
                     None => {
                         // Case when fuse tries to read again after the final item
                         {% call spawn_reply() %} reply.ok(); {% endcall %}
@@ -950,47 +950,35 @@ where
                 },
             };
 
-            let mut new_offset = offset;
-
             // ### Process directory entries
             {% call spawn_reply() %}
                 {% if is_extended_readdir %}
                     // readdirplus: Add entries with extended attributes
                     let default_ttl = handler.get_default_ttl();
-                    while let Some((name, ino, file_attr)) = dir_iter.pop_front() {
+                    while let Some((entry_offset, (name, ino, file_attr))) = dir_iter.next() {
                         let (fuse_attr, ttl, generation) = file_attr.clone().to_fuse(ino);
                         if reply.add(
                             ino,
-                            new_offset,
+                            entry_offset,
                             &name,
                             &ttl.unwrap_or(default_ttl),
                             &fuse_attr,
                             fuser::Generation(generation.unwrap_or(get_default_generation())),
                         ) {
-                            dir_iter.push_front((name, ino, file_attr.clone()));
-                            if new_offset > 0 {
-                                dirmap_iter
-                                    .{{ borrow_mut() }}
-                                    .insert((ino, new_offset - 1), dir_iter);
-                            }
+                            dir_iter.retry((name, ino, file_attr));
+                            dirmap_iter.{{ borrow_mut() }}.save(dir_iter);
                             break;
                         }
-                        new_offset += 1;
                     }
                     reply.ok();
                 {% else %}
                     // readdir: Add entries until buffer is full
-                    while let Some((name, ino, kind)) = dir_iter.pop_front() {
-                        if reply.add(ino, new_offset, kind, &name) {
-                            dir_iter.push_front((name, ino, kind));
-                            if new_offset > 0 {
-                                dirmap_iter
-                                    .{{ borrow_mut() }}
-                                    .insert((ino, new_offset - 1), dir_iter);
-                            }
+                    while let Some((entry_offset, (name, ino, kind))) = dir_iter.next() {
+                        if reply.add(ino, entry_offset, kind, &name) {
+                            dir_iter.retry((name, ino, kind));
+                            dirmap_iter.{{ borrow_mut() }}.save(dir_iter);
                             break;
                         }
-                        new_offset += 1;
                     }
                     reply.ok();
                 {% endif %}
