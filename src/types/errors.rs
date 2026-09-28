@@ -389,7 +389,6 @@ impl From<ErrorKind> for fuser::Errno {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
