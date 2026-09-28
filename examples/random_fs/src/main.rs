@@ -42,7 +42,7 @@ impl RandomFS {
     }
 
     fn random_inode(rng: &mut ThreadRng) -> Inode {
-        INodeNo(rng.gen::<u64>())
+        Inode::from(rng.gen::<u64>())
     }
 
     fn random_string(rng: &mut ThreadRng, len: usize) -> String {
@@ -67,7 +67,7 @@ impl FuseHandler for RandomFS {
         bmap, copy_file_range, fallocate, flush, fsync, fsyncdir, getlk, getxattr, ioctl, link, listxattr, lseek, mknod, open, opendir, readlink, release, releasedir, removexattr, rename, setlk, setxattr, statfs, symlink
     ] }
 
-    fn access(&self, _req: &RequestInfo, _file_id: Inode, _mask: AccessFlags) -> FuseResult<()> {
+    fn access(&self, _req: &RequestInfo, _file_id: Inode, _mask: AccessMask) -> FuseResult<()> {
         Ok(())
     }
 
@@ -83,7 +83,7 @@ impl FuseHandler for RandomFS {
         (
             OwnedFileHandle,
             (Inode, FileAttribute),
-            FopenFlags,
+            FUSEOpenResponseFlags,
         ),
         PosixError,
     > {
@@ -94,7 +94,7 @@ impl FuseHandler for RandomFS {
             // Safe because we won't release it
             unsafe { OwnedFileHandle::from_raw(0) },
             (ino, attr),
-            FopenFlags::empty(),
+            FUSEOpenResponseFlags::empty(),
         ))
     }
 
@@ -173,7 +173,7 @@ impl FuseHandler for RandomFS {
         _fh: BorrowedFileHandle,
         offset: SeekFrom,
         size: u32,
-        _flags: OpenFlags,
+        _flags: FUSEOpenFlags,
         _lock_owner: Option<u64>,
     ) -> FuseResult<Vec<u8>> {
         let mut rng = rand::thread_rng();
@@ -238,7 +238,7 @@ impl FuseHandler for RandomFS {
         _fh: BorrowedFileHandle,
         _offset: SeekFrom,
         data: Vec<u8>,
-        _write_flags: WriteFlags,
+        _write_flags: FUSEWriteFlags,
         _flags: OpenFlags,
         _lock_owner: Option<u64>,
     ) -> FuseResult<u32> {

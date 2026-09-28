@@ -12,7 +12,7 @@ pub fn get_fuse_handler_trait_fn(func_name: &str) -> TraitItemFn {
             fn destroy(&self);
         },
         "access" => parse_quote! {
-            fn access(&self, req: &RequestInfo, file_id: Self::TId, mask: AccessFlags) -> FuseResult<()>;
+            fn access(&self, req: &RequestInfo, file_id: Self::TId, mask: AccessMask) -> FuseResult<()>;
         },
         "bmap" => parse_quote! {
             fn bmap(
@@ -29,12 +29,12 @@ pub fn get_fuse_handler_trait_fn(func_name: &str) -> TraitItemFn {
                 req: &RequestInfo,
                 file_in: Self::TId,
                 file_handle_in: BorrowedFileHandle<'_>,
-                offset_in: u64,
+                offset_in: i64,
                 file_out: Self::TId,
                 file_handle_out: BorrowedFileHandle<'_>,
-                offset_out: u64,
+                offset_out: i64,
                 len: u64,
-                flags: CopyFileRangeFlags,
+                flags: u32, // Not implemented yet in standard
             ) -> FuseResult<u32>;
         },
         "create" => parse_quote! {
@@ -46,7 +46,7 @@ pub fn get_fuse_handler_trait_fn(func_name: &str) -> TraitItemFn {
                 mode: u32,
                 umask: u32,
                 flags: OpenFlags,
-            ) -> FuseResult<(OwnedFileHandle, <Self::TId as FileIdType>::Metadata, FopenFlags)>;
+            ) -> FuseResult<(OwnedFileHandle, <Self::TId as FileIdType>::Metadata, FUSEOpenResponseFlags)>;
         },
         "fallocate" => parse_quote! {
             fn fallocate(
@@ -122,7 +122,7 @@ pub fn get_fuse_handler_trait_fn(func_name: &str) -> TraitItemFn {
                 req: &RequestInfo,
                 file_id: Self::TId,
                 file_handle: BorrowedFileHandle<'_>,
-                flags: IoctlFlags,
+                flags: IOCtlFlags,
                 cmd: u32,
                 in_data: Vec<u8>,
                 out_size: u32,
@@ -184,7 +184,7 @@ pub fn get_fuse_handler_trait_fn(func_name: &str) -> TraitItemFn {
                 req: &RequestInfo,
                 file_id: Self::TId,
                 flags: OpenFlags,
-            ) -> FuseResult<(OwnedFileHandle, FopenFlags)>;
+            ) -> FuseResult<(OwnedFileHandle, FUSEOpenResponseFlags)>;
         },
         "opendir" => parse_quote! {
             fn opendir(
@@ -192,7 +192,7 @@ pub fn get_fuse_handler_trait_fn(func_name: &str) -> TraitItemFn {
                 req: &RequestInfo,
                 file_id: Self::TId,
                 flags: OpenFlags,
-            ) -> FuseResult<(OwnedFileHandle, FopenFlags)>;
+            ) -> FuseResult<(OwnedFileHandle, FUSEOpenResponseFlags)>;
         },
         "read" => parse_quote! {
             fn read(
@@ -202,7 +202,7 @@ pub fn get_fuse_handler_trait_fn(func_name: &str) -> TraitItemFn {
                 file_handle: BorrowedFileHandle<'_>,
                 seek: SeekFrom,
                 size: u32,
-                flags: OpenFlags,
+                flags: FUSEOpenFlags,
                 lock_owner: Option<u64>,
             ) -> FuseResult<Vec<u8>>;
         },
@@ -288,7 +288,7 @@ pub fn get_fuse_handler_trait_fn(func_name: &str) -> TraitItemFn {
                 file_id: Self::TId,
                 name: &std::ffi::OsStr,
                 value: Vec<u8>,
-                flags: SetXAttrFlags,
+                flags: FUSESetXAttrFlags,
                 position: u32,
             ) -> FuseResult<()>;
         },
@@ -312,7 +312,7 @@ pub fn get_fuse_handler_trait_fn(func_name: &str) -> TraitItemFn {
                 file_handle: BorrowedFileHandle<'_>,
                 seek: SeekFrom,
                 data: Vec<u8>,
-                write_flags: WriteFlags,
+                write_flags: FUSEWriteFlags,
                 flags: OpenFlags,
                 lock_owner: Option<u64>,
             ) -> FuseResult<u32>;
