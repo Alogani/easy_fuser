@@ -1,7 +1,7 @@
 pub use super::bsd_like_fs::*;
 use std::path::Path;
 use std::ffi::{CStr, CString};
-use crate::PosixError;
+use crate::types::PosixError;
 
 use libc::{self, c_char, c_int, size_t, ssize_t, off_t, c_void};
 
