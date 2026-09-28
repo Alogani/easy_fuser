@@ -13,7 +13,14 @@ pub struct FuseHandlerTemplate<'a> {
 }
 
 #[derive(Template)]
-#[template(path = "mouting.rs.j2")]
-pub struct MoutingTemplate<'a> {
+#[template(path = "mounting.rs.j2")]
+pub struct MountingTemplate<'a> {
+    #[allow(unused)]
+    pub mode: &'a str,
+}
+
+#[derive(Template)]
+#[template(path = "fuse_lib.rs.j2")]
+pub struct FuseLibTemplate<'a> {
     pub mode: &'a str,
 }

@@ -3,7 +3,7 @@
 //!
 //! # Key Types
 //!
-//! - [`DeviceType`]: Represents POSIX device types based on the `rdev` value.
+//! - [`DeviceType`]: Represents POSIX file kinds and device numbers.
 //! - [`StatFs`]: Represents file system statistics, similar to the POSIX `statvfs` structure.
 //! - [`RequestInfo`]: Encapsulates essential information about a FUSE request.
 //! - [`FileAttribute`]: Represents file attributes for FUSE operations with optional caching parameters.
@@ -18,7 +18,8 @@
 use std::time::{Duration, SystemTime};
 
 use fuser::FileAttr as FuseFileAttr;
-use fuser::{FileType, Request, TimeOrNow};
+pub use fuser::RequestId;
+use fuser::{FileType, Request, TimeOrNow, INodeNo, BsdFileFlags};
 
 use super::BorrowedFileHandle;
 use super::LockType;
@@ -43,7 +44,7 @@ pub fn seek_from_raw(whence: Option<i32>, offset: i64) -> SeekFrom {
     }
 }
 
-/// Represents POSIX device types based on the `rdev` value.
+/// Represents POSIX file kinds and, for devices, their major and minor numbers.
 ///
 /// This enum encapsulates various file system object types, including:
 /// - Regular files and directories
@@ -63,8 +64,8 @@ pub enum DeviceType {
 
 impl DeviceType {
     pub fn from_file_type_and_rdev(file_type: FileType, rdev: libc::dev_t) -> Self {
-        let major: u32 = libc::major(rdev);
-        let minor: u32 = libc::minor(rdev);
+        let major = libc::major(rdev) as u32;
+        let minor = libc::minor(rdev) as u32;
 
         match file_type {
             FileType::RegularFile => DeviceType::RegularFile,
@@ -81,13 +82,37 @@ impl DeviceType {
         match self {
             DeviceType::RegularFile => 0,
             DeviceType::Directory => 0,
-            DeviceType::CharacterDevice { major, minor } => libc::makedev(*major, *minor),
-            DeviceType::BlockDevice { major, minor } => libc::makedev(*major, *minor),
+            DeviceType::CharacterDevice { major, minor } => libc::makedev(*major as _, *minor as _),
+            DeviceType::BlockDevice { major, minor } => libc::makedev(*major as _, *minor as _),
             DeviceType::NamedPipe => 0,
             DeviceType::Socket => 0,
             DeviceType::Symlink => 0,
             DeviceType::Unknown => 0, // Represents an unknown device
         }
+    }
+}
+
+#[cfg(test)]
+mod device_type_tests {
+    use super::*;
+
+    #[test]
+    fn device_numbers_round_trip() {
+        let rdev = libc::makedev(0x12, 0x3456);
+        let character = DeviceType::from_file_type_and_rdev(FileType::CharDevice, rdev);
+        assert!(matches!(character, DeviceType::CharacterDevice { major: 0x12, minor: 0x3456 }));
+        assert_eq!(character.to_rdev(), rdev);
+
+        let block = DeviceType::from_file_type_and_rdev(FileType::BlockDevice, rdev);
+        assert!(matches!(block, DeviceType::BlockDevice { major: 0x12, minor: 0x3456 }));
+        assert_eq!(block.to_rdev(), rdev);
+    }
+
+    #[test]
+    fn non_device_uses_file_kind_and_has_no_rdev() {
+        let kind = DeviceType::from_file_type_and_rdev(FileType::NamedPipe, 0);
+        assert!(matches!(kind, DeviceType::NamedPipe));
+        assert_eq!(kind.to_rdev(), 0);
     }
 }
 
@@ -148,13 +173,13 @@ impl StatFs {
 /// - `pid`: Process ID of the process that initiated the request
 #[derive(Debug, Clone)]
 pub struct RequestInfo {
-    pub id: u64,
+    pub id: RequestId,
     pub uid: u32,
     pub gid: u32,
     pub pid: u32,
 }
-impl<'a> From<&Request<'a>> for RequestInfo {
-    fn from(req: &Request<'a>) -> Self {
+impl From<&Request> for RequestInfo {
+    fn from(req: &Request) -> Self {
         Self {
             id: req.unique(),
             uid: req.uid(),
@@ -207,7 +232,7 @@ pub struct FileAttribute {
 
 /// `FuseFileAttr`, `Option<ttl>`, `Option<generation>`
 impl FileAttribute {
-    pub(crate) fn to_fuse(self, ino: u64) -> (FuseFileAttr, Option<Duration>, Option<u64>) {
+    pub(crate) fn to_fuse(self, ino: INodeNo) -> (FuseFileAttr, Option<Duration>, Option<u64>) {
         (
             FuseFileAttr {
                 ino,
@@ -259,9 +284,15 @@ pub struct SetAttrRequest<'a> {
     /// Backup time (for macOS)
     pub bkuptime: Option<SystemTime>,
     /// File flags (unused in FUSE)
-    pub flags: Option<()>,
+    pub flags: Option<BsdFileFlags>,
     /// File handle for the file being modified
     pub file_handle: Option<BorrowedFileHandle<'a>>,
+}
+
+impl<'a> Default for SetAttrRequest<'a> {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl<'a> SetAttrRequest<'a> {
@@ -333,7 +364,7 @@ impl<'a> SetAttrRequest<'a> {
     }
 
     /// Unused by FUSE
-    pub fn flags(mut self, flags: ()) -> Self {
+    pub fn flags(mut self, flags: BsdFileFlags) -> Self {
         self.flags = Some(flags);
         self
     }

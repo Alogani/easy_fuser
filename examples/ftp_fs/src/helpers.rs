@@ -1,5 +1,5 @@
 use chrono::NaiveDateTime;
-use easy_fuser::prelude::*;
+use easy_fuser::fuse_parallel::prelude::*;
 use log::error;
 use std::{
     path::Path,
@@ -84,7 +84,7 @@ pub fn get_file_attribute(
         Ok(t) => t,
         Err(e) => {
             error!("Error getting modify time for {}: {:?}", pathname, e);
-            NaiveDateTime::UNIX_EPOCH
+            chrono::DateTime::<chrono::Utc>::UNIX_EPOCH.naive_utc()
         }
     };
 

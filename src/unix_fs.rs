@@ -63,6 +63,7 @@ pub(crate) mod macos_fs;
 use macos_fs as unix_impl;
 
 pub(crate) use unix_impl::get_errno;
+pub(crate) use unix_impl::lseek as lseek_raw;
 pub use unix_impl::{copy_file_range, statfs};
 
 /// Converts a `std::fs::FileType` to the corresponding `FileKind` expected by fuse_api.
@@ -132,28 +133,28 @@ fn convert_stat_struct(statbuf: libc::stat) -> Option<FileAttribute> {
         mtime,
         ctime,
         crtime: mtime,
-        kind: mode_to_kind(statbuf.st_mode)?,
-        perm: perm,
+        kind: mode_to_kind(statbuf.st_mode as u32)?,
+        perm,
         nlink: statbuf.st_nlink as u32,
-        uid: statbuf.st_uid as u32,
-        gid: statbuf.st_gid as u32,
+        uid: statbuf.st_uid,
+        gid: statbuf.st_gid,
         rdev: statbuf.st_rdev as u32,
         blksize: statbuf.st_blksize as u32,
-        flags: flags,
+        flags,
         ttl: None,
         generation: None,
     })
 }
 
 pub(crate) fn mode_to_kind(mode: u32) -> Option<FileKind> {
-    Some(match mode & libc::S_IFMT {
-        libc::S_IFREG => FileKind::RegularFile,
-        libc::S_IFDIR => FileKind::Directory,
-        libc::S_IFCHR => FileKind::CharDevice,
-        libc::S_IFBLK => FileKind::BlockDevice,
-        libc::S_IFIFO => FileKind::NamedPipe,
-        libc::S_IFLNK => FileKind::Symlink,
-        libc::S_IFSOCK => FileKind::Socket,
+    Some(match mode & libc::S_IFMT as u32 {
+        x if x == libc::S_IFREG as u32 => FileKind::RegularFile,
+        x if x == libc::S_IFDIR as u32 => FileKind::Directory,
+        x if x == libc::S_IFCHR as u32 => FileKind::CharDevice,
+        x if x == libc::S_IFBLK as u32 => FileKind::BlockDevice,
+        x if x == libc::S_IFIFO as u32 => FileKind::NamedPipe,
+        x if x == libc::S_IFLNK as u32 => FileKind::Symlink,
+        x if x == libc::S_IFSOCK as u32 => FileKind::Socket,
         _ => return None, // Unsupported or unknown file type
     })
 }
@@ -166,8 +167,8 @@ fn system_time_to_timespec(time: SystemTime) -> Result<timespec, PosixError> {
         )
     })?;
     Ok(timespec {
-        tv_sec: duration.as_secs() as i64,
-        tv_nsec: duration.subsec_nanos() as i64,
+        tv_sec: duration.as_secs() as _,
+        tv_nsec: duration.subsec_nanos() as _,
     })
 }
 
@@ -193,14 +194,14 @@ pub fn lookup(path: &Path) -> Result<FileAttribute, PosixError> {
             path.display()
         )));
     }
-    Ok(convert_stat_struct(statbuf).ok_or(PosixError::new(
+    convert_stat_struct(statbuf).ok_or(PosixError::new(
         ErrorKind::InvalidArgument,
         format!(
             "{}: statbuf conversion failed {:?}",
             path.display(),
             statbuf
         ),
-    ))?)
+    ))
 }
 
 /// Retrieves file attributes for a given file descriptor.
@@ -219,10 +220,10 @@ pub fn getattr(fd: BorrowedFd) -> Result<FileAttribute, PosixError> {
             fd
         )));
     }
-    Ok(convert_stat_struct(statbuf).ok_or(PosixError::new(
+    convert_stat_struct(statbuf).ok_or(PosixError::new(
         ErrorKind::InvalidArgument,
         format!("{:?}: statbuf conversion failed {:?}", fd, statbuf),
-    ))?)
+    ))
 }
 
 /// Modifies file attributes for a given path.
@@ -269,7 +270,7 @@ pub fn setattr(path: &Path, attrs: SetAttrRequest) -> Result<FileAttribute, Posi
                 )));
             }
             let res = unsafe {
-                libc::ftruncate(
+                unix_impl::ftruncate(
                     fd,
                     i64::try_from(size).map_err(|_| {
                         PosixError::new(
@@ -478,14 +479,14 @@ pub fn rename(oldpath: &Path, newpath: &Path, flags: RenameFlags) -> Result<(), 
 /// Although this function returns a Fd, it is guaranted to be positive and valid.
 pub fn open(path: &Path, flags: OpenFlags) -> Result<OwnedFd, PosixError> {
     let c_path = cstring_from_path(path)?;
-    let fd = unsafe { libc::open(c_path.as_ptr(), flags.bits()) };
+    let fd = unsafe { libc::open(c_path.as_ptr(), flags.0) };
     if fd == -1 {
         return Err(PosixError::last_error(format!(
             "{}: open failed",
             path.display()
         )));
     }
-    Ok(unsafe { OwnedFd::from_raw_fd(fd.into()) })
+    Ok(unsafe { OwnedFd::from_raw_fd(fd) })
 }
 
 /// Reads data from a file descriptor at a specified offset.
@@ -499,11 +500,11 @@ pub fn open(path: &Path, flags: OpenFlags) -> Result<OwnedFd, PosixError> {
 /// remains where it was before the read, regardless of how much data was read.
 pub fn read(fd: BorrowedFd, seek: SeekFrom, size: usize) -> Result<Vec<u8>, PosixError> {
     let mut buffer = vec![0; size as usize];
-    let offset: libc::off_t = match seek {
-        SeekFrom::Start(offset) => offset.try_into().map_err(|_| {
+    let offset: i64 = match seek {
+        SeekFrom::Start(offset) => i64::try_from(offset).map_err(|_| {
             PosixError::new(
                 ErrorKind::InvalidArgument,
-                "Offset too large for off_t".to_string(),
+                "Offset too large for i64".to_string(),
             )
         })?,
         SeekFrom::Current(offset) => {
@@ -526,7 +527,7 @@ pub fn read(fd: BorrowedFd, seek: SeekFrom, size: usize) -> Result<Vec<u8>, Posi
         }
     };
     let bytes_read = unsafe {
-        libc::pread(
+        unix_impl::pread(
             fd.as_raw_fd(),
             buffer.as_mut_ptr() as *mut libc::c_void,
             size,
@@ -551,11 +552,11 @@ pub fn read(fd: BorrowedFd, seek: SeekFrom, size: usize) -> Result<Vec<u8>, Posi
 /// remains where it was before the read, regardless of how much data was read.
 pub fn write(fd: BorrowedFd, seek: SeekFrom, data: &[u8]) -> Result<usize, PosixError> {
     let bytes_to_write = data.len() as usize;
-    let offset: libc::off_t = match seek {
-        SeekFrom::Start(offset) => offset.try_into().map_err(|_| {
+    let offset: i64 = match seek {
+        SeekFrom::Start(offset) => i64::try_from(offset).map_err(|_| {
             PosixError::new(
                 ErrorKind::InvalidArgument,
-                "Offset too large for off_t".to_string(),
+                "Offset too large for i64".to_string(),
             )
         })?,
         SeekFrom::Current(offset) => {
@@ -578,7 +579,7 @@ pub fn write(fd: BorrowedFd, seek: SeekFrom, data: &[u8]) -> Result<usize, Posix
         }
     };
     let bytes_written = unsafe {
-        libc::pwrite(
+        unix_impl::pwrite(
             fd.as_raw_fd(),
             data.as_ptr() as *const libc::c_void,
             bytes_to_write,
@@ -731,7 +732,7 @@ pub fn setxattr(
     path: &Path,
     name: &OsStr,
     value: &[u8],
-    flags: FUSESetXAttrFlags,
+    flags: SetXAttrFlags,
     position: u32,
 ) -> Result<(), PosixError> {
     let c_path = cstring_from_path(path)?;
@@ -898,7 +899,7 @@ pub fn removexattr(path: &Path, name: &OsStr) -> Result<(), PosixError> {
 ///
 /// It verifies whether the calling process can access the file specified by the path
 /// according to the given access mask.
-pub fn access(path: &Path, mask: AccessMask) -> Result<(), PosixError> {
+pub fn access(path: &Path, mask: AccessFlags) -> Result<(), PosixError> {
     let c_path = cstring_from_path(path)?;
     let ret = unsafe { libc::access(c_path.as_ptr(), mask.bits()) };
     if ret == -1 {
@@ -917,7 +918,7 @@ pub fn access(path: &Path, mask: AccessMask) -> Result<(), PosixError> {
 ///
 /// It creates a new file if it doesn't exist, opens it with write access. It returns a file descriptor
 /// which may not necessarily be equivalent to the FUSE file handle, along with its attributes.
-/// An error is returned if the file already exists and the [OpenFlags::CREATE_EXCLUSIVE] flag is set.
+/// An error is returned if the file already exists and the `O_EXCL` flag is set.
 ///
 /// Although this function returns a Fd, it is guaranted to be positive and valid.
 pub fn create(
@@ -927,7 +928,7 @@ pub fn create(
     flags: OpenFlags,
 ) -> Result<(OwnedFd, FileAttribute), PosixError> {
     let c_path = cstring_from_path(path)?;
-    let open_flags = flags.bits();
+    let open_flags = flags.0;
     let final_mode = mode & !umask;
 
     // Ensure the file is opened with write access if not specified
@@ -947,7 +948,7 @@ pub fn create(
         )));
     }
 
-    Ok((unsafe { OwnedFd::from_raw_fd(fd.into()) }, lookup(path)?))
+    Ok((unsafe { OwnedFd::from_raw_fd(fd) }, lookup(path)?))
 }
 
 /// Manipulates the allocated disk space for a file.
@@ -981,11 +982,19 @@ pub fn fallocate(
 /// offset and whence values. The new position is returned as a 64-bit integer.
 pub fn lseek(fd: BorrowedFd, seek: SeekFrom) -> Result<i64, PosixError> {
     let (whence, offset) = match seek {
-        SeekFrom::Start(offset) => (libc::SEEK_SET, offset as libc::off_t),
-        SeekFrom::Current(offset) => (libc::SEEK_CUR, offset as libc::off_t),
-        SeekFrom::End(offset) => (libc::SEEK_END, offset as libc::off_t),
+        SeekFrom::Start(offset) => (
+            libc::SEEK_SET,
+            i64::try_from(offset).map_err(|_| {
+                PosixError::new(
+                    ErrorKind::InvalidArgument,
+                    "Offset too large for i64".to_string(),
+                )
+            })?,
+        ),
+        SeekFrom::Current(offset) => (libc::SEEK_CUR, offset),
+        SeekFrom::End(offset) => (libc::SEEK_END, offset),
     };
-    let result = unsafe { libc::lseek(fd.as_raw_fd(), offset, whence) };
+    let result = unsafe { lseek_raw(fd.as_raw_fd(), offset, whence) };
     if result == -1 {
         return Err(PosixError::last_error(format!(
             "{:?}: lseek failed. Offset: {:?}, whence: {:?}",
@@ -1024,6 +1033,19 @@ mod tests {
     use std::fs::{self, File};
     use std::path::{Path, PathBuf};
     use std::time::SystemTime;
+
+    #[test]
+    fn mode_to_kind_uses_file_type_bits() {
+        assert_eq!(
+            mode_to_kind(libc::S_IFCHR as u32 | 0o600),
+            Some(FileKind::CharDevice)
+        );
+        assert_eq!(
+            mode_to_kind(libc::S_IFIFO as u32 | 0o644),
+            Some(FileKind::NamedPipe)
+        );
+        assert_eq!(mode_to_kind(0o644), None);
+    }
 
     #[test]
     fn test_convert_filetype() {
@@ -1066,7 +1088,7 @@ mod tests {
         let tmpfile = NamedTempFile::new().unwrap();
         fs::write(&tmpfile.path(), "blah").unwrap();
         let attr1 = lookup(&tmpfile.path()).unwrap();
-        let fd = open(&tmpfile.path(), OpenFlags::READ_ONLY).unwrap();
+        let fd = open(&tmpfile.path(), OpenFlags(libc::O_RDONLY)).unwrap();
         let attr2 = getattr(fd.as_fd()).unwrap();
         assert!(attr1.size > 0);
         assert_eq!(attr1, attr2);
@@ -1150,7 +1172,7 @@ mod tests {
     fn test_open() {
         let tmpfile = NamedTempFile::new().unwrap();
 
-        let fd = open(&tmpfile.path(), OpenFlags::empty()).unwrap();
+        let fd = open(&tmpfile.path(), OpenFlags(0)).unwrap();
         assert!(fd.as_raw_fd() > 0);
         drop(tmpfile);
     }
@@ -1160,7 +1182,7 @@ mod tests {
         let tmpfile = NamedTempFile::new().unwrap();
         fs::write(&tmpfile.path(), b"Hello, world!").unwrap();
 
-        let fd = open(&tmpfile.path(), OpenFlags::READ_ONLY).unwrap();
+        let fd = open(&tmpfile.path(), OpenFlags(libc::O_RDONLY)).unwrap();
         let result = read(fd.as_fd(), SeekFrom::Current(0), 5).unwrap();
         assert_eq!(result, b"Hello");
 
@@ -1177,7 +1199,7 @@ mod tests {
     #[test]
     fn test_write() {
         let tmpfile = NamedTempFile::new().unwrap();
-        let fd = open(&tmpfile.path(), OpenFlags::READ_WRITE).unwrap();
+        let fd = open(&tmpfile.path(), OpenFlags(libc::O_RDWR)).unwrap();
 
         // Write data to the file
         let bytes_written = write(fd.as_fd(), SeekFrom::Current(0), b"Hello, world!").unwrap();
@@ -1231,7 +1253,7 @@ mod tests {
             file.write_all(b"Hello, World!").unwrap();
         }
 
-        let fd = open(&path, OpenFlags::READ_WRITE).unwrap();
+        let fd = open(&path, OpenFlags(libc::O_RDWR)).unwrap();
         let borrowed_fd = fd.as_fd();
 
         // Test SeekFrom::Start

@@ -1,12 +1,12 @@
-use easy_fuser::prelude::*;
-use easy_fuser::templates::DefaultFuseHandler;
+use easy_fuser::fuse_parallel::prelude::*;
+use easy_fuser::fuse_presets::DefaultFuseHandler;
 use std::collections::HashMap;
 use std::ffi::{OsStr, OsString};
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 pub struct InMemoryFS {
-    inner: DefaultFuseHandler,
+    inner: DefaultFuseHandler<Inode>,
     fs: Arc<Mutex<DataBank>>,
 }
 
@@ -26,7 +26,7 @@ impl InMemoryFS {
     pub fn new() -> Self {
         let mut fs = DataBank {
             inodes: HashMap::new(),
-            next_inode: Inode::from(2), // Root is 1
+            next_inode: INodeNo(2), // Root is 1
         };
 
         // Create root directory
@@ -64,13 +64,15 @@ impl InMemoryFS {
     }
 }
 
-impl FuseHandler<Inode> for InMemoryFS {
-    fn get_inner(&self) -> &dyn FuseHandler<Inode> {
-        &self.inner
-    }
+impl FuseHandler for InMemoryFS {
+    type TId = Inode;
+
+    easy_fuser::delegate_fs! { inner, [
+        bmap, copy_file_range, fsyncdir, getlk, getxattr, ioctl, link, listxattr, lseek, mknod, open, opendir, readlink, release, releasedir, removexattr, setlk, setxattr, statfs, symlink
+    ] }
 
     // Access is not called for every operation
-    fn access(&self, req: &RequestInfo, file_id: Inode, mask: AccessMask) -> FuseResult<()> {
+    fn access(&self, req: &RequestInfo, file_id: Inode, mask: AccessFlags) -> FuseResult<()> {
         let fs = self.fs.lock().unwrap();
         let node = fs
             .inodes
@@ -86,54 +88,54 @@ impl FuseHandler<Inode> for InMemoryFS {
             return Ok(());
         }
 
-        let mut allowed_mask = AccessMask::empty();
+        let mut allowed_mask = AccessFlags::empty();
 
         // Owner permissions
         if req.uid == file_uid {
             if file_mode & 0o400 != 0 {
-                allowed_mask |= AccessMask::CAN_READ;
+                allowed_mask |= AccessFlags::R_OK;
             }
             if file_mode & 0o200 != 0 {
-                allowed_mask |= AccessMask::CAN_WRITE;
+                allowed_mask |= AccessFlags::W_OK;
             }
             if file_mode & 0o100 != 0 {
-                allowed_mask |= AccessMask::CAN_EXEC;
+                allowed_mask |= AccessFlags::X_OK;
             }
         }
         // Group permissions
         else if req.gid == file_gid {
             if file_mode & 0o040 != 0 {
-                allowed_mask |= AccessMask::CAN_READ;
+                allowed_mask |= AccessFlags::R_OK;
             }
             if file_mode & 0o020 != 0 {
-                allowed_mask |= AccessMask::CAN_WRITE;
+                allowed_mask |= AccessFlags::W_OK;
             }
             if file_mode & 0o010 != 0 {
-                allowed_mask |= AccessMask::CAN_EXEC;
+                allowed_mask |= AccessFlags::X_OK;
             }
         }
         // Others permissions
         else {
             if file_mode & 0o004 != 0 {
-                allowed_mask |= AccessMask::CAN_READ;
+                allowed_mask |= AccessFlags::R_OK;
             }
             if file_mode & 0o002 != 0 {
-                allowed_mask |= AccessMask::CAN_WRITE;
+                allowed_mask |= AccessFlags::W_OK;
             }
             if file_mode & 0o001 != 0 {
-                allowed_mask |= AccessMask::CAN_EXEC;
+                allowed_mask |= AccessFlags::X_OK;
             }
         }
 
         // Special cases for directories
         if node.attr.kind == FileKind::Directory {
             // Always need execute permission to access a directory
-            if !allowed_mask.contains(AccessMask::CAN_EXEC) {
+            if !allowed_mask.contains(AccessFlags::X_OK) {
                 return Err(ErrorKind::PermissionDenied
                     .to_error("Execute permission required for directory"));
             }
             // Writing to a directory means adding or removing entries, which requires write permission
-            if mask.contains(AccessMask::CAN_WRITE) && !allowed_mask.contains(AccessMask::CAN_WRITE)
+            if mask.contains(AccessFlags::W_OK) && !allowed_mask.contains(AccessFlags::W_OK)
             {
                 return Err(ErrorKind::PermissionDenied
                     .to_error("Write permission required for directory modification"));
@@ -159,11 +161,11 @@ impl FuseHandler<Inode> for InMemoryFS {
         (
             OwnedFileHandle,
             (Inode, FileAttribute),
-            FUSEOpenResponseFlags,
+            FopenFlags,
         ),
         PosixError,
     > {
-        self.access(req, parent.clone(), AccessMask::CAN_WRITE)?;
+        self.access(req, parent.clone(), AccessFlags::W_OK)?;
         let mut fs = self.fs.lock().unwrap();
         let new_inode = fs.next_inode.clone();
         if let Some(parent_node) = fs.inodes.get_mut(&parent) {
@@ -203,7 +205,7 @@ impl FuseHandler<Inode> for InMemoryFS {
                 // Safe because we won't release it
                 unsafe { OwnedFileHandle::from_raw(0) },
                 (new_inode.clone(), attr),
-                FUSEOpenResponseFlags::empty(),
+                FopenFlags::empty(),
             ))
         } else {
             Err(ErrorKind::FileNotFound.to_error(""))
@@ -219,7 +221,7 @@ impl FuseHandler<Inode> for InMemoryFS {
         length: i64,
         mode: FallocateFlags,
     ) -> FuseResult<()> {
-        self.access(req, file_id.clone(), AccessMask::CAN_WRITE)?;
+        self.access(req, file_id.clone(), AccessFlags::W_OK)?;
         let mut fs = self.fs.lock().unwrap();
 
         if let Some(node) = fs.inodes.get_mut(&file_id) {
@@ -294,7 +296,7 @@ impl FuseHandler<Inode> for InMemoryFS {
         parent: Inode,
         name: &OsStr,
     ) -> FuseResult<(Inode, FileAttribute)> {
-        self.access(req, parent.clone(), AccessMask::CAN_READ)?;
+        self.access(req, parent.clone(), AccessFlags::R_OK)?;
         let fs = self.fs.lock().unwrap();
         if let Some(parent_node) = fs.inodes.get(&parent) {
             if let Some(child_inode) = parent_node.children.get(name) {
@@ -314,7 +316,7 @@ impl FuseHandler<Inode> for InMemoryFS {
         mode: u32,
         _umask: u32,
     ) -> FuseResult<(Inode, FileAttribute)> {
-        self.access(req, parent.clone(), AccessMask::CAN_WRITE)?;
+        self.access(req, parent.clone(), AccessFlags::W_OK)?;
         let mut fs = self.fs.lock().unwrap();
         let new_inode = fs.next_inode.clone();
         if let Some(parent_node) = fs.inodes.get_mut(&parent) {
@@ -363,10 +365,10 @@ impl FuseHandler<Inode> for InMemoryFS {
         _fh: BorrowedFileHandle,
         offset: SeekFrom,
         size: u32,
-        _flags: FUSEOpenFlags,
+        _flags: OpenFlags,
         _lock_owner: Option<u64>,
     ) -> FuseResult<Vec<u8>> {
-        self.access(req, ino.clone(), AccessMask::CAN_READ)?;
+        self.access(req, ino.clone(), AccessFlags::R_OK)?;
         let fs = self.fs.lock().unwrap();
         if let Some(node) = fs.inodes.get(&ino) {
             let offset = match offset {
@@ -389,7 +391,7 @@ impl FuseHandler<Inode> for InMemoryFS {
         ino: Inode,
         _fh: BorrowedFileHandle,
     ) -> FuseResult<Vec<(OsString, (Inode, FileKind))>> {
-        self.access(req, ino.clone(), AccessMask::CAN_READ)?;
+        self.access(req, ino.clone(), AccessFlags::R_OK)?;
         let fs = self.fs.lock().unwrap();
         if let Some(node) = fs.inodes.get(&ino) {
             let mut entries = vec![
@@ -418,8 +420,8 @@ impl FuseHandler<Inode> for InMemoryFS {
         newname: &OsStr,
         flags: RenameFlags,
     ) -> FuseResult<()> {
-        self.access(req, parent_id.clone(), AccessMask::CAN_WRITE)?;
-        self.access(req, newparent.clone(), AccessMask::CAN_WRITE)?;
+        self.access(req, parent_id.clone(), AccessFlags::W_OK)?;
+        self.access(req, newparent.clone(), AccessFlags::W_OK)?;
         let mut fs = self.fs.lock().unwrap();
 
         // Check if the source exists and get its inode
@@ -437,7 +439,7 @@ impl FuseHandler<Inode> for InMemoryFS {
             .and_then(|parent| parent.children.get(newname).cloned());
 
         if let Some(existing_dest) = existing_dest {
-            if flags.contains(RenameFlags::NOREPLACE) {
+            if flags.contains(RenameFlags::RENAME_NOREPLACE) {
                 return Err(ErrorKind::FileExists.to_error("Destination already exists"));
             }
             // If REPLACE flag is set or no flags, remove the existing destination
@@ -469,7 +471,7 @@ impl FuseHandler<Inode> for InMemoryFS {
     }
 
     fn rmdir(&self, req: &RequestInfo, parent_id: Inode, name: &OsStr) -> FuseResult<()> {
-        self.access(req, parent_id.clone(), AccessMask::CAN_WRITE)?;
+        self.access(req, parent_id.clone(), AccessFlags::W_OK)?;
         let mut fs = self.fs.lock().unwrap();
 
         // Check if the dir to remove exists and get its inode
@@ -577,11 +579,11 @@ impl FuseHandler<Inode> for InMemoryFS {
         _fh: BorrowedFileHandle,
         offset: SeekFrom,
         data: Vec<u8>,
-        _write_flags: FUSEWriteFlags,
+        _write_flags: WriteFlags,
         _flags: OpenFlags,
         _lock_owner: Option<u64>,
     ) -> FuseResult<u32> {
-        self.access(req, ino.clone(), AccessMask::CAN_WRITE)?;
+        self.access(req, ino.clone(), AccessFlags::W_OK)?;
         let mut fs = self.fs.lock().unwrap();
         if let Some(node) = fs.inodes.get_mut(&ino) {
             let offset = match offset {
@@ -601,7 +603,7 @@ impl FuseHandler<Inode> for InMemoryFS {
     }
 
     fn unlink(&self, req: &RequestInfo, parent_id: Inode, name: &OsStr) -> FuseResult<()> {
-        self.access(req, parent_id.clone(), AccessMask::CAN_WRITE)?;
+        self.access(req, parent_id.clone(), AccessFlags::W_OK)?;
         let mut fs = self.fs.lock().unwrap();
 
         if let Some(child_inode) = fs.inodes.get_mut(&parent_id).unwrap().children.remove(name) {

@@ -63,12 +63,22 @@ fn test_zip_fs_mount_and_read() {
         "Content of file3\n"
     );
 
-    // Unmount the filesystem
-    Command::new("fusermount")
-        .arg("-u")
-        .arg(&mount_point)
-        .status()
-        .expect("Failed to unmount filesystem");
+    let mut unmounted = false;
+    for cmd_name in &["fusermount3", "fusermount", "umount"] {
+        let mut cmd = Command::new(cmd_name);
+        if cmd_name == &"umount" {
+            cmd.arg(&mount_point);
+        } else {
+            cmd.arg("-u").arg(&mount_point);
+        }
+        if let Ok(status) = cmd.status() {
+            if status.success() {
+                unmounted = true;
+                break;
+            }
+        }
+    }
+    assert!(unmounted, "Failed to unmount filesystem");
 
     // Terminate the zip_fs process
     child.kill().expect("Failed to kill zip_fs process");

@@ -139,7 +139,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Mount point: {:?}", &mount_point);
 
     // Mount the filesystem
-    easy_fuser::mount(ftp_fs, &mount_point, &[], 4)?;
+    easy_fuser::fuse_parallel::prelude::mount(ftp_fs, &mount_point, &[], Some(4))?;
 
     // If we reach here, the filesystem has been unmounted normally
     cleanup(&mount_point, &once_flag);

@@ -1,7 +1,7 @@
 #![doc = include_str!("../README.md")]
 
-use easy_fuser::prelude::*;
-use easy_fuser::templates::DefaultFuseHandler;
+use easy_fuser::fuse_parallel::prelude::*;
+use easy_fuser::fuse_presets::DefaultFuseHandler;
 use rand::rngs::ThreadRng;
 use rand::Rng;
 use std::ffi::{OsStr, OsString};
@@ -9,7 +9,7 @@ use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 pub struct RandomFS {
-    inner: DefaultFuseHandler,
+    inner: DefaultFuseHandler<Inode>,
 }
 
 const ROOT_ATTR: (Inode, FileAttribute) = (
@@ -42,7 +42,7 @@ impl RandomFS {
     }
 
     fn random_inode(rng: &mut ThreadRng) -> Inode {
-        Inode::from(rng.gen::<u64>())
+        INodeNo(rng.gen::<u64>())
     }
 
     fn random_string(rng: &mut ThreadRng, len: usize) -> String {
@@ -60,12 +60,14 @@ impl RandomFS {
     }
 }
 
-impl FuseHandler<Inode> for RandomFS {
-    fn get_inner(&self) -> &dyn FuseHandler<Inode> {
-        &self.inner
-    }
+impl FuseHandler for RandomFS {
+    type TId = Inode;
 
-    fn access(&self, _req: &RequestInfo, _file_id: Inode, _mask: AccessMask) -> FuseResult<()> {
+    easy_fuser::delegate_fs! { inner, [
+        bmap, copy_file_range, fallocate, flush, fsync, fsyncdir, getlk, getxattr, ioctl, link, listxattr, lseek, mknod, open, opendir, readlink, release, releasedir, removexattr, rename, setlk, setxattr, statfs, symlink
+    ] }
+
+    fn access(&self, _req: &RequestInfo, _file_id: Inode, _mask: AccessFlags) -> FuseResult<()> {
         Ok(())
     }
 
@@ -81,7 +83,7 @@ impl FuseHandler<Inode> for RandomFS {
         (
             OwnedFileHandle,
             (Inode, FileAttribute),
-            FUSEOpenResponseFlags,
+            FopenFlags,
         ),
         PosixError,
     > {
@@ -92,7 +94,7 @@ impl FuseHandler<Inode> for RandomFS {
             // Safe because we won't release it
             unsafe { OwnedFileHandle::from_raw(0) },
             (ino, attr),
-            FUSEOpenResponseFlags::empty(),
+            FopenFlags::empty(),
         ))
     }
 
@@ -171,7 +173,7 @@ impl FuseHandler<Inode> for RandomFS {
         _fh: BorrowedFileHandle,
         offset: SeekFrom,
         size: u32,
-        _flags: FUSEOpenFlags,
+        _flags: OpenFlags,
         _lock_owner: Option<u64>,
     ) -> FuseResult<Vec<u8>> {
         let mut rng = rand::thread_rng();
@@ -236,7 +238,7 @@ impl FuseHandler<Inode> for RandomFS {
         _fh: BorrowedFileHandle,
         _offset: SeekFrom,
         data: Vec<u8>,
-        _write_flags: FUSEWriteFlags,
+        _write_flags: WriteFlags,
         _flags: OpenFlags,
         _lock_owner: Option<u64>,
     ) -> FuseResult<u32> {
@@ -260,5 +262,5 @@ fn main() {
     let fs = RandomFS::new();
 
     println!("Mounting filesystem...");
-    easy_fuser::mount(fs, Path::new(&mountpoint), &options, 1).unwrap();
+    mount(fs, Path::new(&mountpoint), &options, Some(1)).unwrap();
 }
