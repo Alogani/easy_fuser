@@ -15,7 +15,7 @@ fn create_memory_fs() -> InMemoryFS {
     {
         // An example of interacting directly with the filesystem
         let request_info = RequestInfo {
-            id: RequestId(0),
+            id: 0,
             uid: 0,
             gid: 0,
             pid: 0,
@@ -27,7 +27,7 @@ fn create_memory_fs() -> InMemoryFS {
                 OsStr::new("README.md"),
                 0o755,
                 0,
-                OpenFlags(0),
+                OpenFlags::empty(),
             )
             .unwrap();
         let _ = memoryfs
@@ -37,8 +37,8 @@ fn create_memory_fs() -> InMemoryFS {
                 fd.borrow(),
                 SeekFrom::Start(0),
                 README_CONTENT.to_vec(),
-                WriteFlags::empty(),
-                OpenFlags(0),
+                FUSEWriteFlags::empty(),
+                OpenFlags::empty(),
                 None,
             )
             .unwrap();
