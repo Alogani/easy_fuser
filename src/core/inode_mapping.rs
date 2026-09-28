@@ -9,9 +9,10 @@ use std::{
 
 use std::sync::{RwLock, atomic::AtomicU64};
 
-
 use crate::{inode_mapper, types::*};
 use crate::{inode_mapper::InodeMapper, inode_multi_mapper::*};
+
+pub(crate) const ROOT_INO: u64 = 1;
 
 /// Trait to allow a FileIdType to be mapped to use a converter
 pub trait InodeResolvable {
@@ -61,23 +62,23 @@ pub trait FileIdResolver: Send + Sync + 'static {
     type ResolvedType: FileIdType;
 
     fn new() -> Self;
-    fn resolve_id(&self, ino: Inode) -> Self::ResolvedType;
+    fn resolve_id(&self, ino: u64) -> Self::ResolvedType;
     fn lookup(
         &self,
-        parent: Inode,
+        parent: u64,
         child: &OsStr,
         id: <Self::ResolvedType as FileIdType>::_Id,
         increment: bool,
-    ) -> Inode;
+    ) -> u64;
     fn add_children(
         &self,
-        parent: Inode,
+        parent: u64,
         children: Vec<(OsString, <Self::ResolvedType as FileIdType>::_Id)>,
         increment: bool,
-    ) -> Vec<(OsString, Inode)>;
-    fn forget(&self, ino: Inode, nlookup: u64);
+    ) -> Vec<(OsString, u64)>;
+    fn forget(&self, ino: u64, nlookup: u64);
     fn prune(&self, keep: &HashSet<Self::ResolvedType>);
-    fn rename(&self, parent: Inode, name: &OsStr, newparent: Inode, newname: &OsStr);
+    fn rename(&self, parent: u64, name: &OsStr, newparent: u64, newname: &OsStr);
 }
 
 pub struct InodeResolver {}
@@ -89,28 +90,32 @@ impl FileIdResolver for InodeResolver {
         Self {}
     }
 
-    fn resolve_id(&self, ino: Inode) -> Self::ResolvedType {
-        ino
+    fn resolve_id(&self, ino: u64) -> Self::ResolvedType {
+        Inode::from(ino)
     }
 
-    fn lookup(&self, _parent: Inode, _child: &OsStr, id: Inode, _increment: bool) -> Inode {
-        id
+    fn lookup(&self, _parent: u64, _child: &OsStr, id: Inode, _increment: bool) -> u64 {
+        id.into()
     }
 
+    // Do nothing, user should provide its own inode
     fn add_children(
         &self,
-        _parent: Inode,
+        _parent: u64,
         children: Vec<(OsString, Inode)>,
         _increment: bool,
-    ) -> Vec<(OsString, Inode)> {
+    ) -> Vec<(OsString, u64)> {
         children
+            .into_iter()
+            .map(|(name, inode)| (name, u64::from(inode)))
+            .collect()
     }
 
-    fn forget(&self, _ino: Inode, _nlookup: u64) {}
+    fn forget(&self, _ino: u64, _nlookup: u64) {}
 
     fn prune(&self, _keep: &HashSet<Self::ResolvedType>) {}
 
-    fn rename(&self, _parent: Inode, _name: &OsStr, _newparent: Inode, _newname: &OsStr) {}
+    fn rename(&self, _parent: u64, _name: &OsStr, _newparent: u64, _newname: &OsStr) {}
 }
 
 pub struct ComponentsResolver {
@@ -126,44 +131,47 @@ impl FileIdResolver for ComponentsResolver {
         }
     }
 
-    fn resolve_id(&self, ino: Inode) -> Self::ResolvedType {
+    fn resolve_id(&self, ino: u64) -> Self::ResolvedType {
         self.mapper
             .read()
             .unwrap()
-            .resolve(&ino)
+            .resolve(&Inode::from(ino))
             .expect("Failed to resolve inode")
             .iter()
             .map(|inode_info| (**inode_info.name).clone())
             .collect()
     }
 
-    fn lookup(&self, parent: Inode, child: &OsStr, _id: (), increment: bool) -> Inode {
+    fn lookup(&self, parent: u64, child: &OsStr, _id: (), increment: bool) -> u64 {
+        let parent = Inode::from(parent);
         {
             // Optimistically assume the child exists
             if let Some(lookup_result) = self.mapper.read().unwrap().lookup(&parent, child) {
                 if increment {
                     lookup_result.data.fetch_add(1, Ordering::SeqCst);
                 }
-                return lookup_result.inode.clone();
+                return u64::from(lookup_result.inode.clone());
             }
         }
         // This scenario happens if the child node does not exist or the backing ID does not match
-        self.mapper
-            .write()
-            .expect("Failed to acquire write lock")
-            .insert_child(&parent, child.to_os_string(), |_| {
-                // If the child node already exists, use the existing reference count
-                AtomicU64::new(if increment { 1 } else { 0 })
-            })
-            .expect("Failed to insert child")
+        u64::from(
+            self.mapper
+                .write()
+                .expect("Failed to acquire write lock")
+                .insert_child(&parent, child.to_os_string(), |_| {
+                    // If the child node already exists, use the existing reference count
+                    AtomicU64::new(if increment { 1 } else { 0 })
+                })
+                .expect("Failed to insert child"),
+        )
     }
 
     fn add_children(
         &self,
-        parent: Inode,
+        parent: u64,
         children: Vec<(OsString, ())>,
         increment: bool,
-    ) -> Vec<(OsString, Inode)> {
+    ) -> Vec<(OsString, u64)> {
         let value_creator = |value_creator: inode_mapper::ValueCreatorParams<AtomicU64>| {
             if let Some(nlookup) = value_creator.existing_data {
                 let count = nlookup.load(Ordering::Relaxed);
@@ -176,29 +184,31 @@ impl FileIdResolver for ComponentsResolver {
             .iter()
             .map(|(name, _)| (name.clone(), value_creator))
             .collect();
+        let parent_inode = Inode::from(parent);
         let inserted_children = self
             .mapper
             .write()
             .expect("Failed to acquire write lock")
-            .insert_children(&parent, children_with_creator)
+            .insert_children(&parent_inode, children_with_creator)
             .expect("Failed to insert children");
         inserted_children
             .into_iter()
             .zip(children)
-            .map(|(inode, (name, _))| (name, inode))
+            .map(|(inode, (name, _))| (name, u64::from(inode)))
             .collect()
     }
 
-    fn forget(&self, ino: Inode, nlookup: u64) {
+    fn forget(&self, ino: u64, nlookup: u64) {
+        let inode = Inode::from(ino);
         {
             // Optimistically assume we don't have to remove yet
             let guard = self.mapper.read().expect("Failed to acquire read lock");
-            let inode_info = guard.get(&ino).expect("Failed to find inode");
+            let inode_info = guard.get(&inode).expect("Failed to find inode");
             if inode_info.data.fetch_sub(nlookup, Ordering::SeqCst) > 0 {
                 return;
             }
         }
-        self.mapper.write().unwrap().remove(&ino).unwrap();
+        self.mapper.write().unwrap().remove(&inode).unwrap();
     }
 
     fn prune(&self, keep: &HashSet<Self::ResolvedType>) {
@@ -208,14 +218,16 @@ impl FileIdResolver for ComponentsResolver {
             .prune(keep);
     }
 
-    fn rename(&self, parent: Inode, name: &OsStr, newparent: Inode, newname: &OsStr) {
+    fn rename(&self, parent: u64, name: &OsStr, newparent: u64, newname: &OsStr) {
+        let parent_inode = Inode::from(parent);
+        let newparent_inode = Inode::from(newparent);
         self.mapper
             .write()
             .expect("Failed to acquire write lock")
             .rename(
-                &parent,
+                &parent_inode,
                 name,
-                &newparent,
+                &newparent_inode,
                 newname.to_os_string(),
             )
             .expect("Failed to rename inode");
@@ -235,7 +247,7 @@ impl FileIdResolver for PathResolver {
         }
     }
 
-    fn resolve_id(&self, ino: Inode) -> Self::ResolvedType {
+    fn resolve_id(&self, ino: u64) -> Self::ResolvedType {
         self.resolver
             .resolve_id(ino)
             .iter()
@@ -245,24 +257,24 @@ impl FileIdResolver for PathResolver {
 
     fn lookup(
         &self,
-        parent: Inode,
+        parent: u64,
         child: &OsStr,
         id: <Self::ResolvedType as FileIdType>::_Id,
         increment: bool,
-    ) -> Inode {
+    ) -> u64 {
         self.resolver.lookup(parent, child, id, increment)
     }
 
     fn add_children(
         &self,
-        parent: Inode,
+        parent: u64,
         children: Vec<(OsString, <Self::ResolvedType as FileIdType>::_Id)>,
         increment: bool,
-    ) -> Vec<(OsString, Inode)> {
+    ) -> Vec<(OsString, u64)> {
         self.resolver.add_children(parent, children, increment)
     }
 
-    fn forget(&self, ino: Inode, nlookup: u64) {
+    fn forget(&self, ino: u64, nlookup: u64) {
         self.resolver.forget(ino, nlookup);
     }
 
@@ -274,7 +286,7 @@ impl FileIdResolver for PathResolver {
         self.resolver.prune(&resolver_keep);
     }
 
-    fn rename(&self, parent: Inode, name: &OsStr, newparent: Inode, newname: &OsStr) {
+    fn rename(&self, parent: u64, name: &OsStr, newparent: u64, newname: &OsStr) {
         self.resolver.rename(parent, name, newparent, newname);
     }
 }
@@ -297,17 +309,18 @@ where
         HybridResolver { mapper: instance }
     }
 
-    fn resolve_id(&self, ino: Inode) -> Self::ResolvedType {
-        HybridId::new(ino, self.mapper.clone())
+    fn resolve_id(&self, ino: u64) -> Self::ResolvedType {
+        HybridId::new(Inode::from(ino), self.mapper.clone())
     }
 
     fn lookup(
         &self,
-        parent: Inode,
+        parent: u64,
         child: &OsStr,
         id: <Self::ResolvedType as FileIdType>::_Id,
         increment: bool,
-    ) -> Inode {
+    ) -> u64 {
+        let parent = Inode::from(parent);
         {
             // Optimistically assume the child exists
             if let Some(lookup_result) = self
@@ -321,34 +334,36 @@ where
                     if increment {
                         lookup_result.data.fetch_add(1, Ordering::SeqCst);
                     }
-                    return lookup_result.inode.clone();
+                    return u64::from(lookup_result.inode.clone());
                 }
             }
         }
         // This scenario happens if the child node does not exist or the backing ID does not match
-        self.mapper
-            .write()
-            .expect("Failed to acquire write lock")
-            .insert_child(&parent, child.to_os_string(), id, |params| {
-                // If the child node already exists, use the existing reference count
-                let mut new_value = params
-                    .existing_data
-                    .map(|d| d.load(Ordering::SeqCst))
-                    .unwrap_or(0);
-                if increment {
-                    new_value += 1;
-                }
-                AtomicU64::new(new_value)
-            })
-            .expect("Failed to insert child")
+        u64::from(
+            self.mapper
+                .write()
+                .expect("Failed to acquire write lock")
+                .insert_child(&parent, child.to_os_string(), id, |params| {
+                    // If the child node already exists, use the existing reference count
+                    let mut new_value = params
+                        .existing_data
+                        .map(|d| d.load(Ordering::SeqCst))
+                        .unwrap_or(0);
+                    if increment {
+                        new_value += 1;
+                    }
+                    AtomicU64::new(new_value)
+                })
+                .expect("Failed to insert child"),
+        )
     }
 
     fn add_children(
         &self,
-        parent: Inode,
+        parent: u64,
         children: Vec<(OsString, <Self::ResolvedType as FileIdType>::_Id)>,
         increment: bool,
-    ) -> Vec<(OsString, Inode)> {
+    ) -> Vec<(OsString, u64)> {
         let value_creator = |value_creator: ValueCreatorParams<AtomicU64>| {
             if let Some(nlookup) = value_creator.existing_data {
                 let count = nlookup.load(Ordering::Relaxed);
@@ -361,24 +376,26 @@ where
             .iter()
             .map(|(name, id)| (name.clone(), id.clone(), value_creator))
             .collect();
+        let parent_inode = Inode::from(parent);
         let inserted_children = self
             .mapper
             .write()
             .expect("Failed to acquire write lock")
-            .insert_children(&parent, children_with_creator)
+            .insert_children(&parent_inode, children_with_creator)
             .expect("Failed to insert children");
         inserted_children
             .into_iter()
             .zip(children)
-            .map(|(inode, (name, _))| (name, inode))
+            .map(|(inode, (name, _))| (name, u64::from(inode)))
             .collect()
     }
 
-    fn forget(&self, ino: Inode, nlookup: u64) {
+    fn forget(&self, ino: u64, nlookup: u64) {
+        let inode = Inode::from(ino);
         {
             // Optimistically assume we don't have to remove yet
             let guard = self.mapper.read().expect("Failed to acquire read lock");
-            let inode_info = guard.get(&ino).expect("Failed to find inode");
+            let inode_info = guard.get(&inode).expect("Failed to find inode");
             if inode_info.data.fetch_sub(nlookup, Ordering::SeqCst) > 0 {
                 return;
             }
@@ -386,7 +403,7 @@ where
         self.mapper
             .write()
             .expect("Failed to acquire write lock")
-            .remove(&ino)
+            .remove(&inode)
             .unwrap();
     }
 
@@ -394,14 +411,16 @@ where
         // TODO
     }
 
-    fn rename(&self, parent: Inode, name: &OsStr, newparent: Inode, newname: &OsStr) {
+    fn rename(&self, parent: u64, name: &OsStr, newparent: u64, newname: &OsStr) {
+        let parent_inode = Inode::from(parent);
+        let newparent_inode = Inode::from(newparent);
         self.mapper
             .write()
             .expect("Failed to acquire write lock")
             .rename(
-                &parent,
+                &parent_inode,
                 name,
-                &newparent,
+                &newparent_inode,
                 newname.to_os_string(),
             )
             .expect("Failed to rename inode");
@@ -419,7 +438,7 @@ mod tests {
         let resolver = ComponentsResolver::new();
 
         // Test lookup and resolve_id
-        let parent_ino = ROOT_INODE;
+        let parent_ino = ROOT_INODE.into();
         let child_ino = resolver.lookup(parent_ino, OsStr::new("child"), (), true);
         let resolved_path = resolver.resolve_id(child_ino);
 
@@ -451,13 +470,20 @@ mod tests {
         // Test prune
         let keep = HashSet::new();
         resolver.prune(&keep);
+
+        // child_ino should be gone now because refcount was 0 (decremented by earlier forget) and we pruned it.
+        // We can verify it's gone by trying to resolve it and expecting panic (as per other test) or just by knowing prune works.
+        // But calling forget again is definitely wrong if it's gone.
+
+        // If we want to test that prune actually removed it, we should check existence.
+        // But since we can't easily check existence without internal access, we rely on the fact that subsequent operations might fail or the other test.
     }
 
     #[test]
     #[should_panic(expected = "Failed to resolve inode")]
     fn test_components_resolver_prune_panics_on_resolved_deleted() {
         let resolver = ComponentsResolver::new();
-        let parent_ino = ROOT_INODE;
+        let parent_ino = ROOT_INO;
         let child_ino = resolver.lookup(parent_ino, OsStr::new("child"), (), true);
         resolver.forget(child_ino, 1);
         resolver.prune(&HashSet::new());
@@ -469,7 +495,7 @@ mod tests {
         let resolver = PathResolver::new();
 
         // Test lookup and resolve_id for root
-        let root_ino = ROOT_INODE;
+        let root_ino = ROOT_INODE.into();
         let root_path = resolver.resolve_id(root_ino);
         assert_eq!(root_path, PathBuf::from(""));
 
@@ -530,7 +556,7 @@ mod tests {
 
         // Test lookup for non-existent file
         let non_existent_ino = resolver.lookup(root_ino, OsStr::new("non_existent"), (), false);
-        assert_ne!(non_existent_ino.0, 0);
+        assert_ne!(non_existent_ino, 0);
         let non_existent_path = resolver.resolve_id(non_existent_ino);
         assert_eq!(non_existent_path, PathBuf::from("non_existent"));
     }
@@ -540,7 +566,7 @@ mod tests {
         let resolver = HybridResolver::<u64>::new();
 
         // Test lookup and resolve_id for root
-        let root_ino = ROOT_INODE;
+        let root_ino = ROOT_INODE.into();
         let root_id = resolver.resolve_id(root_ino);
         assert_eq!(root_id.first_path(), Some(PathBuf::from("")));
 
@@ -601,7 +627,7 @@ mod tests {
         // Test lookup for non-existent file
         let non_existent_ino =
             resolver.lookup(root_ino, OsStr::new("non_existent"), Some(6), false);
-        assert_ne!(non_existent_ino.0, 0);
+        assert_ne!(non_existent_ino, 0);
         let non_existent_path = resolver.resolve_id(non_existent_ino);
         assert_eq!(
             non_existent_path.first_path(),
@@ -649,7 +675,7 @@ mod tests {
         let resolver = PathResolver::new();
 
         // Test lookup and resolve_id for root
-        let root_ino = ROOT_INODE;
+        let root_ino = ROOT_INODE.into();
         let root_path = resolver.resolve_id(root_ino);
         assert_eq!(root_path, PathBuf::from(""));
 
