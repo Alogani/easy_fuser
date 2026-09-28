@@ -28,13 +28,8 @@ use async_trait::async_trait;
 /// ```rust,ignore
 /// use easy_fuser::fuse_presets::mirror_fs::*;
 /// use easy_fuser::fuse_presets::DefaultFuseHandler;
-/// {% if mode == "async" -%}
-/// use easy_fuser::fuse_async::prelude::*;
-/// use easy_fuser_macro::delegate_fs_sync_to_async;
-/// {% else -%}
-/// use easy_fuser::fuse_parallel::prelude::*; // or fuse_serial::prelude::*
-/// use easy_fuser_macro::delegate_fs;
-/// {% endif -%}
+/// use easy_fuser::fuse_parallel::prelude::*; // or fuse_serial::prelude::* or fuse_async::prelude::*
+/// use easy_fuser_macro::delegate_fs; // or delegate_fs_sync_to_async for async mode
 /// use std::path::PathBuf;
 /// use std::ffi::OsStr;
 ///
@@ -43,23 +38,6 @@ use async_trait::async_trait;
 ///     default_fs: DefaultFuseHandler<PathBuf>,
 /// }
 ///
-/// {% if mode == "async" -%}
-/// #[async_trait]
-/// impl FuseHandler for MyCustomFs {
-///     type TId = PathBuf;
-///
-///     // Custom implementation for lookup:
-///     async fn lookup(&self, req: &RequestInfo, parent_id: PathBuf, name: &OsStr) -> FuseResult<FileAttribute> {
-///         // Custom logic for lookup operation...
-///         // Delegate to mirror_fs:
-///         self.mirror_fs.lookup(req, parent_id, name)
-///     }
-///
-///     // Delegate other methods:
-///     delegate_fs_sync_to_async! { mirror_fs, [ read, write, getattr ] }
-///     delegate_fs_sync_to_async! { default_fs, [ statfs, link ] }
-/// }
-/// {% else -%}
 /// impl FuseHandler for MyCustomFs {
 ///     type TId = PathBuf;
 ///
@@ -74,7 +52,6 @@ use async_trait::async_trait;
 ///     delegate_fs! { mirror_fs, [ read, write, getattr ] }
 ///     delegate_fs! { default_fs, [ statfs, link ] }
 /// }
-/// {% endif -%}
 /// ```
 ///
 /// # Important Methods
@@ -110,7 +87,7 @@ use async_trait::async_trait;
 /// This behaviour is not well documented and cannot be guaranteed for now.
 ///
 /// # Additional Resources:
-/// For more detailed information, refer to the fuser project documentation, which serves as the foundation for this crate: https://docs.rs/fuser
+/// For more detailed information, refer to the fuser project documentation, which serves as the foundation for this crate: <https://docs.rs/fuser>
 ///
 /// Documentation is inspired by the original fuser documentation
 {%- if mode == "async" %}
@@ -154,7 +131,7 @@ pub trait FuseHandler: 'static
     /// This method is called for the access() system call. If the 'default_permissions'
     /// mount option is given, this method is not called. This method is not called
     /// under Linux kernel versions 2.4.x
-    {{ async_keyword() }} fn access(&self, req: &RequestInfo, file_id: Self::TId, mask: AccessMask) -> FuseResult<()>;
+    {{ async_keyword() }} fn access(&self, req: &RequestInfo, file_id: Self::TId, mask: AccessFlags) -> FuseResult<()>;
 
     /// Map block index within file to block index within device
     ///
@@ -168,12 +145,12 @@ pub trait FuseHandler: 'static
         req: &RequestInfo,
         file_in: Self::TId,
         file_handle_in: BorrowedFileHandle<'_>,
-        offset_in: i64,
+        offset_in: u64,
         file_out: Self::TId,
         file_handle_out: BorrowedFileHandle<'_>,
-        offset_out: i64,
+        offset_out: u64,
         len: u64,
-        flags: u32, // Not implemented yet in standard
+        flags: CopyFileRangeFlags,
     ) -> FuseResult<u32>;
 
     /// Create and open a file
@@ -190,7 +167,7 @@ pub trait FuseHandler: 'static
         mode: u32,
         umask: u32,
         flags: OpenFlags,
-    ) -> FuseResult<(OwnedFileHandle, <Self::TId as FileIdType>::Metadata, FUSEOpenResponseFlags)>;
+    ) -> FuseResult<(OwnedFileHandle, <Self::TId as FileIdType>::Metadata, FopenFlags)>;
 
     /// Preallocate or deallocate space to a file
     {{ async_keyword() }} fn fallocate(
@@ -279,7 +256,7 @@ pub trait FuseHandler: 'static
         req: &RequestInfo,
         file_id: Self::TId,
         file_handle: BorrowedFileHandle<'_>,
-        flags: IOCtlFlags,
+        flags: IoctlFlags,
         cmd: u32,
         in_data: Vec<u8>,
         out_size: u32,
@@ -338,7 +315,7 @@ pub trait FuseHandler: 'static
         req: &RequestInfo,
         file_id: Self::TId,
         flags: OpenFlags,
-    ) -> FuseResult<(OwnedFileHandle, FUSEOpenResponseFlags)>;
+    ) -> FuseResult<(OwnedFileHandle, FopenFlags)>;
 
     /// Open a directory
     ///
@@ -348,7 +325,7 @@ pub trait FuseHandler: 'static
         req: &RequestInfo,
         file_id: Self::TId,
         flags: OpenFlags,
-    ) -> FuseResult<(OwnedFileHandle, FUSEOpenResponseFlags)>;
+    ) -> FuseResult<(OwnedFileHandle, FopenFlags)>;
 
     /// Read data from a file
     ///
@@ -362,7 +339,7 @@ pub trait FuseHandler: 'static
         file_handle: BorrowedFileHandle<'_>,
         seek: SeekFrom,
         size: u32,
-        flags: FUSEOpenFlags,
+        flags: OpenFlags,
         lock_owner: Option<u64>,
     ) -> FuseResult<Vec<u8>>;
 
@@ -479,7 +456,7 @@ pub trait FuseHandler: 'static
         file_id: Self::TId,
         name: &OsStr,
         value: Vec<u8>,
-        flags: FUSESetXAttrFlags,
+        flags: SetXAttrFlags,
         position: u32,
     ) -> FuseResult<()>;
 
@@ -507,7 +484,7 @@ pub trait FuseHandler: 'static
         file_handle: BorrowedFileHandle<'_>,
         seek: SeekFrom,
         data: Vec<u8>,
-        write_flags: FUSEWriteFlags,
+        write_flags: WriteFlags,
         flags: OpenFlags,
         lock_owner: Option<u64>,
     ) -> FuseResult<u32>;

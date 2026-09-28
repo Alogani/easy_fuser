@@ -55,7 +55,7 @@ use fuser::FileType as FileKind;
 ///         - When using first_path method, the pre-supplied PathBuf can change over multiple requests to the same inode, so it should not be used as a
 ///         comparison method.
 ///     - Root: Represented by the constant ROOT_INODE with a value of 1 and an empty string.
-///     - Usage: (see https://github.com/Alogani/easy_fuser/pull/77#issuecomment-3830951142)
+///     - Usage: (see <https://github.com/Alogani/easy_fuser/pull/77#issuecomment-3830951142>)
 ///       - If two paths represents hardlinks, the user will return the same inode to the fuse filesystem
 ///       - The user can use the hardlinks of the current filesystem by using `libc::fstat(...).f_fsid` (Persistent) or libc::fstatfs(...).f_dev` (Ephemeral)
 ///       - When a Fuse operation provides an inode, the user can use `BackingId::all_paths()` to retrieve all the paths associated to that inode

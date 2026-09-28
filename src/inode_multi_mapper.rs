@@ -1,4 +1,4 @@
-use crate::types::{Inode, ROOT_INODE};
+use crate::types::{Inode, ROOT_INODE, InodeExt};
 use bimap::BiHashMap;
 use std::{
     borrow::Borrow,
@@ -258,7 +258,7 @@ where
                 let mut hasher = std::collections::hash_map::DefaultHasher::new();
                 backing_id.hash(&mut hasher);
                 let hash = hasher.finish();
-                let mut preferred_inode = Inode::from(hash);
+                let mut preferred_inode = fuser::INodeNo(hash);
                 loop {
                     if !self.data.inodes.contains_key(&preferred_inode) {
                         break preferred_inode;
@@ -536,7 +536,7 @@ where
     ///
     /// # Behavior
     /// - Returns Err(InsertError::ParentNotFound) if the parent doesn't exist.
-    /// - If successful, returns Ok(Vec<Inode>) with the newly created or existing child inodes.
+    /// - If successful, returns `Ok(Vec<Inode>)` with the newly created or existing child inodes.
     ///
     /// The value_creator function is called with the new inode, parent inode, child name, and
     /// existing data (if any) as arguments.
@@ -959,7 +959,7 @@ mod tests {
     use std::collections::HashSet;
     use std::ffi::OsString;
 
-    use crate::types::{Inode, ROOT_INODE};
+    use crate::types::ROOT_INODE;
 
     #[test]
     fn test_insert_child_returns_old_inode() {
@@ -968,7 +968,7 @@ mod tests {
         let child_name = OsString::from("child");
 
         // Insert the first child
-        let first_child_inode = Inode::from(2);
+        let first_child_inode = fuser::INodeNo(2);
         assert_eq!(
             mapper.insert_child(&root, child_name.clone(), None, |value_creator_params| {
                 assert!(value_creator_params.existing_data.is_none());
@@ -1041,7 +1041,7 @@ mod tests {
             }
             path.push(OsString::from(format!("file_{}", i)));
             entries.push((path, None, move |_: ValueCreatorParams<u64>| i));
-            expected_inodes.insert(Inode::from(i + 2)); // Start from 2 to avoid conflict with root_inode
+            expected_inodes.insert(fuser::INodeNo(i + 2)); // Start from 2 to avoid conflict with root_inode
         }
 
         // Perform batch insert
@@ -1052,7 +1052,7 @@ mod tests {
 
         // Check if all inserted inodes exist
         for i in 2..=(FILE_COUNT as u64 + 1) {
-            let inode = Inode::from(i);
+            let inode = fuser::INodeNo(i);
             assert!(mapper.get(&inode).is_some(), "{:?} should exist", inode);
         }
 
@@ -1143,13 +1143,13 @@ mod tests {
         assert!(root_path.is_empty());
 
         // Try to resolve a non-existent inode
-        assert!(mapper.resolve(&Inode::from(999)).is_none());
+        assert!(mapper.resolve(&fuser::INodeNo(999)).is_none());
     }
 
     #[test]
     fn test_resolve_invalid_inode() {
         let mapper = InodeMultiMapper::<u64, u64>::new(0);
-        let invalid_inode = Inode::from(999);
+        let invalid_inode = fuser::INodeNo(999);
 
         // Attempt to resolve an invalid inode
         let result = mapper.resolve(&invalid_inode);
