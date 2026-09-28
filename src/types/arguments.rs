@@ -232,7 +232,7 @@ pub struct FileAttribute {
 
 /// `FuseFileAttr`, `Option<ttl>`, `Option<generation>`
 impl FileAttribute {
-    pub(crate) fn to_fuse(self, ino: INodeNo) -> (FuseFileAttr, Option<Duration>, Option<u64>) {
+    pub(crate) fn to_fuse(&self, ino: INodeNo) -> (FuseFileAttr, Option<Duration>, Option<u64>) {
         (
             FuseFileAttr {
                 ino,

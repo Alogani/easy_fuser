@@ -35,6 +35,14 @@ type DirIter<TAttr> = HashMap<(INodeNo, u64), VecDeque<(OsString, INodeNo, TAttr
     {% endif %}
 {%- endmacro %}
 
+{% macro own_for_spawn(value) -%}
+    {% if mode == "serial" %}
+        {{ value }}
+    {% else %}
+        {{ value }}.to_owned()
+    {% endif %}
+{%- endmacro %}
+
 
 {% if mode == "serial" %}
     use std::cell::RefCell;
@@ -166,6 +174,10 @@ where
     }
 
     {% if !send_sync %}
+        pub fn get_resolver(&self) -> &TId::Resolver {
+            &self.resolver
+        }
+
         pub fn get_handler(&self) -> &THandler {
             &self.handler
         }
@@ -178,6 +190,10 @@ where
             &self.dirmapplus_iter
         }
     {% else %}
+        pub fn get_resolver(&self) -> Arc<TId::Resolver> {
+            self.resolver.clone()
+        }
+
         pub fn get_handler(&self) -> Arc<THandler> {
             self.handler.clone()
         }
@@ -294,7 +310,7 @@ where
     fn access(&self, req: &Request, ino: INodeNo, mask: AccessFlags, reply: ReplyEmpty) {
         let req = RequestInfo::from(req);
         let handler = self.get_handler();
-        let resolver = self.resolver.clone();
+        let resolver = self.get_resolver();
         {% call spawn() %}
             match handler.access(
                 &req,
@@ -314,7 +330,7 @@ where
     fn bmap(&self, req: &Request, ino: INodeNo, blocksize: u32, idx: u64, reply: ReplyBmap) {
         let req = RequestInfo::from(req);
         let handler = self.get_handler();
-        let resolver = self.resolver.clone();
+        let resolver = self.get_resolver();
         {% call spawn() %}
             match handler.bmap(
                 &req,
@@ -346,7 +362,7 @@ where
     ) {
         let req = RequestInfo::from(req);
         let handler = self.get_handler();
-        let resolver = self.resolver.clone();
+        let resolver = self.get_resolver();
         {% call spawn() %}
             match handler.copy_file_range(
                 &req,
@@ -380,8 +396,8 @@ where
     ) {
         let req = RequestInfo::from(req);
         let handler = self.get_handler();
-        let resolver = self.resolver.clone();
-        let name = name.to_owned();
+        let resolver = self.get_resolver();
+        let name = {{ own_for_spawn("name") }};
         {% call spawn() %}
             match handler.create(
                 &req,
@@ -426,7 +442,7 @@ where
     ) {
         let req = RequestInfo::from(req);
         let handler = self.get_handler();
-        let resolver = self.resolver.clone();
+        let resolver = self.get_resolver();
         {% call spawn() %}
             match handler.fallocate(
                 &req,
@@ -448,7 +464,7 @@ where
     fn flush(&self, req: &Request, ino: INodeNo, fh: FileHandle, lock_owner: LockOwner, reply: ReplyEmpty) {
         let req = RequestInfo::from(req);
         let handler = self.get_handler();
-        let resolver = self.resolver.clone();
+        let resolver = self.get_resolver();
         {% call spawn() %}
             match handler.flush(
                 &req,
@@ -468,7 +484,7 @@ where
     fn forget(&self, req: &Request, ino: INodeNo, nlookup: u64) {
         let req = RequestInfo::from(req);
         let handler = self.get_handler();
-        let resolver = self.resolver.clone();
+        let resolver = self.get_resolver();
         #[allow(unused_variables)] // No need for replies
         {% call spawn() %}
             handler.forget(&req, resolver.resolve_id(ino), nlookup)
@@ -480,7 +496,7 @@ where
     fn fsync(&self, req: &Request, ino: INodeNo, fh: FileHandle, datasync: bool, reply: ReplyEmpty) {
         let req = RequestInfo::from(req);
         let handler = self.get_handler();
-        let resolver = self.resolver.clone();
+        let resolver = self.get_resolver();
         {% call spawn() %}
             match handler.fsync(
                 &req,
@@ -500,7 +516,7 @@ where
     fn fsyncdir(&self, req: &Request, ino: INodeNo, fh: FileHandle, datasync: bool, reply: ReplyEmpty) {
         let req = RequestInfo::from(req);
         let handler = self.get_handler();
-        let resolver = self.resolver.clone();
+        let resolver = self.get_resolver();
         {% call spawn() %}
             match handler.fsyncdir(
                 &req,
@@ -520,7 +536,7 @@ where
     fn getattr(&self, req: &Request, ino: INodeNo, fh: Option<FileHandle>, reply: ReplyAttr) {
         let req = RequestInfo::from(req);
         let handler = self.get_handler();
-        let resolver = self.resolver.clone();
+        let resolver = self.get_resolver();
         {% call spawn() %}
             match handler.getattr(
                 &req,
@@ -550,7 +566,7 @@ where
     ) {
         let req = RequestInfo::from(req);
         let handler = self.get_handler();
-        let resolver = self.resolver.clone();
+        let resolver = self.get_resolver();
         {% call spawn() %}
             let lock_info = LockInfo {
                 start,
@@ -584,8 +600,8 @@ where
     fn getxattr(&self, req: &Request, ino: INodeNo, name: &OsStr, size: u32, reply: ReplyXattr) {
         let req = RequestInfo::from(req);
         let handler = self.get_handler();
-        let resolver = self.resolver.clone();
-        let name = name.to_owned();
+        let resolver = self.get_resolver();
+        let name = {{ own_for_spawn("name") }};
         {% call spawn() %}
             match handler.getxattr(
                 &req,
@@ -622,7 +638,7 @@ where
     ) {
         let req = RequestInfo::from(req);
         let handler = self.get_handler();
-        let resolver = self.resolver.clone();
+        let resolver = self.get_resolver();
         let in_data = in_data.to_owned();
         {% call spawn() %}
             match handler.ioctl(
@@ -653,8 +669,8 @@ where
     ) {
         let req = RequestInfo::from(req);
         let handler = self.get_handler();
-        let resolver = self.resolver.clone();
-        let newname = newname.to_owned();
+        let resolver = self.get_resolver();
+        let newname = {{ own_for_spawn("newname") }};
         {% call spawn() %}
             match handler.link(
                 &req,
@@ -690,7 +706,7 @@ where
     fn listxattr(&self, req: &Request, ino: INodeNo, size: u32, reply: ReplyXattr) {
         let req = RequestInfo::from(req);
         let handler = self.get_handler();
-        let resolver = self.resolver.clone();
+        let resolver = self.get_resolver();
         {% call spawn() %}
             match handler.listxattr(
                 &req,
@@ -717,8 +733,8 @@ where
     fn lookup(&self, req: &Request, parent: INodeNo, name: &OsStr, reply: ReplyEntry) {
         let req = RequestInfo::from(req);
         let handler = self.get_handler();
-        let resolver = self.resolver.clone();
-        let name = name.to_owned();
+        let resolver = self.get_resolver();
+        let name = {{ own_for_spawn("name") }};
         {% call spawn() %}
             match handler.lookup(
                 &req,
@@ -746,7 +762,7 @@ where
     ) {
         let req = RequestInfo::from(req);
         let handler = self.get_handler();
-        let resolver = self.resolver.clone();
+        let resolver = self.get_resolver();
         {% call spawn() %}
             match handler.lseek(
                 &req,
@@ -774,8 +790,8 @@ where
     ) {
         let req = RequestInfo::from(req);
         let handler = self.get_handler();
-        let resolver = self.resolver.clone();
-        let name = name.to_owned();
+        let resolver = self.get_resolver();
+        let name = {{ own_for_spawn("name") }};
         {% call spawn() %}
             match handler.mkdir(
                 &req,
@@ -805,8 +821,8 @@ where
     ) {
         let req = RequestInfo::from(req);
         let handler = self.get_handler();
-        let resolver = self.resolver.clone();
-        let name = name.to_owned();
+        let resolver = self.get_resolver();
+        let name = {{ own_for_spawn("name") }};
         {% call spawn() %}
             let file_kind = match unix_fs::mode_to_kind(mode) {
                 Some(file_kind) => file_kind,
@@ -837,7 +853,7 @@ where
     fn open(&self, req: &Request, ino: INodeNo, _flags: OpenFlags, reply: ReplyOpen) {
         let req = RequestInfo::from(req);
         let handler = self.get_handler();
-        let resolver = self.resolver.clone();
+        let resolver = self.get_resolver();
         {% call spawn() %}
             match handler.open(
                 &req,
@@ -858,7 +874,7 @@ where
     fn opendir(&self, req: &Request, ino: INodeNo, _flags: OpenFlags, reply: ReplyOpen) {
         let req = RequestInfo::from(req);
         let handler = self.get_handler();
-        let resolver = self.resolver.clone();
+        let resolver = self.get_resolver();
         {% call spawn() %}
             match handler.opendir(
                 &req,
@@ -889,7 +905,7 @@ where
     ) {
         let req = RequestInfo::from(req);
         let handler = self.get_handler();
-        let resolver = self.resolver.clone();
+        let resolver = self.get_resolver();
         {% call spawn() %}
             match handler.read(
                 &req,
@@ -912,7 +928,7 @@ where
     {% macro readdir_impl(is_extended_readdir) -%}
         let req_info = RequestInfo::from(req);
         let handler = self.get_handler();
-        let resolver = self.resolver.clone();
+        let resolver = self.get_resolver();
         let dirmap_iter = {% if is_extended_readdir %}
             self.get_dirmapplus_iter(){% else %}
             self.get_dirmap_iter(){% endif %};
@@ -984,7 +1000,7 @@ where
                     // readdirplus: Add entries with extended attributes
                     let default_ttl = handler.get_default_ttl();
                     while let Some((name, ino, file_attr)) = dir_iter.pop_front() {
-                        let (fuse_attr, ttl, generation) = file_attr.clone().to_fuse(ino);
+                        let (fuse_attr, ttl, generation) = file_attr.to_fuse(ino);
                         if reply.add(
                             ino,
                             new_offset,
@@ -993,7 +1009,7 @@ where
                             &fuse_attr,
                             fuser::Generation(generation.unwrap_or(get_default_generation())),
                         ) {
-                            dir_iter.push_front((name, ino, file_attr.clone()));
+                            dir_iter.push_front((name, ino, file_attr));
                             if new_offset > 0 {
                                 dirmap_iter
                                     .{{ borrow_mut() }}
@@ -1049,7 +1065,7 @@ where
     fn readlink(&self, req: &Request, ino: INodeNo, reply: ReplyData) {
         let req = RequestInfo::from(req);
         let handler = self.get_handler();
-        let resolver = self.resolver.clone();
+        let resolver = self.get_resolver();
         {% call spawn() %}
             match handler.readlink(
                 &req,
@@ -1076,7 +1092,7 @@ where
     ) {
         let req = RequestInfo::from(req);
         let handler = self.get_handler();
-        let resolver = self.resolver.clone();
+        let resolver = self.get_resolver();
         {% call spawn() %}
             match handler.release(
                 &req,
@@ -1098,7 +1114,7 @@ where
     fn releasedir(&self, req: &Request, ino: INodeNo, fh: FileHandle, flags: OpenFlags, reply: ReplyEmpty) {
         let req = RequestInfo::from(req);
         let handler = self.get_handler();
-        let resolver = self.resolver.clone();
+        let resolver = self.get_resolver();
         {% call spawn() %}
             match handler.releasedir(
                 &req,
@@ -1118,8 +1134,8 @@ where
     fn removexattr(&self, req: &Request, ino: INodeNo, name: &OsStr, reply: ReplyEmpty) {
         let req = RequestInfo::from(req);
         let handler = self.get_handler();
-        let resolver = self.resolver.clone();
-        let name = name.to_owned();
+        let resolver = self.get_resolver();
+        let name = {{ own_for_spawn("name") }};
         {% call spawn() %}
             match handler.removexattr(
                 &req,
@@ -1147,9 +1163,9 @@ where
     ) {
         let req = RequestInfo::from(req);
         let handler = self.get_handler();
-        let resolver = self.resolver.clone();
-        let name = name.to_owned();
-        let newname = newname.to_owned();
+        let resolver = self.get_resolver();
+        let name = {{ own_for_spawn("name") }};
+        let newname = {{ own_for_spawn("newname") }};
         {% call spawn() %}
             match handler.rename(
                 &req,
@@ -1180,8 +1196,8 @@ where
     fn rmdir(&self, req: &Request, parent: INodeNo, name: &OsStr, reply: ReplyEmpty) {
         let req = RequestInfo::from(req);
         let handler = self.get_handler();
-        let resolver = self.resolver.clone();
-        let name = name.to_owned();
+        let resolver = self.get_resolver();
+        let name = {{ own_for_spawn("name") }};
         {% call spawn() %}
             match handler.rmdir(
                 &req,
@@ -1220,7 +1236,7 @@ where
     ) {
         let req = RequestInfo::from(req);
         let handler = self.get_handler();
-        let resolver = self.resolver.clone();
+        let resolver = self.get_resolver();
         let attrs = SetAttrRequest {
             mode,
             uid,
@@ -1265,7 +1281,7 @@ where
     ) {
         let req = RequestInfo::from(req);
         let handler = self.get_handler();
-        let resolver = self.resolver.clone();
+        let resolver = self.get_resolver();
         {% call spawn() %}
             let lock_info = LockInfo {
                 start,
@@ -1302,8 +1318,8 @@ where
     ) {
         let req = RequestInfo::from(req);
         let handler = self.get_handler();
-        let resolver = self.resolver.clone();
-        let name = name.to_owned();
+        let resolver = self.get_resolver();
+        let name = {{ own_for_spawn("name") }};
         let value = value.to_owned();
         {% call spawn() %}
             match handler.setxattr(
@@ -1326,7 +1342,7 @@ where
     fn statfs(&self, req: &Request, ino: INodeNo, reply: ReplyStatfs) {
         let req = RequestInfo::from(req);
         let handler = self.get_handler();
-        let resolver = self.resolver.clone();
+        let resolver = self.get_resolver();
         {% call spawn() %}
             match handler.statfs(
                 &req,
@@ -1362,9 +1378,9 @@ where
     ) {
         let req = RequestInfo::from(req);
         let handler = self.get_handler();
-        let resolver = self.resolver.clone();
-        let link_name = link_name.to_owned();
-        let target = target.to_owned();
+        let resolver = self.get_resolver();
+        let link_name = {{ own_for_spawn("link_name") }};
+        let target = {{ own_for_spawn("target") }};
         {% call spawn() %}
             match handler.symlink(
                 &req,
@@ -1395,7 +1411,7 @@ where
     ) {
         let req = RequestInfo::from(req);
         let handler = self.get_handler();
-        let resolver = self.resolver.clone();
+        let resolver = self.get_resolver();
         let data = data.to_owned();
         {% call spawn() %}
             match handler.write(
@@ -1420,8 +1436,8 @@ where
     fn unlink(&self, req: &Request, parent: INodeNo, name: &OsStr, reply: ReplyEmpty) {
         let req = RequestInfo::from(req);
         let handler = self.get_handler();
-        let resolver = self.resolver.clone();
-        let name = name.to_owned();
+        let resolver = self.get_resolver();
+        let name = {{ own_for_spawn("name") }};
         {% call spawn() %}
             match handler.unlink(
                 &req,
