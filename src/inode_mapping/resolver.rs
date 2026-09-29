@@ -278,12 +278,16 @@ impl FileIdResolver for ComponentsResolver {
                 return lookup_result.inode.clone();
             }
         }
-        // This directory entry has not been mapped yet.
-        self.mapper
-            .write()
-            .expect("Failed to acquire write lock")
+        // Another request may have inserted the child while the read lock was released.
+        let mut mapper = self.mapper.write().expect("Failed to acquire write lock");
+        if let Some(lookup_result) = mapper.lookup(&parent, child) {
+            if increment {
+                lookup_result.data.fetch_add(1, Ordering::SeqCst);
+            }
+            return *lookup_result.inode;
+        }
+        mapper
             .insert_child(&parent, child.to_os_string(), |_| {
-                // If the child node already exists, use the existing reference count
                 AtomicU64::new(if increment { 1 } else { 0 })
             })
             .expect("Failed to insert child")
@@ -566,6 +570,35 @@ mod tests {
     use super::*;
     use std::ffi::OsStr;
     use std::path::PathBuf;
+    use std::sync::Barrier;
+    use std::thread;
+
+    #[test]
+    fn concurrent_lookup_counts_every_reference() {
+        let resolver = Arc::new(PathResolver::new());
+        let workers = 16;
+        let start = Arc::new(Barrier::new(workers));
+        let threads: Vec<_> = (0..workers)
+            .map(|_| {
+                let resolver = resolver.clone();
+                let start = start.clone();
+                thread::spawn(move || {
+                    start.wait();
+                    resolver.lookup(ROOT_INODE, OsStr::new("shared"), (), true)
+                })
+            })
+            .collect();
+        let inodes: Vec<_> = threads
+            .into_iter()
+            .map(|thread| thread.join().unwrap())
+            .collect();
+        assert!(inodes.iter().all(|inode| *inode == inodes[0]));
+        let mapper = resolver.resolver.mapper.read().unwrap();
+        assert_eq!(
+            mapper.get(&inodes[0]).unwrap().data.load(Ordering::SeqCst),
+            workers as u64
+        );
+    }
 
     #[test]
     fn final_forget_releases_path_mapping() {
