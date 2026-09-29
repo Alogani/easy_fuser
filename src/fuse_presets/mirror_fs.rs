@@ -20,8 +20,10 @@
 //!
 //! With the `async` feature, `MirrorFsAsync` and `MirrorFsReadOnlyAsync`
 //! provide the same operations as async methods for use with
-//! `delegate_fs_async!`. They call the synchronous `unix_fs` functions
-//! directly; they do not offload blocking calls from the async runtime.
+//! `delegate_fs_async!`. On Linux, enabling `io_uring` makes their
+//! descriptor-backed `read`, `write`, `flush`, `fsync`, and `fallocate`
+//! operations use io_uring. Path, metadata, namespace, and other operations
+//! remain synchronous, as do all operations on BSD/macOS.
 //!
 //! # Methods to provide or delegate elsewhere
 //!
@@ -387,23 +389,26 @@ impl MirrorFsReadOnly {
     }
 }
 
-/// Async-compatible mirror of a source directory.
+/// Async mirror of a source directory.
 ///
-/// This preset exposes async methods for use with `delegate_fs_async!`, but the
-/// methods call the synchronous `unix_fs` operations directly. They do not
-/// offload blocking system calls from the Tokio runtime. Use this type when an
-/// async handler needs the same mirror operations as [`MirrorFs`]. A
-/// blocking-pool implementation can be added separately if runtime
-/// responsiveness proves to require it.
+/// With Linux feature `io_uring`, descriptor-backed `read`, `write`, `flush`,
+/// `fsync`, and `fallocate` use io_uring. Other filesystem operations remain
+/// synchronous. On BSD/macOS, all methods use the synchronous implementation.
 #[cfg(feature = "async")]
 pub struct MirrorFsAsync {
     source_path: std::path::PathBuf,
+    #[cfg(all(target_os = "linux", feature = "io_uring"))]
+    io_uring: unix_fs::io_uring::IoUringExecutor,
 }
 
 #[cfg(feature = "async")]
 impl MirrorFsTrait for MirrorFsAsync {
     fn new(source_path: std::path::PathBuf) -> Self {
-        Self { source_path }
+        Self {
+            source_path,
+            #[cfg(all(target_os = "linux", feature = "io_uring"))]
+            io_uring: unix_fs::io_uring::IoUringExecutor::new(),
+        }
     }
 
     fn source_dir(&self) -> &Path {
@@ -438,19 +443,26 @@ impl MirrorFsAsync {
     }
 }
 
-/// Async-compatible read-only mirror of a source directory.
+/// Async read-only mirror of a source directory.
 ///
-/// Its async methods call the synchronous `unix_fs` operations directly and do
-/// not offload blocking system calls from the Tokio runtime.
+/// With Linux feature `io_uring`, descriptor-backed `read`, `flush`, and
+/// `fsync` use io_uring. Other filesystem operations remain synchronous; all
+/// methods are synchronous internally on BSD/macOS.
 #[cfg(feature = "async")]
 pub struct MirrorFsReadOnlyAsync {
     source_path: std::path::PathBuf,
+    #[cfg(all(target_os = "linux", feature = "io_uring"))]
+    io_uring: unix_fs::io_uring::IoUringExecutor,
 }
 
 #[cfg(feature = "async")]
 impl MirrorFsTrait for MirrorFsReadOnlyAsync {
     fn new(source_path: std::path::PathBuf) -> Self {
-        Self { source_path }
+        Self {
+            source_path,
+            #[cfg(all(target_os = "linux", feature = "io_uring"))]
+            io_uring: unix_fs::io_uring::IoUringExecutor::new(),
+        }
     }
 
     fn source_dir(&self) -> &Path {
