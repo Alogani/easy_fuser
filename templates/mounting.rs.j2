@@ -2,6 +2,7 @@ use std::io;
 use std::path::Path;
 
 use fuser::{mount2, spawn_mount2, Config, MountOption};
+use log::{error, info};
 
 use crate::types::*;
 use crate::FuseSession;
@@ -45,10 +46,25 @@ where
         filesystem,
         num_threads,
         );
+    let mountpoint = mountpoint.as_ref();
     let mut config = Config::default();
     config.mount_options = options.to_vec();
     config.n_threads = num_threads;
-    mount2(driver, mountpoint, &config)
+    info!("Mounting FUSE filesystem at {}", mountpoint.display());
+    match mount2(driver, mountpoint, &config) {
+        Ok(()) => {
+            info!("FUSE filesystem at {} stopped", mountpoint.display());
+            Ok(())
+        }
+        Err(err) => {
+            error!(
+                "Failed to mount FUSE filesystem at {}: {}",
+                mountpoint.display(),
+                err
+            );
+            Err(err)
+        }
+    }
 }
 
 /// Spawns a FUSE filesystem in the background at the specified mountpoint.
@@ -98,9 +114,22 @@ where
         num_threads,
         );
     let resolver = driver.resolver.clone();
+    let mountpoint = mountpoint.as_ref();
     let mut config = Config::default();
     config.mount_options = options.to_vec();
     config.n_threads = num_threads;
-    let session = spawn_mount2(driver, mountpoint, &config)?;
+    info!("Mounting FUSE filesystem at {} in the background", mountpoint.display());
+    let session = match spawn_mount2(driver, mountpoint, &config) {
+        Ok(session) => session,
+        Err(err) => {
+            error!(
+                "Failed to mount FUSE filesystem at {}: {}",
+                mountpoint.display(),
+                err
+            );
+            return Err(err);
+        }
+    };
+    info!("FUSE filesystem mounted at {}", mountpoint.display());
     Ok(FuseSession::new(session, resolver))
 }
