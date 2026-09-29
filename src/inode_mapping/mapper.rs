@@ -695,27 +695,29 @@ where
     Data: HasLookupCount + Send + Sync + 'static,
 {
     pub fn prune(&mut self, keep: &HashSet<Vec<OsString>>) {
-        let mut to_remove = Vec::new();
-
-        for (inode, value) in &self.data.inodes {
-            if *inode == ROOT_INODE {
-                continue;
-            }
-            if value.lookup_count().load(Ordering::SeqCst) == 0 {
-                // Check if path is in keep list
-                if let Some(path_info) = self.resolve_first(inode) {
-                    // path_info is [leaf, parent...]
-                    // We need [parent, leaf]
-                    let path_vec: Vec<OsString> = path_info.into_iter().rev().collect();
-                    if !keep.contains(&path_vec) {
-                        to_remove.push(inode.clone());
+        loop {
+            let to_remove: Vec<_> = self
+                .data
+                .inodes
+                .iter()
+                .filter_map(|(inode, value)| {
+                    if *inode == ROOT_INODE
+                        || value.lookup_count().load(Ordering::SeqCst) != 0
+                        || !self.get_children(inode).is_empty()
+                    {
+                        return None;
                     }
-                }
+                    let path = self.resolve_first(inode)?;
+                    let path: Vec<_> = path.into_iter().rev().collect();
+                    (!keep.contains(&path)).then_some(*inode)
+                })
+                .collect();
+            if to_remove.is_empty() {
+                break;
             }
-        }
-
-        for inode in to_remove {
-            self.remove(&inode);
+            for inode in to_remove {
+                self.remove(&inode);
+            }
         }
     }
 }
@@ -1218,6 +1220,29 @@ mod tests {
 
         // Child should remain because refcount > 0
         assert!(mapper.get(&child_ino).is_some());
+    }
+
+    #[test]
+    fn prune_keeps_referenced_descendants_of_forgotten_directory() {
+        let mut mapper = InodeMapper::new(AtomicU64::new(0));
+        let dir = mapper
+            .insert_child(&ROOT_INODE, "dir".into(), |_| AtomicU64::new(0))
+            .unwrap();
+        let file = mapper
+            .insert_child(&dir, "file".into(), |_| AtomicU64::new(1))
+            .unwrap();
+        mapper.prune(&HashSet::new());
+        assert!(mapper.get(&dir).is_some());
+        assert!(mapper.get(&file).is_some());
+        assert_eq!(
+            mapper.resolve_first(&file),
+            Some(vec![OsString::from("file"), OsString::from("dir")])
+        );
+
+        mapper.get(&file).unwrap().data.store(0, Ordering::SeqCst);
+        mapper.prune(&HashSet::new());
+        assert!(mapper.get(&file).is_none());
+        assert!(mapper.get(&dir).is_none());
     }
 
     #[test]
