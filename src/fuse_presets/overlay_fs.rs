@@ -1,118 +1,84 @@
 //! # OverlayFs
 //!
-//! Think of `OverlayFs` as the part that knows how to find, combine, and change files. It reads from
-//! the lower folders and saves changes in the upper folder. The first lower folder has the highest
-//! priority. When two layers contain the same directory, their contents appear together. Deleting a
-//! lower-layer file hides it without changing the lower folder.
+//! `OverlayFs` presents one writable FUSE tree from an upper directory and zero or more read-mostly
+//! lower directories. It resolves paths across those layers and directs changes to the upper
+//! directory, leaving lower contents alone. It is a filesystem preset for building a FUSE handler,
+//! rather than a mount manager or a wrapper around Linux's kernel OverlayFS.
 //!
-//! Your filesystem still needs a `FuseHandler` wrapper. `OverlayFs` handles file and folder
-//! behavior, but not every required FUSE operation. Use `StatelessHandler` for simple directory
-//! methods that need no state, and `UnimplementedFuseHandler` for operations your filesystem does
-//! not support. These fields fill different gaps; neither adds more overlay behavior.
-//! OverlayFs reuses `FileDescriptorHandler` for open-file operations, so you do
-//! not need a separate helper field when using this preset.
+//! ## How the layers work
 //!
-//! ## Basic: use the overlay as is
+//! - **Upper directory:** the writable layer. New entries are created here. When a lower entry is
+//!   changed, OverlayFs copies it and its needed parent directories here first (copy-up); subsequent
+//!   reads and writes use the upper copy.
+//! - **Lower directories:** source layers. An entry in the upper directory takes precedence over
+//!   all lowers. Otherwise, lowers are searched in the order passed to `new`; the first matching
+//!   entry wins. Directories with the same path are merged by name, so their child entries can come
+//!   from different layers. Deleting a lower entry records a whiteout in the upper layer, hiding
+//!   that path while preserving its source.
 //!
-//! This is the starting point for most users. `overlay` handles file and folder behavior;
-//! `defaults` and `unimplemented` handle the remaining operations.
-//!
-//! ```rust,ignore
-//! use easy_fuser::fuse_parallel::prelude::*;
-//! use easy_fuser::fuse_presets::{StatelessHandler, OverlayFs};
-//! use easy_fuser_macro::delegate_fs;
-//! use std::ffi::OsStr;
-//! use std::path::PathBuf;
-//!
-//! struct AppFs {
-//!     overlay: OverlayFs,
-//!     defaults: StatelessHandler<PathBuf>,
-//! }
-//!
-//! impl FuseHandler for AppFs {
-//!     type TId = PathBuf;
-//!
-//!     delegate_fs! { overlay, [
-//!         access, bmap, copy_file_range, create, fallocate, flush, fsync,
-//!         getattr, getlk, getxattr, ioctl, listxattr, link, lookup, lseek,
-//!         mkdir, mknod, open, read, readdir, readdirplus, readlink, release,
-//!         removexattr, rename, rmdir, setattr, setlk, setxattr, statfs,
-//!         symlink, unlink, write
-//!     ]}
-//!
-//!     // Directory operations that need no per-directory state
-//!     delegate_fs! { defaults, [ forget, fsyncdir, opendir, releasedir ]}
-//! }
-//! ```
-//!
-//! Initialize the preset fields with the upper and lower folders:
+//! The whiteout list persists under the reserved `.easy_fuser_overlay` directory inside the upper
+//! directory. This lets a new `OverlayFs` instance reopen the same view with the same layers. Do not
+//! expose that directory as ordinary filesystem content.
 //!
 //! ```rust,ignore
-//! fn make_filesystem() -> std::io::Result<AppFs> {
-//!     Ok(AppFs {
-//!         overlay: OverlayFs::new("/var/lib/app/upper", ["/usr/share/app"])?,
-//!         defaults: StatelessHandler::new(),
-//!     })
-//! }
+//! let overlay = OverlayFs::new(
+//!     "/var/lib/app/upper",
+//!     ["/usr/share/app/site", "/usr/share/app/defaults"],
+//! )?;
 //! ```
 //!
-//! ## Normal: add a rule around one operation
+//! In this example, changes live in `/var/lib/app/upper`; `site` takes precedence over `defaults`,
+//! and both lower trees remain unchanged. Pass an empty lower list to make an upper-only filesystem.
 //!
-//! To customize an operation, remove its name from the `overlay` list and write that method inside
-//! `impl FuseHandler for AppFs`. Call `self.overlay` after applying your rule. For example, this
-//! prevents deleting one important file while keeping OverlayFs's normal delete behavior for
-//! everything else:
+//! ## OverlayFs and Linux OverlayFS
 //!
-//! ```rust,ignore
-//! // Inside `impl FuseHandler for AppFs`:
-//! fn unlink(
-//!     &self,
-//!     req: &RequestInfo,
-//!     parent: PathBuf,
-//!     name: &OsStr,
-//! ) -> FuseResult<()> {
-//!     if parent.as_os_str().is_empty() && name == "important.db" {
-//!         return Err(ErrorKind::PermissionDenied.to_error("this file is protected"));
-//!     }
-//!     self.overlay.unlink(req, parent, name)
-//! }
-//! ```
+//! Both provide an upper/lower union and copy lower files up before writes. Linux OverlayFS is a
+//! kernel filesystem with its own on-disk whiteouts, opaque-directory markers, mount options, and
+//! features such as directory redirects and optional metadata-only copy-up. This preset instead
+//! implements the view in userspace through FUSE. It stores whiteouts in its own private file and
+//! does not use Linux OverlayFS metadata; the two implementations cannot share an upper directory
+//! as interchangeable layers. Their supported operations and edge-case behavior also differ.
 //!
-//! Remove `unlink` from the `overlay` delegation list when adding this method. The same pattern works
-//! for logging, access rules, custom attributes, or any other operation you want to adjust.
+//! Prefer Linux OverlayFS on Linux when its behavior fits the application: it is the native kernel
+//! implementation, avoids routing each filesystem operation through a userspace FUSE handler, and
+//! provides kernel-specific features and compatibility with tools expecting OverlayFS mounts. Use
+//! this preset when you need to build the filesystem into an `easy_fuser` application, add
+//! application-specific behavior in Rust, or need this implementation's FUSE-facing composition.
+//! See the [Linux OverlayFS documentation](https://docs.kernel.org/filesystems/overlayfs.html) for
+//! kernel semantics and mount requirements.
 //!
-//! ## Complex: combine presets and custom operations
+//! ## Using it in a FUSE handler
 //!
-//! Keep custom operations on your `FuseHandler` type and delegate the rest to
-//! `OverlayFs`, `StatelessHandler`, or `UnimplementedFuseHandler`. See the
-//! [composition examples](crate::fuse_presets) for a complete example with a custom rule.
+//! `OverlayFs` implements the operations in the table. Delegate these methods to the overlay field;
+//! `StatelessHandler` or a custom implementation can handle the directory bookkeeping methods.
+//! See the [preset composition examples](crate::fuse_presets) for `delegate_fs!` syntax. If you add
+//! custom behavior for an operation, implement it on your handler and remove it from the overlay
+//! delegation list.
 //!
-//! ## Which operations go where?
-//!
-//! | OverlayFs handles file and folder behavior | Leave simple methods to `StatelessHandler` | Return an error for unsupported methods |
+//! | Purpose | Delegate to | Operations |
 //! | --- | --- | --- |
-//! | Finding and listing files: `lookup`, `getattr`, `access`, `readdir`, `readlink` | Folder bookkeeping: `forget`, `fsyncdir`, `opendir`, `releasedir` |  |
-//! | Reading and writing: `open`, `create`, `read`, `write`, `release`, `flush`, `fsync`, `fallocate`, `copy_file_range`, `lseek`, `getlk`, `ioctl`, `setlk` |  |  |
-//! | Directory listing and block mapping: `readdirplus`, `bmap` |  |  |
-//! | Changing files: `mkdir`, `mknod`, `symlink`, `link`, `unlink`, `rmdir`, `rename`, `setattr`, `setxattr`, `removexattr` |  |  |
-//! | File details: `getxattr`, `listxattr`, `statfs` |  |  |
-//! |  |  |  |
+//! | Layer lookup and listing | `OverlayFs` | `access`, `getattr`, `lookup`, `readdir`, `readdirplus`, `readlink` |
+//! | File I/O and descriptors | `OverlayFs` | `open`, `create`, `read`, `write`, `release`, `flush`, `fsync`, `fallocate`, `copy_file_range`, `lseek`, `bmap`, `getlk`, `ioctl`, `setlk` |
+//! | Create, remove, and change entries | `OverlayFs` | `mkdir`, `mknod`, `symlink`, `link`, `unlink`, `rmdir`, `rename`, `setattr` |
+//! | Extended attributes and filesystem stats | `OverlayFs` | `getxattr`, `listxattr`, `setxattr`, `removexattr`, `statfs` |
+//! | Directory bookkeeping | `StatelessHandler` or your own implementation | `forget`, `fsyncdir`, `opendir`, `releasedir` |
 //!
-//! If you write a method yourself, remove it from the delegation list. If a method is listed under
-//! `StatelessHandler` but its no-op behavior does not fit your filesystem, implement it yourself
-//! or send it to `UnimplementedFuseHandler`. Do not delegate a method to `OverlayFs` unless it
-//! appears in its column; the macro will fail to compile because that method is not provided.
+//! ## Limitations
 //!
-//! ## Limits to know about
-//!
-//! The upper and lower folders must already exist and must not contain one another. Keep the mount
-//! point outside all of them. Do not change these folders while the filesystem is running, and use an
-//! upper folder with only one live `OverlayFs` instance. The upper folder keeps private records of
-//! deleted files; Linux's OverlayFS cannot read these records. When you first change a file from a
-//! lower folder, OverlayFs copies it into the upper folder. This works for ordinary files, folders,
-//! and symbolic links, but not device files, pipes, or sockets. Renaming a lower or combined folder is
-//! not supported. Copying a symbolic link keeps its destination but not its owner or timestamps;
-//! changing a symbolic link's metadata is not supported.
+//! - The upper directory and all lower directories must already exist, must be directories, and
+//!   must not overlap each other. The mount point must be outside these directories.
+//! - Do not modify the backing directories outside OverlayFs while the filesystem is running.
+//! - Use a given upper directory with only one live `OverlayFs` instance.
+//! - `.easy_fuser_overlay` is reserved at the root of each layer and stores private whiteout state
+//!   in the upper directory. The format is specific to this implementation and is not compatible
+//!   with Linux OverlayFS whiteouts.
+//! - Copy-up supports ordinary files, directories, and symbolic links. Copying up device files,
+//!   pipes, or sockets is not supported.
+//! - Renaming a lower-layer or merged directory is not supported.
+//! - Copying up a symbolic link preserves its destination, but not its owner or timestamps;
+//!   changing symbolic-link metadata is not supported.
+//! - `statfs` reports the upper directory's filesystem statistics, not combined capacity across
+//!   layers.
 
 use std::collections::{BTreeMap, HashSet};
 use std::ffi::{OsStr, OsString};
