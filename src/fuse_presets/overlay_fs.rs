@@ -692,7 +692,12 @@ impl OverlayFs {
         let source = self
             .resolve(&old_path)?
             .ok_or_else(|| ErrorKind::FileNotFound.to_error("rename source does not exist"))?;
-        if flags.intersects(RenameFlags::RENAME_EXCHANGE | RenameFlags::RENAME_WHITEOUT) {
+        #[cfg(target_os = "linux")]
+        let unsupported_flags =
+            flags.intersects(RenameFlags::RENAME_EXCHANGE | RenameFlags::RENAME_WHITEOUT);
+        #[cfg(not(target_os = "linux"))]
+        let unsupported_flags = !flags.is_empty();
+        if unsupported_flags {
             return Err(ErrorKind::NotSupported.to_error("requested rename flag is not supported"));
         }
         if source.kind == FileKind::Directory
@@ -702,7 +707,11 @@ impl OverlayFs {
                 .to_error("renaming lower or merged directories is not supported"));
         }
         let destination = self.resolve(&new_path)?;
-        if flags.contains(RenameFlags::RENAME_NOREPLACE) && destination.is_some() {
+        #[cfg(target_os = "linux")]
+        let no_replace = flags.contains(RenameFlags::RENAME_NOREPLACE);
+        #[cfg(not(target_os = "linux"))]
+        let no_replace = false;
+        if no_replace && destination.is_some() {
             return Err(ErrorKind::FileExists.to_error("rename destination already exists"));
         }
         if let Some(destination) = &destination {
