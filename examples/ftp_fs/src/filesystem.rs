@@ -47,15 +47,16 @@ impl FtpFs {
 
 impl FuseHandler for FtpFs {
     type TId = PathBuf;
+    type FileHandle = ();
 
     easy_fuser::delegate_fs! { safe_defaults, [ forget, fsyncdir, opendir, releasedir ] }
-    easy_fuser::delegate_fs! { inner_fs, [ access, bmap, copy_file_range, create, fallocate, flush, fsync, getlk, getxattr, ioctl, link, listxattr, lseek, mkdir, mknod, open, readlink, release, removexattr, rename, rmdir, setattr, setlk, setxattr, statfs, symlink, write, unlink ] }
+    easy_fuser::delegate_fs! { inner_fs, [ access, bmap, copy_file_range, create, fallocate, flush, fsync, getlk, getxattr, ioctl, link, listxattr, lseek, mkdir, mknod, open, readlink, removexattr, rename, rmdir, setattr, setlk, setxattr, statfs, symlink, write, unlink ] }
 
     fn getattr(
         &self,
         _req: &RequestInfo,
         file_id: PathBuf,
-        _file_handle: Option<BorrowedFileHandle>,
+        _file_handle: Option<&mut ()>,
     ) -> FuseResult<FileAttribute> {
         if file_id.is_filesystem_root() {
             return Ok(get_root_attribute());
@@ -83,7 +84,7 @@ impl FuseHandler for FtpFs {
         &self,
         _req: &RequestInfo,
         file_id: PathBuf,
-        _file_handle: BorrowedFileHandle,
+        _file_handle: Option<&mut ()>,
         offset: SeekFrom,
         size: u32,
         _flags: OpenFlags,

@@ -51,6 +51,15 @@ many of the complexities, offering a more intuitive and Rust-idiomatic approach 
 See the [`FileIdType` documentation](https://docs.rs/easy_fuser/latest/easy_fuser/types/trait.FileIdType.html)
 for the trade-offs and edge cases of each choice.
 
+## Object IDs and open resources
+
+`TId` identifies a filesystem object. `FileHandle` is the owned resource or state for one specific
+open instance. `open` and `create` return that resource; `FuseDriver` keeps it behind an opaque
+FUSE ID and passes typed access to later file operations. No `FileHandle: Clone` or file-descriptor
+trait is required. Use `()` when a filesystem has no per-open state. The [ZIP example](examples/zip_fs/src/filesystem.rs)
+shows a non-descriptor handle: `open` loads an entry into `Cursor<Vec<u8>>`, and `read` uses that
+cursor without looking up the archive entry again.
+
 ## Usage
 
 To use `easy_fuser`, follow these steps:
@@ -81,6 +90,7 @@ struct MyFS {
 
 impl FuseHandler for MyFS {
     type TId = PathBuf;
+    type FileHandle = ();
 
     // These operations need no directory state in this filesystem.
     delegate_fs! { defaults, [ forget, fsyncdir, opendir, releasedir ] }
@@ -89,7 +99,7 @@ impl FuseHandler for MyFS {
     delegate_fs! { unimplemented, [
         access, bmap, copy_file_range, create, fallocate, flush, fsync,
         getattr, getlk, getxattr, ioctl, link, listxattr, lookup, lseek, mkdir, mknod,
-        open, read, readdir, readlink, release, removexattr, rename,
+        open, read, readdir, readlink, removexattr, rename,
         rmdir, setattr, setlk, setxattr, statfs, symlink, unlink, write
     ]}
 }
@@ -150,6 +160,7 @@ struct AppFs {
 
 impl FuseHandler for AppFs {
     type TId = PathBuf;
+    type FileHandle = std::os::fd::OwnedFd;
 
     delegate_fs! { mirror, [ lookup, getattr, open, readdir, release ] }
     delegate_fs! { defaults, [ forget, fsyncdir, opendir, releasedir ] }
@@ -159,7 +170,7 @@ impl FuseHandler for AppFs {
         &self,
         req: &RequestInfo,
         file_id: PathBuf,
-        file_handle: BorrowedFileHandle<'_>,
+        file_handle: Option<&mut std::os::fd::OwnedFd>,
         seek: SeekFrom,
         size: u32,
         flags: OpenFlags,
@@ -212,6 +223,7 @@ struct MyAsyncFS {
 #[async_trait]
 impl FuseHandler for MyAsyncFS {
     type TId = PathBuf;
+    type FileHandle = std::os::fd::OwnedFd;
 
     // Delegate to the synchronous MirrorFs target inside an async handler
     delegate_fs_sync_to_async! { mirror_fs, [ read, write, getattr ] }

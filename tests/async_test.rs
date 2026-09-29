@@ -1,8 +1,8 @@
 #![cfg(feature = "async")]
 
 use easy_fuser::fuse_async::prelude::*;
-use easy_fuser::fuse_presets::{StatelessHandler, UnimplementedFuseHandler};
 use easy_fuser::fuse_presets::mirror_fs::*;
+use easy_fuser::fuse_presets::{StatelessHandler, UnimplementedFuseHandler};
 use easy_fuser_macro::delegate_fs_sync_to_async;
 
 use async_trait::async_trait;
@@ -20,6 +20,7 @@ struct MyAsyncFs {
 #[async_trait]
 impl FuseHandler for MyAsyncFs {
     type TId = PathBuf;
+    type FileHandle = std::os::fd::OwnedFd;
 
     delegate_fs_sync_to_async! { mirror_fs, [
         flush, fsync, lseek, read, release,

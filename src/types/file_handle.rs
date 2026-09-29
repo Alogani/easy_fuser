@@ -1,42 +1,8 @@
-//! File handle management for FUSE filesystems.
+//! Raw FUSE handle wrappers retained for directory operations and low-level compatibility.
 //!
-//! This module provides abstractions for working with file handles in FUSE (Filesystem in Userspace) implementations.
-//! It offers two main types: `OwnedFileHandle` and `BorrowedFileHandle`, which provide safe wrappers around raw file handles.
-//!
-//! # Key Features
-//! - Safe abstractions over raw file handles (u64) and file descriptors (i32).
-//! - Conversion methods between file handles and file descriptors.
-//! - Ownership and borrowing semantics for file handles.
-//!
-//! # Types
-//! - [`OwnedFileHandle`]: Represents ownership of a file handle.
-//! - [`BorrowedFileHandle`]: A borrowed representation of a file handle, tied to a specific lifetime.
-//!
-//! # Safety Considerations
-//! This module includes several unsafe operations and makes certain assumptions about the validity of file handles and descriptors.
-//! Users should be cautious when working with raw file descriptors and ensure that all safety requirements are met.
-//!
-//! Because FileHandle doesn't necessarly represent a concrete resource, no RAII is done when OwnedFileHandle is drop.
-//! It is the role of the user to manipulate the resource by converting to and from OwnedFd.
-//!
-//! # Examples
-//! ```rust
-//! use std::os::fd::OwnedFd;
-//! use easy_fuser::types::file_handle::{OwnedFileHandle, BorrowedFileHandle};
-//!
-//! // Creating an OwnedFileHandle from a raw value (unsafe)
-//! let owned_handle = unsafe { OwnedFileHandle::from_raw(42) };
-//!
-//! // Borrowing the file handle
-//! let borrowed_handle = owned_handle.borrow();
-//!
-//! // Converting to and from OwnedFd
-//! let owned_fd = owned_handle.into_owned_fd();
-//! let new_owned_handle = OwnedFileHandle::from_owned_fd(owned_fd).unwrap();
-//! ```
-//!
-//! Note: The above example assumes the existence of a valid file handle or descriptor.
-//! In real-world scenarios, ensure proper error handling and validity checks..
+//! Normal file callbacks use the handler's typed `FileHandle` resource, which is stored and
+//! resolved by `FuseDriver`. Conversions in this module are valid only when the raw value is
+//! independently known to be a real file descriptor.
 
 use std::marker::PhantomData;
 pub use std::os::fd::*;

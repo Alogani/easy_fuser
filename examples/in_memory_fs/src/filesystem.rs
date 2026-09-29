@@ -68,9 +68,10 @@ impl InMemoryFS {
 
 impl FuseHandler for InMemoryFS {
     type TId = Inode;
+    type FileHandle = ();
 
     easy_fuser::delegate_fs! { safe_defaults, [ fsyncdir, opendir, releasedir ] }
-    easy_fuser::delegate_fs! { unimplemented, [ bmap, copy_file_range, getlk, getxattr, ioctl, link, listxattr, lseek, mknod, open, readlink, release, removexattr, setlk, setxattr, statfs, symlink ] }
+    easy_fuser::delegate_fs! { unimplemented, [ bmap, copy_file_range, getlk, getxattr, ioctl, link, listxattr, lseek, mknod, open, readlink, removexattr, setlk, setxattr, statfs, symlink ] }
 
     // Access is not called for every operation
     fn access(&self, req: &RequestInfo, file_id: Inode, mask: AccessFlags) -> FuseResult<()> {
@@ -158,14 +159,7 @@ impl FuseHandler for InMemoryFS {
         mode: u32,
         _umask: u32,
         _flags: OpenFlags,
-    ) -> Result<
-        (
-            OwnedFileHandle,
-            (Inode, FileAttribute),
-            FopenFlags,
-        ),
-        PosixError,
-    > {
+    ) -> Result<((), (Inode, FileAttribute), FopenFlags), PosixError> {
         self.access(req, parent.clone(), AccessFlags::W_OK)?;
         let mut fs = self.fs.lock().unwrap();
         let new_inode = fs.next_inode.clone();
@@ -202,12 +196,7 @@ impl FuseHandler for InMemoryFS {
             fs.inodes.insert(new_inode.clone(), new_node);
             fs.next_inode = new_inode.add_one();
 
-            Ok((
-                // Safe because we won't release it
-                unsafe { OwnedFileHandle::from_raw(0) },
-                (new_inode.clone(), attr),
-                FopenFlags::empty(),
-            ))
+            Ok(((), (new_inode.clone(), attr), FopenFlags::empty()))
         } else {
             Err(ErrorKind::FileNotFound.to_error(""))
         }
@@ -217,7 +206,7 @@ impl FuseHandler for InMemoryFS {
         &self,
         req: &RequestInfo,
         file_id: Inode,
-        _file_handle: BorrowedFileHandle,
+        _file_handle: Option<&mut ()>,
         offset: i64,
         length: i64,
         mode: FallocateFlags,
@@ -262,7 +251,7 @@ impl FuseHandler for InMemoryFS {
         &self,
         _req: &RequestInfo,
         _file_id: Inode,
-        _file_handle: BorrowedFileHandle,
+        _file_handle: Option<&mut ()>,
         _lock_owner: u64,
     ) -> FuseResult<()> {
         Ok(())
@@ -272,7 +261,7 @@ impl FuseHandler for InMemoryFS {
         &self,
         _req: &RequestInfo,
         _file_id: Inode,
-        _file_handle: BorrowedFileHandle,
+        _file_handle: Option<&mut ()>,
         _datasync: bool,
     ) -> FuseResult<()> {
         Ok(())
@@ -282,7 +271,7 @@ impl FuseHandler for InMemoryFS {
         &self,
         _req: &RequestInfo,
         ino: Inode,
-        _fh: Option<BorrowedFileHandle>,
+        _fh: Option<&mut ()>,
     ) -> FuseResult<FileAttribute> {
         let fs = self.fs.lock().unwrap();
         fs.inodes
@@ -363,7 +352,7 @@ impl FuseHandler for InMemoryFS {
         &self,
         req: &RequestInfo,
         ino: Inode,
-        _fh: BorrowedFileHandle,
+        _fh: Option<&mut ()>,
         offset: SeekFrom,
         size: u32,
         _flags: OpenFlags,
@@ -512,6 +501,7 @@ impl FuseHandler for InMemoryFS {
         req: &RequestInfo,
         file_id: Inode,
         attrs: SetAttrRequest,
+        _file_handle: Option<&mut ()>,
     ) -> FuseResult<FileAttribute> {
         let mut fs = self.fs.lock().unwrap();
 
@@ -577,7 +567,7 @@ impl FuseHandler for InMemoryFS {
         &self,
         req: &RequestInfo,
         ino: Inode,
-        _fh: BorrowedFileHandle,
+        _fh: Option<&mut ()>,
         offset: SeekFrom,
         data: Vec<u8>,
         _write_flags: WriteFlags,

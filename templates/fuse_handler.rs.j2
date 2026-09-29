@@ -16,7 +16,10 @@ use async_trait::async_trait;
 ///
 /// # Type Parameter
 ///
-/// - `T`: A type that implements `FileIdType`. This represents the unique identifier for files and directories in your filesystem.
+/// - `TId`: A type that implements `FileIdType`, identifying a filesystem object.
+/// - `FileHandle`: An owned resource for one particular open instance, such as an
+///   `OwnedFd`, a cursor, or a backend-specific reader. The driver stores it and
+///   resolves FUSE's opaque numeric handle before calling file operations.
 ///
 /// # Usage
 ///
@@ -44,6 +47,7 @@ use async_trait::async_trait;
 ///
 /// impl FuseHandler for MyCustomFs {
 ///     type TId = PathBuf;
+///     type FileHandle = std::os::fd::OwnedFd;
 ///
 ///     // Custom implementation for lookup:
 ///     fn lookup(&self, req: &RequestInfo, parent_id: PathBuf, name: &OsStr) -> FuseResult<FileAttribute> {
@@ -109,6 +113,7 @@ pub trait FuseHandler: 'static
     {% endif %}
 {
     type TId: FileIdType {% if mode == "async" %}+ Send{% endif %};
+    type FileHandle: 'static {% if mode != "serial" %}+ Send{% endif %};
 
     {% macro async_keyword() -%}{% if mode == "async" %}async{% endif %}{%- endmacro %}
     {% macro await_keyword() -%}{% if mode == "async" %}.await{% endif %}{%- endmacro %}
@@ -154,10 +159,10 @@ pub trait FuseHandler: 'static
         &self,
         req: &RequestInfo,
         file_in: Self::TId,
-        file_handle_in: BorrowedFileHandle<'_>,
+        file_handle_in: Option<&Self::FileHandle>,
         offset_in: u64,
         file_out: Self::TId,
-        file_handle_out: BorrowedFileHandle<'_>,
+        file_handle_out: Option<&Self::FileHandle>,
         offset_out: u64,
         len: u64,
         flags: CopyFileRangeFlags,
@@ -177,14 +182,14 @@ pub trait FuseHandler: 'static
         mode: u32,
         umask: u32,
         flags: OpenFlags,
-    ) -> FuseResult<(OwnedFileHandle, <Self::TId as FileIdType>::Metadata, FopenFlags)>;
+    ) -> FuseResult<(Self::FileHandle, <Self::TId as FileIdType>::Metadata, FopenFlags)>;
 
     /// Preallocate or deallocate space to a file
     {{ async_keyword() }} fn fallocate(
         &self,
         req: &RequestInfo,
         file_id: Self::TId,
-        file_handle: BorrowedFileHandle<'_>,
+        file_handle: Option<&mut Self::FileHandle>,
         offset: i64,
         length: i64,
         mode: FallocateFlags,
@@ -198,7 +203,7 @@ pub trait FuseHandler: 'static
         &self,
         req: &RequestInfo,
         file_id: Self::TId,
-        file_handle: BorrowedFileHandle<'_>,
+        file_handle: Option<&mut Self::FileHandle>,
         lock_owner: u64,
     ) -> FuseResult<()>;
 
@@ -215,7 +220,7 @@ pub trait FuseHandler: 'static
         &self,
         req: &RequestInfo,
         file_id: Self::TId,
-        file_handle: BorrowedFileHandle<'_>,
+        file_handle: Option<&mut Self::FileHandle>,
         datasync: bool,
     ) -> FuseResult<()>;
 
@@ -238,7 +243,7 @@ pub trait FuseHandler: 'static
         &self,
         req: &RequestInfo,
         file_id: Self::TId,
-        file_handle: Option<BorrowedFileHandle<'_>>,
+        file_handle: Option<&mut Self::FileHandle>,
     ) -> FuseResult<FileAttribute>;
 
     /// Test for a POSIX file lock.
@@ -246,7 +251,7 @@ pub trait FuseHandler: 'static
         &self,
         req: &RequestInfo,
         file_id: Self::TId,
-        file_handle: BorrowedFileHandle<'_>,
+        file_handle: Option<&mut Self::FileHandle>,
         lock_owner: u64,
         lock_info: LockInfo,
     ) -> FuseResult<LockInfo>;
@@ -265,7 +270,7 @@ pub trait FuseHandler: 'static
         &self,
         req: &RequestInfo,
         file_id: Self::TId,
-        file_handle: BorrowedFileHandle<'_>,
+        file_handle: Option<&mut Self::FileHandle>,
         flags: IoctlFlags,
         cmd: u32,
         in_data: Vec<u8>,
@@ -292,7 +297,7 @@ pub trait FuseHandler: 'static
         &self,
         req: &RequestInfo,
         file_id: Self::TId,
-        file_handle: BorrowedFileHandle<'_>,
+        file_handle: Option<&mut Self::FileHandle>,
         seek: SeekFrom,
     ) -> FuseResult<i64>;
 
@@ -319,13 +324,16 @@ pub trait FuseHandler: 'static
 
     /// Open a file and return a file handle.
     ///
-    /// Open flags (with the exception of O_CREAT, O_EXCL, O_NOCTTY and O_TRUNC) are available in flags. You may store an arbitrary file handle (pointer, index, etc) in file_handle response, and use this in other all other file operations (read, write, flush, release, fsync). Filesystem may also implement stateless file I/O and not store anything in fh. There are also some flags (direct_io, keep_cache) which the filesystem may set, to change the way the file is opened. See fuse_file_info structure in <fuse_common.h> for more details.
+    /// The returned resource belongs to this particular open instance. `FuseDriver`
+    /// stores it and gives FUSE an opaque numeric handle. Return an owned resource
+    /// with a `'static` lifetime; the driver passes it back to subsequent file
+    /// operations. Stateless implementations may ignore a missing resource.
     {{ async_keyword() }} fn open(
         &self,
         req: &RequestInfo,
         file_id: Self::TId,
         flags: OpenFlags,
-    ) -> FuseResult<(OwnedFileHandle, FopenFlags)>;
+    ) -> FuseResult<(Self::FileHandle, FopenFlags)>;
 
     /// Open a directory
     ///
@@ -346,7 +354,7 @@ pub trait FuseHandler: 'static
         &self,
         req: &RequestInfo,
         file_id: Self::TId,
-        file_handle: BorrowedFileHandle<'_>,
+        file_handle: Option<&mut Self::FileHandle>,
         seek: SeekFrom,
         size: u32,
         flags: OpenFlags,
@@ -400,11 +408,14 @@ pub trait FuseHandler: 'static
         &self,
         req: &RequestInfo,
         file_id: Self::TId,
-        file_handle: OwnedFileHandle,
+        file_handle: Option<Self::FileHandle>,
         flags: OpenFlags,
         lock_owner: Option<u64>,
         flush: bool,
-    ) -> FuseResult<()>;
+    ) -> FuseResult<()> {
+        let _ = (req, file_id, file_handle, flags, lock_owner, flush);
+        Ok(())
+    }
 
     /// Release an open directory
     ///
@@ -440,7 +451,8 @@ pub trait FuseHandler: 'static
         &self,
         req: &RequestInfo,
         file_id: Self::TId,
-        attrs: SetAttrRequest<'_>,
+        attrs: SetAttrRequest,
+        file_handle: Option<&mut Self::FileHandle>,
     ) -> FuseResult<FileAttribute>;
 
     /// Acquire, modify or release a POSIX file lock
@@ -453,7 +465,7 @@ pub trait FuseHandler: 'static
         &self,
         req: &RequestInfo,
         file_id: Self::TId,
-        file_handle: BorrowedFileHandle<'_>,
+        file_handle: Option<&mut Self::FileHandle>,
         lock_owner: u64,
         lock_info: LockInfo,
         sleep: bool,
@@ -491,7 +503,7 @@ pub trait FuseHandler: 'static
         &self,
         req: &RequestInfo,
         file_id: Self::TId,
-        file_handle: BorrowedFileHandle<'_>,
+        file_handle: Option<&mut Self::FileHandle>,
         seek: SeekFrom,
         data: Vec<u8>,
         write_flags: WriteFlags,

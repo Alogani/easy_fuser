@@ -58,6 +58,7 @@ impl MyMirrorFs {
 
 impl FuseHandler for MyMirrorFs {
     type TId = PathBuf;
+    type FileHandle = std::os::fd::OwnedFd;
 
     easy_fuser::delegate_fs! { mirror_fs, [
         flush, fsync, lseek, read, release,
@@ -92,6 +93,7 @@ impl MyMirrorFsReadOnly {
 
 impl FuseHandler for MyMirrorFsReadOnly {
     type TId = PathBuf;
+    type FileHandle = std::os::fd::OwnedFd;
 
     easy_fuser::delegate_fs! { mirror_fs, [
         flush, fsync, lseek, read, release,

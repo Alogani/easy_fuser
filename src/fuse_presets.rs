@@ -28,12 +28,13 @@
 //!
 //! impl FuseHandler for AppFs {
 //!     type TId = PathBuf;
+//!     type FileHandle = ();
 //!
 //!     delegate_fs! { directory, [ forget, fsyncdir, opendir, releasedir ] }
 //!     delegate_fs! { unsupported, [
 //!         access, bmap, copy_file_range, create, fallocate, flush, fsync,
 //!         getattr, getlk, getxattr, ioctl, link, listxattr, lookup, lseek,
-//!         mkdir, mknod, open, read, readdir, readdirplus, readlink, release,
+//!         mkdir, mknod, open, read, readdir, readdirplus, readlink,
 //!         removexattr, rename, rmdir, setattr, setlk, setxattr, statfs,
 //!         symlink, unlink, write
 //!     ]}
@@ -62,6 +63,7 @@
 //!
 //! impl FuseHandler for AppFs {
 //!     type TId = PathBuf;
+//!     type FileHandle = std::os::fd::OwnedFd;
 //!
 //!     delegate_fs! { overlay, [
 //!         access, copy_file_range, create, fallocate, flush, fsync, getattr,
@@ -84,7 +86,7 @@
 //!         &self,
 //!         req: &RequestInfo,
 //!         file_id: PathBuf,
-//!         file_handle: BorrowedFileHandle<'_>,
+//!         file_handle: Option<&mut Self::FileHandle>,
 //!         lock_owner: u64,
 //!         lock_info: LockInfo,
 //!     ) -> FuseResult<LockInfo> {
@@ -158,9 +160,9 @@
 //! ## `FileDescriptorHandler`
 //!
 //! Provides `flush`, `fsync`, `getlk`, `ioctl`, `lseek`, `read`, `release`,
-//! `setlk`, `copy_file_range`, `fallocate`, and `write` for file handles that
-//! contain open file descriptors. Your `open` and `create` methods must return
-//! those descriptors as file handles. Directory listing stays with the
+//! `setlk`, `copy_file_range`, `fallocate`, and `write` for handlers whose
+//! `FileHandle` is `std::os::fd::OwnedFd`. Your `open` and `create` methods
+//! return the owned descriptors directly. Directory listing stays with the
 //! filesystem handler; `FuseHandler` already has a `readdirplus` default that
 //! combines `readdir` and `lookup`.
 //!

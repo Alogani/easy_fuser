@@ -4,8 +4,8 @@
 
 #[cfg(all(feature = "parallel", not(feature = "serial")))]
 use easy_fuser::fuse_parallel::prelude::*;
-use easy_fuser::fuse_presets::{StatelessHandler, UnimplementedFuseHandler};
 use easy_fuser::fuse_presets::mirror_fs::*;
+use easy_fuser::fuse_presets::{StatelessHandler, UnimplementedFuseHandler};
 #[cfg(feature = "serial")]
 use easy_fuser::fuse_serial::prelude::*;
 
@@ -27,6 +27,7 @@ struct MyFs {
 
 impl FuseHandler for MyFs {
     type TId = PathBuf;
+    type FileHandle = std::os::fd::OwnedFd;
 
     delegate_fs! { mirror_fs, [ // readonly functions
         flush, fsync, lseek, read, release,
@@ -51,6 +52,7 @@ struct MyFsReadOnly {
 
 impl FuseHandler for MyFsReadOnly {
     type TId = PathBuf;
+    type FileHandle = std::os::fd::OwnedFd;
 
     delegate_fs! { mirror_fs, [
         flush, fsync, lseek, read, release,

@@ -30,6 +30,7 @@
 //! Keep the mount point outside the source folder. Otherwise the filesystem
 //! could try to read its own mounted contents recursively.
 
+use std::os::fd::OwnedFd;
 use std::path::Path;
 
 use super::file_descriptor_handler::*;
@@ -52,7 +53,7 @@ macro_rules! mirror_fs_readonly_methods {
             &self,
             _req: &RequestInfo,
             file_id: std::path::PathBuf,
-            _file_handle: Option<BorrowedFileHandle>,
+            _file_handle: Option<&mut OwnedFd>,
         ) -> FuseResult<FileAttribute> {
             let file_path = self.source_path.join(file_id);
             unix_fs::lookup(&file_path)
@@ -94,12 +95,10 @@ macro_rules! mirror_fs_readonly_methods {
             _req: &RequestInfo,
             file_id: std::path::PathBuf,
             flags: OpenFlags,
-        ) -> FuseResult<(OwnedFileHandle, FopenFlags)> {
+        ) -> FuseResult<(OwnedFd, FopenFlags)> {
             let file_path = self.source_path.join(file_id);
             let fd = unix_fs::open(file_path.as_ref(), flags)?;
-            // Open by definition returns positive Fd or error
-            let file_handle = OwnedFileHandle::from_owned_fd(fd).unwrap();
-            Ok((file_handle, FopenFlags::empty()))
+            Ok((fd, FopenFlags::empty()))
         }
 
         pub fn readdir(
@@ -174,12 +173,10 @@ macro_rules! mirror_fs_readwrite_methods {
             mode: u32,
             umask: u32,
             flags: OpenFlags,
-        ) -> FuseResult<(OwnedFileHandle, FileAttribute, FopenFlags)> {
+        ) -> FuseResult<(OwnedFd, FileAttribute, FopenFlags)> {
             let file_path = self.source_path.join(parent_id).join(name);
             let (fd, file_attr) = unix_fs::create(&file_path, mode, umask, flags)?;
-            // Open by definition returns positive Fd or error
-            let file_handle = OwnedFileHandle::from_owned_fd(fd).unwrap();
-            Ok((file_handle, file_attr, FopenFlags::empty()))
+            Ok((fd, file_attr, FopenFlags::empty()))
         }
 
         pub fn mkdir(
@@ -246,6 +243,7 @@ macro_rules! mirror_fs_readwrite_methods {
             _req: &RequestInfo,
             file_id: std::path::PathBuf,
             attrs: SetAttrRequest,
+            _file_handle: Option<&mut OwnedFd>,
         ) -> FuseResult<FileAttribute> {
             let file_path = self.source_path.join(file_id);
             unix_fs::setattr(&file_path, attrs)

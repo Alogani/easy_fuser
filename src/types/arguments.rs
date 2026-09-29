@@ -21,7 +21,6 @@ use fuser::FileAttr as FuseFileAttr;
 pub use fuser::RequestId;
 use fuser::{FileType, Request, TimeOrNow, INodeNo, BsdFileFlags};
 
-use super::BorrowedFileHandle;
 use super::LockType;
 
 pub use std::io::SeekFrom;
@@ -262,7 +261,7 @@ impl FileAttribute {
 /// This struct uses the builder pattern to construct a request with optional fields.
 /// Each field corresponds to a file attribute that can be modified.
 #[derive(Debug)]
-pub struct SetAttrRequest<'a> {
+pub struct SetAttrRequest {
     /// File mode (permissions)
     pub mode: Option<u32>,
     /// User ID of the file owner
@@ -285,17 +284,15 @@ pub struct SetAttrRequest<'a> {
     pub bkuptime: Option<SystemTime>,
     /// File flags (unused in FUSE)
     pub flags: Option<BsdFileFlags>,
-    /// File handle for the file being modified
-    pub file_handle: Option<BorrowedFileHandle<'a>>,
 }
 
-impl<'a> Default for SetAttrRequest<'a> {
+impl Default for SetAttrRequest {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl<'a> SetAttrRequest<'a> {
+impl SetAttrRequest {
     pub fn new() -> Self {
         Self {
             mode: None,
@@ -309,7 +306,6 @@ impl<'a> SetAttrRequest<'a> {
             chgtime: None,
             bkuptime: None,
             flags: None,
-            file_handle: None,
         }
     }
 
@@ -366,11 +362,6 @@ impl<'a> SetAttrRequest<'a> {
     /// Unused by FUSE
     pub fn flags(mut self, flags: BsdFileFlags) -> Self {
         self.flags = Some(flags);
-        self
-    }
-
-    pub fn file_handle(mut self, file_handle: BorrowedFileHandle<'a>) -> Self {
-        self.file_handle = Some(file_handle);
         self
     }
 }
