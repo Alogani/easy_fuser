@@ -102,7 +102,6 @@ where
 
     {% if mode == "parallel" %}
         pub threadpool: ThreadPool,
-        pub reply_threadpool: ThreadPool,
     {% elif mode == "async" %}
         pub runtime: Arc<Runtime>,
     {% endif %}
@@ -116,7 +115,6 @@ where
     {
         fn drop(&mut self) {
             self.threadpool.join();
-            self.reply_threadpool.join();
         }
     }
 {% endif %}
@@ -150,12 +148,6 @@ where
 
             {% if mode == "parallel" %}
                 threadpool: {
-                    let threads = num_threads.or_else(|| {
-                        std::thread::available_parallelism().map(|n| n.get()).ok()
-                    }).unwrap_or(4);
-                    ThreadPool::new(threads)
-                },
-                reply_threadpool: {
                     let threads = num_threads.or_else(|| {
                         std::thread::available_parallelism().map(|n| n.get()).ok()
                     }).unwrap_or(4);
@@ -232,7 +224,6 @@ where
 {
     {% macro spawn() -%}
         {% if mode == "parallel" %}
-            let reply_threadpool = self.reply_threadpool.clone();
             self.threadpool.execute(move || {
         {% elif mode == "async" %}
             let runtime = self.runtime.clone();
@@ -247,15 +238,13 @@ where
     {%- endmacro %}
 
     {% macro spawn_reply() -%}
-        {% if mode == "parallel" %}
-            reply_threadpool.execute(move || {
-        {% elif mode == "async" %}
+        {% if mode == "async" %}
             runtime.spawn(async move {
         {% endif %}
         
         {{ caller() }}
         
-        {% if mode == "parallel" || mode == "async" %}
+        {% if mode == "async" %}
             });
         {% endif %}
     {%- endmacro %}
@@ -296,7 +285,10 @@ where
     fn init(&mut self, req: &Request, config: &mut KernelConfig) -> Result<(), std::io::Error> {
         let req = RequestInfo::from(req);
         match self.get_handler().init(&req, config) {
-            Ok(()) => Ok(()),
+            Ok(()) => {
+                info!("FUSE handler initialized");
+                Ok(())
+            }
             Err(e) => {
                 warn!("[{}] init {:?}", e, req);
                 Err(e.io_error())
@@ -305,7 +297,9 @@ where
     }
 
     fn destroy(&mut self) {
+        info!("FUSE handler shutting down");
         self.get_handler().destroy();
+        info!("FUSE handler shut down");
     }
 
     fn access(&self, req: &Request, ino: INodeNo, mask: AccessFlags, reply: ReplyEmpty) {
@@ -744,8 +738,11 @@ where
             ){% if mode == "async" %}.await{% endif %} {
                 {% call reply_entry("parent", "name") %}{% endcall %}
                 Err(e) => {
-                    // Failure is expected if user try to lookup a nonexistent file, it should not emit a warning
-                    info!("lookup: parent_ino {:x?}, [{}], {:?}", parent, e, req);
+                    // A missing entry is a normal lookup result, so keep it below warning level.
+                    log::debug!(
+                        "lookup: name {:?} in parent inode {:x?} failed: [{}], {:?}",
+                        name, parent, e, req
+                    );
                     {{ reply_error() }}
                 }
             }

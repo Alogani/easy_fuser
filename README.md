@@ -174,6 +174,17 @@ impl FuseHandler for AppFs {
 }
 ```
 
+## Logging and diagnostics
+
+`easy_fuser` uses the [`log`](https://docs.rs/log) facade. Add and initialize a logger in your
+application (for example, `env_logger`) to see its messages. Mount and unmount lifecycle events
+are logged at `info`; failed filesystem handler operations are logged at `warn`. A lookup for a
+missing entry is expected during normal filesystem use and is logged at `debug`.
+
+Successful filesystem requests are not logged, so normal reads and writes do not incur per-request
+logging work. To include lookup misses while debugging, configure your logger to show `debug` for
+`easy_fuser`, for example with `RUST_LOG=easy_fuser=debug` when using `env_logger`.
+
 ### Async Delegation
 
 When using the `async` concurrency model, the `FuseHandler` trait is decorated with `#[async_trait]`. Because outer attribute macros expand before inner macro invocations, a standard delegation macro like `delegate_fs!` cannot be desugared by `#[async_trait]`.

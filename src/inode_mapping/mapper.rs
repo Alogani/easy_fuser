@@ -146,44 +146,43 @@ impl<Data: Send + Sync + 'static> InodeMapper<Data> {
     where
         F: Fn(ValueCreatorParams<Data>) -> Data,
     {
-        // Wrap `child` in `OsStringWrapper` for efficient storage and comparison
-        let child = OsStringWrapper(Arc::new(child));
-
-        let mut is_new = false;
-        let inode = self
+        if let Some(inode) = self
             .data
             .children
-            .entry(parent.clone())
-            .or_default()
-            .entry(child.clone())
-            .or_insert_with(|| {
-                is_new = true;
-                self.next_inode.clone()
-            })
-            .clone();
-        if is_new {
-            self.next_inode = inode.add_one();
-            self.data.inodes.insert(
-                inode.clone(),
-                value_creator(ValueCreatorParams {
-                    parent,
-                    new_inode: &inode,
-                    child_name: child.as_ref(),
-                    existing_data: None,
-                }),
-            );
-            self.data
-                .links
-                .insert(inode, HashMap::from([(*parent, HashSet::from([child]))]));
-        } else {
+            .get(parent)
+            .and_then(|children| children.get(child.as_os_str()))
+            .copied()
+        {
             let inode_value = self.data.inodes.get_mut(&inode).unwrap();
             *inode_value = value_creator(ValueCreatorParams {
                 parent,
                 new_inode: &inode,
-                child_name: child.as_ref(),
+                child_name: child.as_os_str(),
                 existing_data: Some(inode_value),
             });
+            return inode;
         }
+
+        let inode = self.next_inode;
+        self.next_inode = inode.add_one();
+        let child = OsStringWrapper(Arc::new(child));
+        self.data
+            .children
+            .entry(*parent)
+            .or_default()
+            .insert(child.clone(), inode);
+        self.data.inodes.insert(
+            inode,
+            value_creator(ValueCreatorParams {
+                parent,
+                new_inode: &inode,
+                child_name: child.as_ref(),
+                existing_data: None,
+            }),
+        );
+        self.data
+            .links
+            .insert(inode, HashMap::from([(*parent, HashSet::from([child]))]));
         inode
     }
 
