@@ -32,7 +32,7 @@
 
 use std::path::Path;
 
-use super::fd_handler_helper::*;
+use super::file_descriptor_handler::*;
 use crate::types::*;
 use crate::unix_fs;
 
@@ -267,8 +267,8 @@ impl MirrorFsTrait for MirrorFs {
 impl MirrorFs {
     mirror_fs_readonly_methods!();
     mirror_fs_readwrite_methods!();
-    fd_handler_readonly_methods!(std::path::PathBuf);
-    fd_handler_readwrite_methods!(std::path::PathBuf);
+    file_descriptor_handler_readonly_methods!(std::path::PathBuf);
+    file_descriptor_handler_readwrite_methods!(std::path::PathBuf);
 }
 
 /// Read-only mirror of a source directory.
@@ -292,5 +292,5 @@ impl MirrorFsTrait for MirrorFsReadOnly {
 
 impl MirrorFsReadOnly {
     mirror_fs_readonly_methods!();
-    fd_handler_readonly_methods!(std::path::PathBuf);
+    file_descriptor_handler_readonly_methods!(std::path::PathBuf);
 }
