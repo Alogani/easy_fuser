@@ -54,11 +54,13 @@ for the trade-offs and edge cases of each choice.
 ## Object IDs and open resources
 
 `TId` identifies a filesystem object. `FileHandle` is the owned resource or state for one specific
-open instance. `open` and `create` return that resource; `FuseDriver` keeps it behind an opaque
-FUSE ID and passes typed access to later file operations. No `FileHandle: Clone` or file-descriptor
-trait is required. Use `()` when a filesystem has no per-open state. The [ZIP example](examples/zip_fs/src/filesystem.rs)
-shows a non-descriptor handle: `open` loads an entry into `Cursor<Vec<u8>>`, and `read` uses that
-cursor without looking up the archive entry again.
+open instance. `open` and `create` return it; `FuseDriver` stores it and passes typed optional
+access to later file operations. Use `()` when operations are stateless. If you delegate descriptor
+operations to `FileDescriptorHandler` or `MirrorFs`, choose `std::os::fd::OwnedFd`; the helper
+implements those callbacks for you, but it still needs the descriptor type. For your own per-open
+state, define a type and use `Option<&mut Self::FileHandle>` in file callbacks. The [typed handle docs](src/types/file_handle.rs)
+show a minimal example. The [ZIP example](examples/zip_fs/src/filesystem.rs) uses a
+`Cursor<Vec<u8>>` to read from the entry loaded by `open`.
 
 ## Usage
 

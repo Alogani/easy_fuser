@@ -6,7 +6,6 @@ use std::{
     path::Path,
     time::SystemTime,
 };
-use std::collections::HashMap;
 
 use log::{info, warn};
 
@@ -39,7 +38,7 @@ use super::fuse_handler::FuseHandler;
 
 {% macro borrow_resource(cell) -%}
     let mut resource_guard = match &{{ cell }} {
-        Some(cell) => Some(cell.resource.{{ borrow_mut() }}),
+        Some(cell) => Some(cell.lock_resource(){% if mode == "async" %}.await{% endif %}),
         None => None,
     };
     let file_handle = resource_guard.as_deref_mut().and_then(Option::as_mut);
@@ -56,7 +55,6 @@ use super::fuse_handler::FuseHandler;
 
 {% if mode == "serial" %}
     use std::cell::RefCell;
-    use std::rc::Rc;
 
 {% elif mode == "parallel" %}
     use threadpool::ThreadPool;
@@ -91,277 +89,12 @@ use super::fuse_handler::FuseHandler;
 {% elif mode == "async" %}
     use tokio::runtime::Runtime;
     use tokio::sync::Mutex;
-    use std::sync::Mutex as TableMutex;
 {% endif %}
 
-{% if mode == "serial" %}
-type ResourceRef<T> = Rc<ResourceCell<T>>;
-{% else %}
-type ResourceRef<T> = Arc<ResourceCell<T>>;
-{% endif %}
-
-struct ResourceCell<T> {
-    resource: {% if mode == "serial" %}RefCell<Option<T>>{% elif mode == "parallel" %}Mutex<Option<T>>{% else %}tokio::sync::Mutex<Option<T>>{% endif %},
+mod file_handle_table {
+    include!(concat!(env!("OUT_DIR"), "/{{ mode }}/file_handle_table.rs"));
 }
-
-impl<T> ResourceCell<T> {
-    fn new(resource: T) -> Self {
-        Self { resource: {% if mode == "serial" %}RefCell::new(Some(resource)){% elif mode == "parallel" %}Mutex::new(Some(resource)){% else %}tokio::sync::Mutex::new(Some(resource)){% endif %} }
-    }
-}
-
-struct HandleMap<T> {
-    next_id: u64,
-    entries: HashMap<u64, ResourceRef<T>>,
-}
-
-struct FileHandleTable<T> {
-    inner: {% if mode == "serial" %}Rc<RefCell<HandleMap<T>>>{% elif mode == "parallel" %}Arc<Mutex<HandleMap<T>>>{% else %}Arc<TableMutex<HandleMap<T>>>{% endif %},
-}
-
-impl<T> Clone for FileHandleTable<T> {
-    fn clone(&self) -> Self {
-        Self { inner: self.inner.clone() }
-    }
-}
-
-impl<T> Default for FileHandleTable<T> {
-    fn default() -> Self {
-        Self {
-            inner: {% if mode == "serial" %}Rc::new(RefCell::new(HandleMap { next_id: 0, entries: HashMap::new() })){% elif mode == "parallel" %}Arc::new(Mutex::new(HandleMap { next_id: 0, entries: HashMap::new() })){% else %}Arc::new(TableMutex::new(HandleMap { next_id: 0, entries: HashMap::new() })){% endif %},
-        }
-    }
-}
-
-impl<T> FileHandleTable<T> {
-    fn insert(&self, resource: T) -> u64 {
-        {% if mode == "serial" %}
-        let mut map = self.inner.borrow_mut();
-        {% elif mode == "parallel" %}
-        let mut map = self.inner.lock_unwrap();
-        {% else %}
-        let mut map = self.inner.lock().unwrap();
-        {% endif %}
-        loop {
-            map.next_id = map.next_id.wrapping_add(1);
-            let id = map.next_id;
-            if id == 0 || map.entries.contains_key(&id) {
-                continue;
-            }
-            map.entries.insert(id, {% if mode == "serial" %}Rc::new(ResourceCell::new(resource)){% else %}Arc::new(ResourceCell::new(resource)){% endif %});
-            return id;
-        }
-    }
-
-    fn get(&self, id: u64) -> Option<ResourceRef<T>> {
-        {% if mode == "serial" %}
-        let map = self.inner.borrow();
-        {% elif mode == "parallel" %}
-        let map = self.inner.lock_unwrap();
-        {% else %}
-        let map = self.inner.lock().unwrap();
-        {% endif %}
-        let resource = map.entries.get(&id).cloned();
-        if resource.is_none() && id != 0 {
-            warn!("stale or unknown FUSE file handle id {}", id);
-        }
-        resource
-    }
-
-    fn remove(&self, id: u64) -> Option<ResourceRef<T>> {
-        {% if mode == "serial" %}
-        let mut map = self.inner.borrow_mut();
-        {% elif mode == "parallel" %}
-        let mut map = self.inner.lock_unwrap();
-        {% else %}
-        let mut map = self.inner.lock().unwrap();
-        {% endif %}
-        let resource = map.entries.remove(&id);
-        if resource.is_none() && id != 0 {
-            warn!("release for stale or unknown FUSE file handle id {}", id);
-        }
-        resource
-    }
-}
-
-#[cfg(test)]
-mod typed_file_handle_table_tests {
-    use super::*;
-    use std::sync::atomic::{AtomicUsize, Ordering};
-
-    {% if mode == "async" %}
-    #[tokio::test]
-    async fn ids_keep_independent_mutable_resources_and_release_once() {
-    {% else %}
-    #[test]
-    fn ids_keep_independent_mutable_resources_and_release_once() {
-    {% endif %}
-        struct DropCounter(Arc<AtomicUsize>);
-        impl Drop for DropCounter {
-            fn drop(&mut self) {
-                self.0.fetch_add(1, Ordering::SeqCst);
-            }
-        }
-
-        let table = FileHandleTable::default();
-        let first_id = table.insert(10usize);
-        let second_id = table.insert(20usize);
-        assert_ne!(first_id, 0);
-        assert_ne!(second_id, 0);
-        assert_ne!(first_id, second_id);
-
-        {% if mode == "serial" %}
-        table.inner.borrow_mut().next_id = u64::MAX;
-        {% elif mode == "parallel" %}
-        table.inner.lock_unwrap().next_id = u64::MAX;
-        {% else %}
-        table.inner.lock().unwrap().next_id = u64::MAX;
-        {% endif %}
-        let wrapped_id = table.insert(30usize);
-        assert_ne!(wrapped_id, 0);
-        assert_ne!(wrapped_id, first_id);
-        assert_ne!(wrapped_id, second_id);
-
-        let first = table.get(first_id).unwrap();
-        {% if mode == "serial" %}
-        *first.resource.borrow_mut().as_mut().unwrap() += 1;
-        {% elif mode == "parallel" %}
-        *first.resource.lock_unwrap().as_mut().unwrap() += 1;
-        {% else %}
-        *first.resource.lock().await.as_mut().unwrap() += 1;
-        {% endif %}
-        let first = table.get(first_id).unwrap();
-        {% if mode == "serial" %}
-        assert_eq!(*first.resource.borrow(), Some(11));
-        {% elif mode == "parallel" %}
-        assert_eq!(*first.resource.lock_unwrap(), Some(11));
-        {% else %}
-        assert_eq!(*first.resource.lock().await, Some(11));
-        {% endif %}
-        let second = table.get(second_id).unwrap();
-        {% if mode == "serial" %}
-        assert_eq!(*second.resource.borrow(), Some(20));
-        {% elif mode == "parallel" %}
-        assert_eq!(*second.resource.lock_unwrap(), Some(20));
-        {% else %}
-        assert_eq!(*second.resource.lock().await, Some(20));
-        {% endif %}
-        drop(first);
-        drop(second);
-        let wrapped = table.get(wrapped_id).unwrap();
-        {% if mode == "serial" %}
-        assert_eq!(*wrapped.resource.borrow(), Some(30));
-        {% elif mode == "parallel" %}
-        assert_eq!(*wrapped.resource.lock_unwrap(), Some(30));
-        {% else %}
-        assert_eq!(*wrapped.resource.lock().await, Some(30));
-        {% endif %}
-        drop(wrapped);
-
-        let drops = Arc::new(AtomicUsize::new(0));
-        let drop_table = FileHandleTable::default();
-        let release_id = drop_table.insert(DropCounter(drops.clone()));
-        let released = drop_table.remove(release_id).unwrap();
-        assert!(drop_table.get(release_id).is_none());
-        let owned = {% if mode == "serial" %}
-            released.resource.borrow_mut().take().unwrap()
-        {% elif mode == "parallel" %}
-            released.resource.lock_unwrap().take().unwrap()
-        {% else %}
-            released.resource.lock().await.take().unwrap()
-        {% endif %};
-        drop(owned);
-        assert_eq!(drops.load(Ordering::SeqCst), 1);
-        drop(released);
-
-        let shutdown_id = drop_table.insert(DropCounter(drops.clone()));
-        assert_ne!(shutdown_id, 0);
-        drop(drop_table);
-        assert_eq!(drops.load(Ordering::SeqCst), 2);
-    }
-
-    {% if mode == "parallel" %}
-    #[test]
-    fn parallel_mode_locks_per_handle_and_serializes_the_same_handle() {
-        let first = Arc::new(ResourceCell::new(()));
-        let second = Arc::new(ResourceCell::new(()));
-        let barrier = Arc::new(std::sync::Barrier::new(2));
-        std::thread::scope(|scope| {
-            for cell in [first, second] {
-                let barrier = barrier.clone();
-                scope.spawn(move || {
-                    let _guard = cell.resource.lock_unwrap();
-                    barrier.wait();
-                });
-            }
-        });
-
-        let cell = Arc::new(ResourceCell::new(()));
-        let active = Arc::new(AtomicUsize::new(0));
-        let maximum = Arc::new(AtomicUsize::new(0));
-        std::thread::scope(|scope| {
-            for _ in 0..4 {
-                let cell = cell.clone();
-                let active = active.clone();
-                let maximum = maximum.clone();
-                scope.spawn(move || {
-                    for _ in 0..32 {
-                        let _guard = cell.resource.lock_unwrap();
-                        let current = active.fetch_add(1, Ordering::SeqCst) + 1;
-                        maximum.fetch_max(current, Ordering::SeqCst);
-                        std::thread::yield_now();
-                        active.fetch_sub(1, Ordering::SeqCst);
-                    }
-                });
-            }
-        });
-        assert_eq!(maximum.load(Ordering::SeqCst), 1);
-    }
-    {% elif mode == "async" %}
-    #[tokio::test]
-    async fn async_mode_locks_per_handle_and_serializes_the_same_handle() {
-        let first = Arc::new(ResourceCell::new(()));
-        let second = Arc::new(ResourceCell::new(()));
-        let barrier = Arc::new(tokio::sync::Barrier::new(2));
-        let first_task = {
-            let first = first.clone();
-            let barrier = barrier.clone();
-            async move {
-                let _guard = first.resource.lock().await;
-                barrier.wait().await;
-            }
-        };
-        let second_task = async move {
-            let _guard = second.resource.lock().await;
-            barrier.wait().await;
-        };
-        tokio::join!(first_task, second_task);
-
-        let cell = Arc::new(ResourceCell::new(()));
-        let active = Arc::new(AtomicUsize::new(0));
-        let maximum = Arc::new(AtomicUsize::new(0));
-        let mut tasks = Vec::new();
-        for _ in 0..4 {
-            let cell = cell.clone();
-            let active = active.clone();
-            let maximum = maximum.clone();
-            tasks.push(tokio::spawn(async move {
-                for _ in 0..32 {
-                    let _guard = cell.resource.lock().await;
-                    let current = active.fetch_add(1, Ordering::SeqCst) + 1;
-                    maximum.fetch_max(current, Ordering::SeqCst);
-                    tokio::task::yield_now().await;
-                    active.fetch_sub(1, Ordering::SeqCst);
-                }
-            }));
-        }
-        for task in tasks {
-            task.await.unwrap();
-        }
-        assert_eq!(maximum.load(Ordering::SeqCst), 1);
-    }
-    {% endif %}
-}
+use file_handle_table::FileHandleTable;
 
 pub(crate) struct FuseDriver<TId, THandler>
 where
@@ -645,7 +378,7 @@ where
         {% call spawn() %}
             let result = if fh_in.0 == fh_out.0 {
                 let resource_guard = match &cell_in {
-                    Some(cell) => Some(cell.resource.{{ borrow_mut() }}),
+                    Some(cell) => Some(cell.lock_resource(){% if mode == "async" %}.await{% endif %}),
                     None => None,
                 };
                 let file_handle = resource_guard.as_deref().and_then(Option::as_ref);
@@ -667,11 +400,11 @@ where
                     (cell_out, cell_in, false)
                 };
                 let first_guard = match &first_cell {
-                    Some(cell) => Some(cell.resource.{{ borrow_mut() }}),
+                    Some(cell) => Some(cell.lock_resource(){% if mode == "async" %}.await{% endif %}),
                     None => None,
                 };
                 let second_guard = match &second_cell {
-                    Some(cell) => Some(cell.resource.{{ borrow_mut() }}),
+                    Some(cell) => Some(cell.lock_resource(){% if mode == "async" %}.await{% endif %}),
                     None => None,
                 };
                 let first_handle = first_guard.as_deref().and_then(Option::as_ref);
@@ -1429,7 +1162,7 @@ where
         let resource = self.file_handles.remove(fh.0);
         {% call spawn() %}
             let mut resource_guard = match &resource {
-                Some(cell) => Some(cell.resource.{{ borrow_mut() }}),
+                Some(cell) => Some(cell.lock_resource(){% if mode == "async" %}.await{% endif %}),
                 None => None,
             };
             let file_handle = resource_guard.as_deref_mut().and_then(Option::take);

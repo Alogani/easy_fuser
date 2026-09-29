@@ -67,6 +67,25 @@ use async_trait::async_trait;
 /// }
 /// ```
 ///
+/// # Per-open file state
+///
+/// `FileHandle` is the type returned by successful `open` and `create` calls. The driver keeps
+/// each value in its private handle table and passes it back to later file callbacks. It allocates
+/// a separate opaque FUSE number for each live open, independently of the value of your type, so
+/// equal `FileHandle` values still belong to separate opens. Most callbacks receive
+/// `Option<&mut Self::FileHandle>` so state such as a cursor can be updated. `None` means there is
+/// no resource for that request, which stateless handlers can ignore. `copy_file_range` receives
+/// shared optional references for both opens because it may refer to the same open handle.
+/// `release` consumes the optional owned value; its default implementation drops the resource.
+/// The driver serializes callbacks that use the same open resource. Different opens have separate
+/// locks; if their values share mutable backend state, your handler must synchronize that state.
+///
+/// Choose `()` if your callbacks do not need per-open state. If you delegate descriptor operations
+/// to `FileDescriptorHandler`, use `std::os::fd::OwnedFd`: you do not have to implement its FD
+/// callbacks, but the helper needs the owned descriptor. If you implement file callbacks yourself,
+/// define a type for the state you want to keep; [the typed handle example](crate::types::file_handle)
+/// demonstrates a cursor-backed handle.
+///
 /// # Important Methods
 ///
 /// While all methods in this trait are important for a fully functional filesystem, some key methods include:
@@ -113,6 +132,14 @@ pub trait FuseHandler: 'static
     {% endif %}
 {
     type TId: FileIdType {% if mode == "async" %}+ Send{% endif %};
+    /// The owned resource kept for one successful `open` or `create` call.
+    ///
+    /// Choose `()` when file operations are stateless. Choose `OwnedFd` when
+    /// delegating descriptor operations to `FileDescriptorHandler`; the helper
+    /// handles the descriptor callbacks, but still needs the resource type to
+    /// be `OwnedFd`. For custom file operations, define a type for the per-open
+/// state and use it in the callback's `Option<&mut Self::FileHandle>`. The type must be `'static`;
+/// parallel and async modes also require `Send`. It does not need `Clone` or `Sync`.
     type FileHandle: 'static {% if mode != "serial" %}+ Send{% endif %};
 
     {% macro async_keyword() -%}{% if mode == "async" %}async{% endif %}{%- endmacro %}

@@ -3,6 +3,67 @@
 //! Normal file callbacks use the handler's typed `FileHandle` resource, which is stored and
 //! resolved by `FuseDriver`. Conversions in this module are valid only when the raw value is
 //! independently known to be a real file descriptor.
+//!
+//! # A custom per-open handle
+//!
+//! Define a type for state that belongs to one open instance, return it from `open`, then access it
+//! through `Option<&mut Self::FileHandle>` in callbacks such as `read`. The driver owns each value
+//! until `release`; it does not require the type to be `Clone` or a file descriptor.
+//!
+//! The driver assigns a separate, collision-checked FUSE number to each live open. This number is
+//! independent of your `FileHandle`, so the type does not need to contain a unique numeric key and
+//! equal handle values from different opens do not collide in the driver's table. Each open has its
+//! own callback lock. If several handle values refer to shared mutable backend state, synchronize
+//! that state in your handler. The type must be `'static`; parallel and async modes also require
+//! `Send`, while `Clone` and `Sync` are not required.
+//!
+//! ```rust,ignore
+//! use easy_fuser::fuse_serial::prelude::*;
+//! use std::io::{Cursor, Read, Seek};
+//! use std::path::PathBuf;
+//!
+//! struct MemoryFs;
+//! struct OpenFile { cursor: Cursor<Vec<u8>> }
+//!
+//! impl FuseHandler for MemoryFs {
+//!     type TId = PathBuf;
+//!     type FileHandle = OpenFile;
+//!
+//!     fn open(
+//!         &self,
+//!         _req: &RequestInfo,
+//!         _file_id: PathBuf,
+//!         _flags: OpenFlags,
+//!     ) -> FuseResult<(Self::FileHandle, FopenFlags)> {
+//!         let bytes = b"hello from this open".to_vec();
+//!         Ok((OpenFile { cursor: Cursor::new(bytes) }, FopenFlags::empty()))
+//!     }
+//!
+//!     fn read(
+//!         &self,
+//!         _req: &RequestInfo,
+//!         _file_id: PathBuf,
+//!         file_handle: Option<&mut Self::FileHandle>,
+//!         seek: SeekFrom,
+//!         size: u32,
+//!         _flags: OpenFlags,
+//!         _lock_owner: Option<u64>,
+//!     ) -> FuseResult<Vec<u8>> {
+//!         let open_file = file_handle
+//!             .ok_or_else(|| ErrorKind::BadFileDescriptor.to_error("missing open state"))?;
+//!         open_file.cursor.seek(seek)?;
+//!         let mut bytes = vec![0; size as usize];
+//!         let count = open_file.cursor.read(&mut bytes)?;
+//!         bytes.truncate(count);
+//!         Ok(bytes)
+//!     }
+//! }
+//! ```
+//!
+//! This shows only the relevant callbacks; a complete filesystem also implements or delegates
+//! its other required `FuseHandler` operations. When callbacks are delegated to
+//! `FileDescriptorHandler`, use `std::os::fd::OwnedFd` as `FileHandle`. Use `()` for stateless
+//! handlers whose operations do not need per-open state.
 
 use std::marker::PhantomData;
 pub use std::os::fd::*;

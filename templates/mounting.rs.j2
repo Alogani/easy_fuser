@@ -16,7 +16,8 @@ use super::fuse_driver::FuseDriver;
 /// * `filesystem`: The filesystem implementation.
 /// * `mountpoint`: The path where the filesystem should be mounted.
 /// * `options`: Mount options for the filesystem.
-/// * `num_threads` (not available in serial mode): Number of threads for handling filesystem operations concurrently.
+/// * `num_threads`: Number of threads for handling filesystem operations concurrently. Serial
+///   mode always runs one thread; this value only affects parallel and async modes.
 /// 
 /// # Type Parameters
 /// 
@@ -49,7 +50,7 @@ where
     let mountpoint = mountpoint.as_ref();
     let mut config = Config::default();
     config.mount_options = options.to_vec();
-    config.n_threads = num_threads;
+    config.n_threads = {% if mode == "serial" %}Some(1){% else %}num_threads{% endif %};
     info!("Mounting FUSE filesystem at {}", mountpoint.display());
     match fuser_mount(driver, mountpoint, &config) {
         Ok(()) => {
@@ -77,7 +78,8 @@ where
 /// * `filesystem`: The filesystem implementation that handles FUSE operations.
 /// * `mountpoint`: The path where the filesystem should be mounted.
 /// * `options`: A slice of mount options for configuring the filesystem mount.
-/// * `num_threads` (non serial argument): Number of threads for handling filesystem operations concurrently.
+/// * `num_threads`: Number of threads for handling filesystem operations concurrently. Serial
+///   mode always runs one thread; this value only affects parallel and async modes.
 /// 
 /// # Type Parameters
 /// 
@@ -117,7 +119,7 @@ where
     let mountpoint = mountpoint.as_ref();
     let mut config = Config::default();
     config.mount_options = options.to_vec();
-    config.n_threads = num_threads;
+    config.n_threads = {% if mode == "serial" %}Some(1){% else %}num_threads{% endif %};
     info!("Mounting FUSE filesystem at {} in the background", mountpoint.display());
     let session = match fuser_spawn_mount(driver, mountpoint, &config) {
         Ok(session) => session,
