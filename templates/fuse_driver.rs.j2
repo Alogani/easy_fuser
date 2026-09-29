@@ -102,7 +102,6 @@ where
 
     {% if mode == "parallel" %}
         pub threadpool: ThreadPool,
-        pub reply_threadpool: ThreadPool,
     {% elif mode == "async" %}
         pub runtime: Arc<Runtime>,
     {% endif %}
@@ -116,7 +115,6 @@ where
     {
         fn drop(&mut self) {
             self.threadpool.join();
-            self.reply_threadpool.join();
         }
     }
 {% endif %}
@@ -150,12 +148,6 @@ where
 
             {% if mode == "parallel" %}
                 threadpool: {
-                    let threads = num_threads.or_else(|| {
-                        std::thread::available_parallelism().map(|n| n.get()).ok()
-                    }).unwrap_or(4);
-                    ThreadPool::new(threads)
-                },
-                reply_threadpool: {
                     let threads = num_threads.or_else(|| {
                         std::thread::available_parallelism().map(|n| n.get()).ok()
                     }).unwrap_or(4);
@@ -232,7 +224,6 @@ where
 {
     {% macro spawn() -%}
         {% if mode == "parallel" %}
-            let reply_threadpool = self.reply_threadpool.clone();
             self.threadpool.execute(move || {
         {% elif mode == "async" %}
             let runtime = self.runtime.clone();
@@ -247,15 +238,13 @@ where
     {%- endmacro %}
 
     {% macro spawn_reply() -%}
-        {% if mode == "parallel" %}
-            reply_threadpool.execute(move || {
-        {% elif mode == "async" %}
+        {% if mode == "async" %}
             runtime.spawn(async move {
         {% endif %}
         
         {{ caller() }}
         
-        {% if mode == "parallel" || mode == "async" %}
+        {% if mode == "async" %}
             });
         {% endif %}
     {%- endmacro %}
