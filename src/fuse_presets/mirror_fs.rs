@@ -7,9 +7,9 @@
 //!
 //! # Methods provided
 //!
-//! Both types provide `access`, `getattr`, `getxattr`, `listxattr`, `lookup`,
-//! `open`, `readdir`, `readlink`, `statfs`, `flush`, `fsync`, `lseek`, `read`,
-//! and `release`.
+//! Both types provide `access`, `bmap`, `getattr`, `getlk`, `getxattr`, `ioctl`,
+//! `listxattr`, `lookup`, `open`, `readdir`, `readdirplus`, `readlink`, `statfs`,
+//! `flush`, `fsync`, `lseek`, `read`, `release`, and `setlk`.
 //!
 //! `MirrorFs` also provides `copy_file_range`, `fallocate`, `write`, `create`,
 //! `mkdir`, `mknod`, `removexattr`, `rename`, `rmdir`, `setattr`, `setxattr`,
@@ -20,8 +20,8 @@
 //!
 //! # Methods to provide or delegate elsewhere
 //!
-//! Neither type provides `bmap`, `forget`, `fsyncdir`, `getlk`, `ioctl`, `link`,
-//! `opendir`, `readdirplus`, `releasedir`, or `setlk`. Use
+//! Neither type provides `forget`, `fsyncdir`, `link`, `opendir`, or
+//! `releasedir`. Use
 //! [`StatelessHandler`](crate::fuse_presets::StatelessHandler) for the
 //! simple directory methods when they suit your filesystem, and
 //! [`UnimplementedFuseHandler`](crate::fuse_presets::UnimplementedFuseHandler)
@@ -38,7 +38,12 @@ use crate::unix_fs;
 
 macro_rules! mirror_fs_readonly_methods {
     () => {
-        pub fn access(&self, _req: &RequestInfo, file_id: std::path:: PathBuf, mask: AccessFlags) -> FuseResult<()> {
+        pub fn access(
+            &self,
+            _req: &RequestInfo,
+            file_id: std::path::PathBuf,
+            mask: AccessFlags,
+        ) -> FuseResult<()> {
             let file_path = self.source_path.join(file_id);
             unix_fs::access(&file_path, mask)
         }
@@ -46,7 +51,7 @@ macro_rules! mirror_fs_readonly_methods {
         pub fn getattr(
             &self,
             _req: &RequestInfo,
-            file_id: std::path:: PathBuf,
+            file_id: std::path::PathBuf,
             _file_handle: Option<BorrowedFileHandle>,
         ) -> FuseResult<FileAttribute> {
             let file_path = self.source_path.join(file_id);
@@ -56,7 +61,7 @@ macro_rules! mirror_fs_readonly_methods {
         pub fn getxattr(
             &self,
             _req: &RequestInfo,
-            file_id: std::path:: PathBuf,
+            file_id: std::path::PathBuf,
             name: &std::ffi::OsStr,
             size: u32,
         ) -> FuseResult<Vec<u8>> {
@@ -67,7 +72,7 @@ macro_rules! mirror_fs_readonly_methods {
         pub fn listxattr(
             &self,
             _req: &RequestInfo,
-            file_id: std::path:: PathBuf,
+            file_id: std::path::PathBuf,
             size: u32,
         ) -> FuseResult<Vec<u8>> {
             let file_path = self.source_path.join(file_id);
@@ -77,7 +82,7 @@ macro_rules! mirror_fs_readonly_methods {
         pub fn lookup(
             &self,
             _req: &RequestInfo,
-            parent_id: std::path:: PathBuf,
+            parent_id: std::path::PathBuf,
             name: &std::ffi::OsStr,
         ) -> FuseResult<FileAttribute> {
             let file_path = self.source_path.join(parent_id).join(name);
@@ -87,7 +92,7 @@ macro_rules! mirror_fs_readonly_methods {
         pub fn open(
             &self,
             _req: &RequestInfo,
-            file_id: std::path:: PathBuf,
+            file_id: std::path::PathBuf,
             flags: OpenFlags,
         ) -> FuseResult<(OwnedFileHandle, FopenFlags)> {
             let file_path = self.source_path.join(file_id);
@@ -100,7 +105,7 @@ macro_rules! mirror_fs_readonly_methods {
         pub fn readdir(
             &self,
             _req: &RequestInfo,
-            file_id: std::path:: PathBuf,
+            file_id: std::path::PathBuf,
             _file_handle: BorrowedFileHandle,
         ) -> FuseResult<Vec<(std::ffi::OsString, FileKind)>> {
             let folder_path = self.source_path.join(file_id);
@@ -114,12 +119,45 @@ macro_rules! mirror_fs_readonly_methods {
             Ok(result)
         }
 
-        pub fn readlink(&self, _req: &RequestInfo, file_id: std::path:: PathBuf) -> FuseResult<Vec<u8>> {
+        pub fn readdirplus(
+            &self,
+            req: &RequestInfo,
+            file_id: std::path::PathBuf,
+            file_handle: BorrowedFileHandle<'_>,
+        ) -> FuseResult<Vec<(std::ffi::OsString, FileAttribute)>> {
+            let entries = self.readdir(req, file_id.clone(), file_handle)?;
+            entries
+                .into_iter()
+                .map(|(name, _)| {
+                    let attribute = match name.as_os_str() {
+                        name if name == std::ffi::OsStr::new(".") => {
+                            self.getattr(req, file_id.clone(), None)?
+                        }
+                        name if name == std::ffi::OsStr::new("..") => {
+                            let parent = file_id.parent().unwrap_or(std::path::Path::new(""));
+                            self.getattr(req, parent.to_path_buf(), None)?
+                        }
+                        _ => self.lookup(req, file_id.clone(), &name)?,
+                    };
+                    Ok((name, attribute))
+                })
+                .collect()
+        }
+
+        pub fn readlink(
+            &self,
+            _req: &RequestInfo,
+            file_id: std::path::PathBuf,
+        ) -> FuseResult<Vec<u8>> {
             let file_path = self.source_path.join(file_id);
             unix_fs::readlink(&file_path)
         }
 
-        pub fn statfs(&self, _req: &RequestInfo, file_id: std::path:: PathBuf) -> FuseResult<StatFs> {
+        pub fn statfs(
+            &self,
+            _req: &RequestInfo,
+            file_id: std::path::PathBuf,
+        ) -> FuseResult<StatFs> {
             let file_path = self.source_path.join(file_id);
             unix_fs::statfs(&file_path)
         }
@@ -131,7 +169,7 @@ macro_rules! mirror_fs_readwrite_methods {
         pub fn create(
             &self,
             _req: &RequestInfo,
-            parent_id: std::path:: PathBuf,
+            parent_id: std::path::PathBuf,
             name: &std::ffi::OsStr,
             mode: u32,
             umask: u32,
@@ -147,7 +185,7 @@ macro_rules! mirror_fs_readwrite_methods {
         pub fn mkdir(
             &self,
             _req: &RequestInfo,
-            parent_id: std::path:: PathBuf,
+            parent_id: std::path::PathBuf,
             name: &std::ffi::OsStr,
             mode: u32,
             umask: u32,
@@ -159,7 +197,7 @@ macro_rules! mirror_fs_readwrite_methods {
         pub fn mknod(
             &self,
             _req: &RequestInfo,
-            parent_id: std::path:: PathBuf,
+            parent_id: std::path::PathBuf,
             name: &std::ffi::OsStr,
             mode: u32,
             umask: u32,
@@ -172,7 +210,7 @@ macro_rules! mirror_fs_readwrite_methods {
         pub fn removexattr(
             &self,
             _req: &RequestInfo,
-            file_id: std::path:: PathBuf,
+            file_id: std::path::PathBuf,
             name: &std::ffi::OsStr,
         ) -> FuseResult<()> {
             let file_path = self.source_path.join(file_id);
@@ -182,9 +220,9 @@ macro_rules! mirror_fs_readwrite_methods {
         pub fn rename(
             &self,
             _req: &RequestInfo,
-            parent_id: std::path:: PathBuf,
+            parent_id: std::path::PathBuf,
             name: &std::ffi::OsStr,
-            newparent: std::path:: PathBuf,
+            newparent: std::path::PathBuf,
             newname: &std::ffi::OsStr,
             flags: RenameFlags,
         ) -> FuseResult<()> {
@@ -193,7 +231,12 @@ macro_rules! mirror_fs_readwrite_methods {
             unix_fs::rename(&oldpath, &newpath, flags)
         }
 
-        pub fn rmdir(&self, _req: &RequestInfo, parent_id: std::path:: PathBuf, name: &std::ffi::OsStr) -> FuseResult<()> {
+        pub fn rmdir(
+            &self,
+            _req: &RequestInfo,
+            parent_id: std::path::PathBuf,
+            name: &std::ffi::OsStr,
+        ) -> FuseResult<()> {
             let file_path = self.source_path.join(parent_id).join(name);
             unix_fs::rmdir(&file_path)
         }
@@ -201,7 +244,7 @@ macro_rules! mirror_fs_readwrite_methods {
         pub fn setattr(
             &self,
             _req: &RequestInfo,
-            file_id: std::path:: PathBuf,
+            file_id: std::path::PathBuf,
             attrs: SetAttrRequest,
         ) -> FuseResult<FileAttribute> {
             let file_path = self.source_path.join(file_id);
@@ -211,7 +254,7 @@ macro_rules! mirror_fs_readwrite_methods {
         pub fn setxattr(
             &self,
             _req: &RequestInfo,
-            file_id: std::path:: PathBuf,
+            file_id: std::path::PathBuf,
             name: &std::ffi::OsStr,
             value: Vec<u8>,
             flags: SetXAttrFlags,
@@ -224,7 +267,7 @@ macro_rules! mirror_fs_readwrite_methods {
         pub fn symlink(
             &self,
             _req: &RequestInfo,
-            parent_id: std::path:: PathBuf,
+            parent_id: std::path::PathBuf,
             link_name: &std::ffi::OsStr,
             target: &std::path::Path,
         ) -> FuseResult<FileAttribute> {
@@ -232,7 +275,12 @@ macro_rules! mirror_fs_readwrite_methods {
             unix_fs::symlink(&file_path, target)
         }
 
-        pub fn unlink(&self, _req: &RequestInfo, parent_id: std::path:: PathBuf, name: &std::ffi::OsStr) -> FuseResult<()> {
+        pub fn unlink(
+            &self,
+            _req: &RequestInfo,
+            parent_id: std::path::PathBuf,
+            name: &std::ffi::OsStr,
+        ) -> FuseResult<()> {
             let file_path = self.source_path.join(parent_id).join(name);
             unix_fs::unlink(&file_path)
         }
@@ -240,7 +288,7 @@ macro_rules! mirror_fs_readwrite_methods {
 }
 
 pub trait MirrorFsTrait {
-    fn new(source_path: std::path:: PathBuf) -> Self;
+    fn new(source_path: std::path::PathBuf) -> Self;
 
     fn source_dir(&self) -> &Path;
 }
@@ -251,11 +299,11 @@ pub trait MirrorFsTrait {
 /// Implement other operations in your own handler or delegate them to another
 /// preset. The source directory must be outside the mount point.
 pub struct MirrorFs {
-    source_path: std::path:: PathBuf,
+    source_path: std::path::PathBuf,
 }
 
 impl MirrorFsTrait for MirrorFs {
-    fn new(source_path: std::path:: PathBuf) -> Self {
+    fn new(source_path: std::path::PathBuf) -> Self {
         Self { source_path }
     }
 
@@ -269,6 +317,16 @@ impl MirrorFs {
     mirror_fs_readwrite_methods!();
     file_descriptor_handler_readonly_methods!(std::path::PathBuf);
     file_descriptor_handler_readwrite_methods!(std::path::PathBuf);
+
+    pub fn bmap(
+        &self,
+        _req: &RequestInfo,
+        file_id: std::path::PathBuf,
+        blocksize: u32,
+        index: u64,
+    ) -> FuseResult<u64> {
+        unix_fs::bmap(&self.source_path.join(file_id), blocksize, index)
+    }
 }
 
 /// Read-only mirror of a source directory.
@@ -277,11 +335,11 @@ impl MirrorFs {
 /// reject changes made through other methods in your handler; configure a
 /// read-only mount when the whole filesystem must be read-only.
 pub struct MirrorFsReadOnly {
-    source_path: std::path:: PathBuf,
+    source_path: std::path::PathBuf,
 }
 
 impl MirrorFsTrait for MirrorFsReadOnly {
-    fn new(source_path: std::path:: PathBuf) -> Self {
+    fn new(source_path: std::path::PathBuf) -> Self {
         Self { source_path }
     }
 
@@ -293,4 +351,14 @@ impl MirrorFsTrait for MirrorFsReadOnly {
 impl MirrorFsReadOnly {
     mirror_fs_readonly_methods!();
     file_descriptor_handler_readonly_methods!(std::path::PathBuf);
+
+    pub fn bmap(
+        &self,
+        _req: &RequestInfo,
+        file_id: std::path::PathBuf,
+        blocksize: u32,
+        index: u64,
+    ) -> FuseResult<u64> {
+        unix_fs::bmap(&self.source_path.join(file_id), blocksize, index)
+    }
 }

@@ -114,6 +114,44 @@ impl OverlayFs {
         self.readdir_entries(&file_id)
     }
 
+    pub fn readdirplus(
+        &self,
+        req: &RequestInfo,
+        file_id: PathBuf,
+        file_handle: BorrowedFileHandle<'_>,
+    ) -> FuseResult<Vec<(OsString, FileAttribute)>> {
+        let entries = self.readdir(req, file_id.clone(), file_handle)?;
+        entries
+            .into_iter()
+            .map(|(name, _)| {
+                let attribute = match name.as_os_str() {
+                    name if name == OsStr::new(".") => {
+                        self.getattr(req, file_id.clone(), None)?
+                    }
+                    name if name == OsStr::new("..") => {
+                        let parent = file_id.parent().unwrap_or(Path::new(""));
+                        self.getattr(req, parent.to_path_buf(), None)?
+                    }
+                    _ => self.lookup(req, file_id.clone(), &name)?,
+                };
+                Ok((name, attribute))
+            })
+            .collect()
+    }
+
+    pub fn bmap(
+        &self,
+        _req: &RequestInfo,
+        file_id: PathBuf,
+        blocksize: u32,
+        index: u64,
+    ) -> FuseResult<u64> {
+        let entry = self
+            .resolve(&file_id)?
+            .ok_or_else(|| ErrorKind::FileNotFound.to_error("overlay entry does not exist"))?;
+        unix_fs::bmap(&entry.path, blocksize, index)
+    }
+
     pub fn readlink(&self, _req: &RequestInfo, file_id: PathBuf) -> FuseResult<Vec<u8>> {
         let entry = self
             .resolve(&file_id)?

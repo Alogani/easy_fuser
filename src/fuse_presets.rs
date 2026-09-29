@@ -157,24 +157,28 @@
 //!
 //! ## `FileDescriptorHandler`
 //!
-//! Provides `flush`, `fsync`, `lseek`, `read`, `release`, `copy_file_range`,
-//! `fallocate`, and `write` for file handles that contain open file descriptors.
-//! Your `open` and `create` methods must return those descriptors as file handles.
+//! Provides `flush`, `fsync`, `getlk`, `ioctl`, `lseek`, `read`, `release`,
+//! `setlk`, `copy_file_range`, `fallocate`, and `write` for file handles that
+//! contain open file descriptors. Your `open` and `create` methods must return
+//! those descriptors as file handles. Directory listing stays with the
+//! filesystem handler; `FuseHandler` already has a `readdirplus` default that
+//! combines `readdir` and `lookup`.
 //!
 //! ```rust,ignore
 //! file_io: FileDescriptorHandler<PathBuf>,
 //! delegate_fs! { file_io, [
-//!     copy_file_range, fallocate, flush, fsync, lseek, read, release, write
+//!     copy_file_range, fallocate, flush, fsync, getlk, ioctl, lseek, read,
+//!     release, setlk, write
 //! ]}
 //! ```
 //!
-//! `FileDescriptorHandlerReadOnly` provides `flush`, `fsync`, `lseek`, `read`,
-//! and `release` only. It does not make the rest of your filesystem read-only;
-//! use a read-only mount option when needed.
+//! `FileDescriptorHandlerReadOnly` provides `flush`, `fsync`, `getlk`, `ioctl`,
+//! `lseek`, `read`, `release`, and `setlk`. It does not make the rest of your
+//! filesystem read-only; use a read-only mount option when needed.
 //!
 //! ```rust,ignore
 //! file_io: FileDescriptorHandlerReadOnly<PathBuf>,
-//! delegate_fs! { file_io, [ flush, fsync, lseek, read, release ] }
+//! delegate_fs! { file_io, [ flush, fsync, getlk, ioctl, lseek, read, release, setlk ] }
 //! ```
 //!
 //! ## `MirrorFs`
