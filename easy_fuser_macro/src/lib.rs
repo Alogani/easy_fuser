@@ -270,7 +270,7 @@ fn desugar_signature(sig: &syn::Signature) -> (syn::Signature, Vec<syn::Lifetime
     for input in &mut new_sig.inputs {
         match input {
             syn::FnArg::Receiver(receiver) => {
-                if let Some((_, ref mut lifetime)) = receiver.reference {
+                if let syn::ReceiverKind::Reference(_, lifetime, _) = &mut receiver.kind {
                     *lifetime = Some(next_life());
                 }
             }

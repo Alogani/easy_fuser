@@ -4,6 +4,7 @@ use bitflags::bitflags;
 
 pub use fuser::{
     AccessFlags,
+    BsdFileFlags,
     FopenFlags,
     OpenFlags,
     RenameFlags,

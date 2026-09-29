@@ -10,5 +10,5 @@ logging = ["dep:env_logger", "dep:log"]
 
 [dependencies]
 easy_fuser = { path = "../..", features = ["parallel"] }
-log = { version = "0.4", optional = true }
-env_logger = { version = "0.11", optional = true }
+log = { version = "^0.4.34", optional = true }
+env_logger = { version = "^0.11.11", optional = true }

@@ -1,7 +1,7 @@
 use std::io;
 use std::path::Path;
 
-use fuser::{mount2, spawn_mount2, Config, MountOption};
+use fuser::{mount as fuser_mount, spawn_mount as fuser_spawn_mount, Config, MountOption};
 use log::{error, info};
 
 use crate::types::*;
@@ -51,7 +51,7 @@ where
     config.mount_options = options.to_vec();
     config.n_threads = num_threads;
     info!("Mounting FUSE filesystem at {}", mountpoint.display());
-    match mount2(driver, mountpoint, &config) {
+    match fuser_mount(driver, mountpoint, &config) {
         Ok(()) => {
             info!("FUSE filesystem at {} stopped", mountpoint.display());
             Ok(())
@@ -119,7 +119,7 @@ where
     config.mount_options = options.to_vec();
     config.n_threads = num_threads;
     info!("Mounting FUSE filesystem at {} in the background", mountpoint.display());
-    let session = match spawn_mount2(driver, mountpoint, &config) {
+    let session = match fuser_spawn_mount(driver, mountpoint, &config) {
         Ok(session) => session,
         Err(err) => {
             error!(

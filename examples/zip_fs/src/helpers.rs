@@ -1,3 +1,4 @@
+use std::io::Read;
 use std::time::UNIX_EPOCH;
 
 use easy_fuser::fuse_serial::prelude::*;
@@ -24,7 +25,7 @@ pub fn get_root_attribute() -> FileAttribute {
     }
 }
 
-pub fn create_file_attribute(file: &ZipFile, is_dir: bool) -> FileAttribute {
+pub fn create_file_attribute<R: Read>(file: &ZipFile<'_, R>, is_dir: bool) -> FileAttribute {
     FileAttribute {
         size: file.size(),
         blocks: (file.size() + 511) / 512,
