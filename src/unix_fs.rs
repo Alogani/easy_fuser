@@ -489,6 +489,124 @@ pub fn open(path: &Path, flags: OpenFlags) -> Result<OwnedFd, PosixError> {
     Ok(unsafe { OwnedFd::from_raw_fd(fd) })
 }
 
+/// Maps a filesystem block to its physical block number where supported.
+pub fn bmap(path: &Path, _blocksize: u32, index: u64) -> Result<u64, PosixError> {
+    #[cfg(target_os = "linux")]
+    {
+        use std::os::fd::AsRawFd;
+        let fd = open(path, OpenFlags(libc::O_RDONLY))?;
+        let mut block: libc::c_int = index.try_into().map_err(|_| {
+            PosixError::new(
+                ErrorKind::InvalidArgument,
+                "block index exceeds FIBMAP range",
+            )
+        })?;
+        // FIBMAP is _IO(0, 1) on Linux. It may require CAP_SYS_RAWIO.
+        let result = unsafe { libc::ioctl(fd.as_raw_fd(), 1, &mut block) };
+        if result == -1 {
+            return Err(PosixError::last_error("FIBMAP ioctl failed"));
+        }
+        return Ok(block as u64);
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        let _ = (path, index);
+        Err(PosixError::new(
+            ErrorKind::FunctionNotImplemented,
+            "block mapping is not supported on this platform",
+        ))
+    }
+}
+
+/// Performs an ioctl using a file descriptor and returns its output buffer.
+pub fn ioctl(
+    fd: std::os::fd::BorrowedFd<'_>,
+    command: u32,
+    input: Vec<u8>,
+    output_size: u32,
+) -> Result<(i32, Vec<u8>), PosixError> {
+    use std::os::fd::AsRawFd;
+    let output_size = output_size as usize;
+    let mut data = input;
+    data.resize(data.len().max(output_size), 0);
+    let result =
+        unsafe { libc::ioctl(fd.as_raw_fd(), command as libc::c_ulong, data.as_mut_ptr()) };
+    if result == -1 {
+        return Err(PosixError::last_error("ioctl failed"));
+    }
+    data.truncate(output_size.min(data.len()));
+    Ok((result, data))
+}
+
+/// Queries the current POSIX record lock for a file descriptor.
+pub fn getlk(
+    fd: std::os::fd::BorrowedFd<'_>,
+    _lock_owner: u64,
+    lock_info: LockInfo,
+) -> Result<LockInfo, PosixError> {
+    use std::os::fd::AsRawFd;
+    let mut lock = lock_info_to_flock(lock_info)?;
+    if unsafe { libc::fcntl(fd.as_raw_fd(), libc::F_GETLK, &mut lock) } == -1 {
+        return Err(PosixError::last_error("F_GETLK failed"));
+    }
+    Ok(flock_to_lock_info(lock))
+}
+
+/// Sets or releases a POSIX record lock for a file descriptor.
+pub fn setlk(
+    fd: std::os::fd::BorrowedFd<'_>,
+    _lock_owner: u64,
+    lock_info: LockInfo,
+    sleep: bool,
+) -> Result<(), PosixError> {
+    use std::os::fd::AsRawFd;
+    let lock = lock_info_to_flock(lock_info)?;
+    let command = if sleep { libc::F_SETLKW } else { libc::F_SETLK };
+    if unsafe { libc::fcntl(fd.as_raw_fd(), command, &lock) } == -1 {
+        return Err(PosixError::last_error("setting file lock failed"));
+    }
+    Ok(())
+}
+
+fn lock_info_to_flock(info: LockInfo) -> Result<libc::flock, PosixError> {
+    let start: libc::off_t = info.start.try_into().map_err(|_| {
+        PosixError::new(ErrorKind::InvalidArgument, "lock start exceeds off_t range")
+    })?;
+    let len: libc::off_t = if info.end == 0 {
+        0
+    } else {
+        info.end
+            .checked_sub(info.start)
+            .ok_or_else(|| PosixError::new(ErrorKind::InvalidArgument, "invalid lock range"))?
+            .try_into()
+            .map_err(|_| {
+                PosixError::new(ErrorKind::InvalidArgument, "lock range exceeds off_t range")
+            })?
+    };
+    Ok(libc::flock {
+        l_type: info.lock_type.bits() as libc::c_short,
+        l_whence: libc::SEEK_SET as libc::c_short,
+        l_start: start,
+        l_len: len,
+        l_pid: info.pid as libc::pid_t,
+    })
+}
+
+fn flock_to_lock_info(lock: libc::flock) -> LockInfo {
+    let start = lock.l_start.max(0) as u64;
+    let end = if lock.l_len <= 0 {
+        0
+    } else {
+        start.saturating_add(lock.l_len as u64)
+    };
+    LockInfo {
+        start,
+        end,
+        lock_type: LockType::from_bits_retain(lock.l_type as i32),
+        pid: lock.l_pid as u32,
+    }
+}
+
 /// Reads data from a file descriptor at a specified offset.
 ///
 /// This function is equivalent to the FUSE `read` operation.

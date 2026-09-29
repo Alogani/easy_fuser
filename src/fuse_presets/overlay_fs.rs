@@ -19,7 +19,7 @@
 //!
 //! ```rust,ignore
 //! use easy_fuser::fuse_parallel::prelude::*;
-//! use easy_fuser::fuse_presets::{StatelessHandler, OverlayFs, UnimplementedFuseHandler};
+//! use easy_fuser::fuse_presets::{StatelessHandler, OverlayFs};
 //! use easy_fuser_macro::delegate_fs;
 //! use std::ffi::OsStr;
 //! use std::path::PathBuf;
@@ -27,23 +27,21 @@
 //! struct AppFs {
 //!     overlay: OverlayFs,
 //!     defaults: StatelessHandler<PathBuf>,
-//!     unimplemented: UnimplementedFuseHandler<PathBuf>,
 //! }
 //!
 //! impl FuseHandler for AppFs {
 //!     type TId = PathBuf;
 //!
 //!     delegate_fs! { overlay, [
-//!         access, copy_file_range, create, fallocate, flush, fsync, getattr,
-//!         getxattr, listxattr, link, lookup, lseek, mkdir, mknod, open,
-//!         read, readdir, readlink, release, removexattr, rename, rmdir,
-//!         setattr, setxattr, statfs, symlink, unlink, write
+//!         access, bmap, copy_file_range, create, fallocate, flush, fsync,
+//!         getattr, getlk, getxattr, ioctl, listxattr, link, lookup, lseek,
+//!         mkdir, mknod, open, read, readdir, readdirplus, readlink, release,
+//!         removexattr, rename, rmdir, setattr, setlk, setxattr, statfs,
+//!         symlink, unlink, write
 //!     ]}
 //!
 //!     // Directory operations that need no per-directory state
 //!     delegate_fs! { defaults, [ forget, fsyncdir, opendir, releasedir ]}
-//!     // Operations this filesystem does not support
-//!     delegate_fs! { unimplemented, [ bmap, getlk, ioctl, readdirplus, setlk ]}
 //! }
 //! ```
 //!
@@ -54,7 +52,6 @@
 //!     Ok(AppFs {
 //!         overlay: OverlayFs::new("/var/lib/app/upper", ["/usr/share/app"])?,
 //!         defaults: StatelessHandler::new(),
-//!         unimplemented: UnimplementedFuseHandler::new(),
 //!     })
 //! }
 //! ```
@@ -95,10 +92,11 @@
 //! | OverlayFs handles file and folder behavior | Leave simple methods to `StatelessHandler` | Return an error for unsupported methods |
 //! | --- | --- | --- |
 //! | Finding and listing files: `lookup`, `getattr`, `access`, `readdir`, `readlink` | Folder bookkeeping: `forget`, `fsyncdir`, `opendir`, `releasedir` |  |
-//! | Reading and writing: `open`, `create`, `read`, `write`, `release`, `flush`, `fsync`, `fallocate`, `copy_file_range`, `lseek` |  |  |
+//! | Reading and writing: `open`, `create`, `read`, `write`, `release`, `flush`, `fsync`, `fallocate`, `copy_file_range`, `lseek`, `getlk`, `ioctl`, `setlk` |  |  |
+//! | Directory listing and block mapping: `readdirplus`, `bmap` |  |  |
 //! | Changing files: `mkdir`, `mknod`, `symlink`, `link`, `unlink`, `rmdir`, `rename`, `setattr`, `setxattr`, `removexattr` |  |  |
 //! | File details: `getxattr`, `listxattr`, `statfs` |  |  |
-//! |  |  | Unsupported here: `bmap`, `getlk`, `ioctl`, `readdirplus`, `setlk` |
+//! |  |  |  |
 //!
 //! If you write a method yourself, remove it from the delegation list. If a method is listed under
 //! `StatelessHandler` but its no-op behavior does not fit your filesystem, implement it yourself

@@ -7,8 +7,8 @@
 //!
 //! # Methods provided
 //!
-//! `FileDescriptorHandlerReadOnly<TId>` provides `flush`, `fsync`, `lseek`, `read`,
-//! and `release`.
+//! `FileDescriptorHandlerReadOnly<TId>` provides `flush`, `fsync`, `getlk`,
+//! `ioctl`, `lseek`, `read`, `release`, and `setlk`.
 //!
 //! `FileDescriptorHandler<TId>` provides those same methods, plus `copy_file_range`,
 //! `fallocate`, and `write`.
@@ -23,9 +23,9 @@
 //! `FileDescriptorHandlerReadOnly` only omits write methods; use a read-only mount
 //! option if the whole mounted filesystem must reject changes.
 
-use std::marker::PhantomData;
 use crate::types::*;
 use crate::unix_fs;
+use std::marker::PhantomData;
 
 macro_rules! fd_handler_readonly_methods {
     ($file_id:path) => {
@@ -83,6 +83,42 @@ macro_rules! fd_handler_readonly_methods {
         ) -> FuseResult<()> {
             unix_fs::release(file_handle.into_owned_fd())
         }
+
+        pub fn getlk(
+            &self,
+            _req: &RequestInfo,
+            _file_id: $file_id,
+            file_handle: BorrowedFileHandle,
+            lock_owner: u64,
+            lock_info: LockInfo,
+        ) -> FuseResult<LockInfo> {
+            unix_fs::getlk(file_handle.as_borrowed_fd(), lock_owner, lock_info)
+        }
+
+        pub fn ioctl(
+            &self,
+            _req: &RequestInfo,
+            _file_id: $file_id,
+            file_handle: BorrowedFileHandle,
+            _flags: IoctlFlags,
+            cmd: u32,
+            in_data: Vec<u8>,
+            out_size: u32,
+        ) -> FuseResult<(i32, Vec<u8>)> {
+            unix_fs::ioctl(file_handle.as_borrowed_fd(), cmd, in_data, out_size)
+        }
+
+        pub fn setlk(
+            &self,
+            _req: &RequestInfo,
+            _file_id: $file_id,
+            file_handle: BorrowedFileHandle,
+            lock_owner: u64,
+            lock_info: LockInfo,
+            sleep: bool,
+        ) -> FuseResult<()> {
+            unix_fs::setlk(file_handle.as_borrowed_fd(), lock_owner, lock_info, sleep)
+        }
     };
 }
 
@@ -139,9 +175,10 @@ macro_rules! fd_handler_readwrite_methods {
 
 /// File-descriptor backed helpers for read and write operations.
 ///
-/// Provides `flush`, `fsync`, `lseek`, `read`, `release`, `copy_file_range`,
-/// `fallocate`, and `write`. Your `open` and `create` methods must return an
-/// open file descriptor as the file handle.
+/// Provides descriptor-backed `flush`, `fsync`, `getlk`, `ioctl`, `lseek`,
+/// `read`, `release`, and `setlk`, plus `copy_file_range`, `fallocate`, and
+/// `write`. Your `open` and `create` methods must return an open file descriptor
+/// as the file handle.
 pub struct FileDescriptorHandler<TId: FileIdType> {
     phantom: PhantomData<TId>,
 }
@@ -167,8 +204,9 @@ impl<TId: FileIdType> FileDescriptorHandler<TId> {
 
 /// Read-only file-descriptor backed helpers.
 ///
-/// Provides `flush`, `fsync`, `lseek`, `read`, and `release`. Your `open`
-/// method must return an open file descriptor as the file handle.
+/// Provides descriptor-backed `flush`, `fsync`, `getlk`, `ioctl`, `lseek`,
+/// `read`, `release`, and `setlk`. Your `open` method must return an open file
+/// descriptor as the file handle.
 pub struct FileDescriptorHandlerReadOnly<TId: FileIdType> {
     phantom: PhantomData<TId>,
 }
@@ -192,17 +230,11 @@ impl<TId: FileIdType> FileDescriptorHandlerReadOnly<TId> {
 }
 
 /// Deprecated alias for [`FileDescriptorHandler`].
-#[deprecated(
-    since = "0.8.0",
-    note = "use `FileDescriptorHandler` instead"
-)]
+#[deprecated(since = "0.8.0", note = "use `FileDescriptorHandler` instead")]
 pub type FdHandlerHelper<TId> = FileDescriptorHandler<TId>;
 
 /// Deprecated alias for [`FileDescriptorHandlerReadOnly`].
-#[deprecated(
-    since = "0.8.0",
-    note = "use `FileDescriptorHandlerReadOnly` instead"
-)]
+#[deprecated(since = "0.8.0", note = "use `FileDescriptorHandlerReadOnly` instead")]
 pub type FdHandlerHelperReadOnly<TId> = FileDescriptorHandlerReadOnly<TId>;
 
 pub(super) use fd_handler_readonly_methods;
