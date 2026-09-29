@@ -529,8 +529,7 @@ pub fn ioctl(
     let output_size = output_size as usize;
     let mut data = input;
     data.resize(data.len().max(output_size), 0);
-    let result =
-        unsafe { libc::ioctl(fd.as_raw_fd(), command as libc::c_ulong, data.as_mut_ptr()) };
+    let result = unsafe { libc::ioctl(fd.as_raw_fd(), command as _, data.as_mut_ptr()) };
     if result == -1 {
         return Err(PosixError::last_error("ioctl failed"));
     }
