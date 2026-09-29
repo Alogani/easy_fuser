@@ -62,7 +62,10 @@ jobs:
           new = '''mount(
               fs,
               &mntpoint_clone,
-              &[fuser::MountOption::CUSTOM("backend=fskit".into())],
+              &[
+                  fuser::MountOption::CUSTOM("backend=fskit".into()),
+                  fuser::MountOption::CUSTOM("local".into()),
+              ],
               Some(4),
           ).unwrap();'''
 
@@ -93,17 +96,21 @@ jobs:
       - name: FSKit state before test
         run: |
           echo "=== macFUSE installation ==="
-          find /Library/Filesystems -maxdepth 3 -iname '*fuse*' -print 2>/dev/null || true
+          find /Library/Filesystems -maxdepth 4 -iname '*fuse*' -print 2>/dev/null || true
 
+          echo
           echo "=== FSKit plugins ==="
           pluginkit -m -v | grep -i -A10 -B10 fuse || true
 
+          echo
           echo "=== processes ==="
           ps aux | grep -i fuse || true
 
+          echo
           echo "=== mounts ==="
           mount
 
+          echo
           echo "=== /Volumes ==="
           ls -la /Volumes
 
@@ -132,7 +139,7 @@ jobs:
           echo "/VOLUMES"
           echo "========================================"
           ls -la /Volumes || true
-          find /Volumes/easy_fuser_tmp -maxdepth 2 -print 2>/dev/null || true
+          find /Volumes/easy_fuser_tmp -maxdepth 3 -print 2>/dev/null || true
 
           echo
           echo "========================================"
@@ -150,10 +157,11 @@ jobs:
           echo "========================================"
           echo "MACFUSE FILES"
           echo "========================================"
-          find /Library/Filesystems \
+          find \
+            /Library/Filesystems \
             /Library/SystemExtensions \
             /Applications \
-            -maxdepth 5 \
+            -maxdepth 6 \
             -iname '*fuse*' \
             -print 2>/dev/null || true
 
@@ -173,4 +181,5 @@ jobs:
               OR subsystem CONTAINS[c] "FSKit"
               OR eventMessage CONTAINS[c] "macFUSE"
               OR eventMessage CONTAINS[c] "FSKit"
+              OR eventMessage CONTAINS[c] "fsmodule"
             ' || true
