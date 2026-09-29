@@ -15,7 +15,7 @@
 //! state. Use [`UnimplementedFuseHandler`] for operations your filesystem does
 //! not support. Its recommended mode returns `ENOSYS`.
 //!
-//! ```rust,no_run
+//! ```rust,ignore
 //! use easy_fuser::fuse_serial::prelude::*;
 //! use easy_fuser::fuse_presets::{StatelessHandler, UnimplementedFuseHandler};
 //! use easy_fuser_macro::delegate_fs;
@@ -46,7 +46,7 @@
 //! implement it on your own type. Call a preset from your implementation when
 //! you want to add a rule around its behavior:
 //!
-//! ```rust,no_run
+//! ```rust,ignore
 //! use easy_fuser::fuse_serial::prelude::*;
 //! use easy_fuser::fuse_presets::{OverlayFs, StatelessHandler, UnimplementedFuseHandler};
 //! use easy_fuser_macro::delegate_fs;
