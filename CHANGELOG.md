@@ -19,7 +19,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Renamed `DefaultFuseHandler` to `StatelessHandler` without a compatibility
   alias. Update imports and delegation fields to use the new name.
 - Renamed `FdHandlerHelper` and `FdHandlerHelperReadOnly` to
-  `FileDescriptorHandler` and `FileDescriptorHandlerReadOnly`. The old names
+  `FileDescriptorHandler` and `FileDescriptorHandlerReadOnly`, and renamed the
+  `fd_handler_helper` module to `file_descriptor_handler`. The old type names
   remain deprecated aliases for this release.
 - Public `fuser` types now come from 0.18.0. Projects that also depend directly
   on `fuser` should align that dependency to 0.18.0 to avoid mismatched types.
