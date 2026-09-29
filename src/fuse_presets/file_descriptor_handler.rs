@@ -27,7 +27,7 @@ use crate::types::*;
 use crate::unix_fs;
 use std::marker::PhantomData;
 
-macro_rules! fd_handler_readonly_methods {
+macro_rules! file_descriptor_handler_readonly_methods {
     ($file_id:path) => {
         pub fn flush(
             &self,
@@ -122,7 +122,7 @@ macro_rules! fd_handler_readonly_methods {
     };
 }
 
-macro_rules! fd_handler_readwrite_methods {
+macro_rules! file_descriptor_handler_readwrite_methods {
     ($file_id:path) => {
         pub fn copy_file_range(
             &self,
@@ -198,8 +198,8 @@ impl<TId: FileIdType> FileDescriptorHandler<TId> {
 }
 
 impl<TId: FileIdType> FileDescriptorHandler<TId> {
-    fd_handler_readonly_methods!(TId);
-    fd_handler_readwrite_methods!(TId);
+    file_descriptor_handler_readonly_methods!(TId);
+    file_descriptor_handler_readwrite_methods!(TId);
 }
 
 /// Read-only file-descriptor backed helpers.
@@ -226,7 +226,7 @@ impl<TId: FileIdType> FileDescriptorHandlerReadOnly<TId> {
 }
 
 impl<TId: FileIdType> FileDescriptorHandlerReadOnly<TId> {
-    fd_handler_readonly_methods!(TId);
+    file_descriptor_handler_readonly_methods!(TId);
 }
 
 /// Deprecated alias for [`FileDescriptorHandler`].
@@ -237,5 +237,5 @@ pub type FdHandlerHelper<TId> = FileDescriptorHandler<TId>;
 #[deprecated(since = "0.8.0", note = "use `FileDescriptorHandlerReadOnly` instead")]
 pub type FdHandlerHelperReadOnly<TId> = FileDescriptorHandlerReadOnly<TId>;
 
-pub(super) use fd_handler_readonly_methods;
-pub(super) use fd_handler_readwrite_methods;
+pub(super) use file_descriptor_handler_readonly_methods;
+pub(super) use file_descriptor_handler_readwrite_methods;

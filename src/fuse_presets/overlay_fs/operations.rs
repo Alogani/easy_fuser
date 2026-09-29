@@ -1,4 +1,6 @@
-use super::super::fd_handler_helper::{fd_handler_readonly_methods, fd_handler_readwrite_methods};
+use super::super::file_descriptor_handler::{
+    file_descriptor_handler_readonly_methods, file_descriptor_handler_readwrite_methods,
+};
 use super::*;
 
 fn into_file_handle(fd: std::os::fd::OwnedFd) -> FuseResult<OwnedFileHandle> {
@@ -304,6 +306,6 @@ impl OverlayFs {
         self.unlink_path(&path)
     }
 
-    fd_handler_readonly_methods!(PathBuf);
-    fd_handler_readwrite_methods!(PathBuf);
+    file_descriptor_handler_readonly_methods!(PathBuf);
+    file_descriptor_handler_readwrite_methods!(PathBuf);
 }

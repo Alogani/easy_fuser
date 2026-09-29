@@ -221,8 +221,8 @@ pub use stateless_handler::StatelessHandler;
 mod unimplemented_fuse_handler;
 pub use unimplemented_fuse_handler::UnimplementedFuseHandler;
 
-pub mod fd_handler_helper;
-pub use fd_handler_helper::{FileDescriptorHandler, FileDescriptorHandlerReadOnly};
+pub mod file_descriptor_handler;
+pub use file_descriptor_handler::{FileDescriptorHandler, FileDescriptorHandlerReadOnly};
 
 pub mod mirror_fs;
 
