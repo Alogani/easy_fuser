@@ -1,5 +1,6 @@
 use easy_fuser::fuse_parallel::prelude::*;
 use easy_fuser::fuse_presets::{StatelessHandler, UnimplementedFuseHandler};
+use easy_fuser::types::check_mode_access;
 use std::collections::HashMap;
 use std::ffi::{OsStr, OsString};
 use std::sync::{Arc, Mutex};
@@ -68,9 +69,10 @@ impl InMemoryFS {
 
 impl FuseHandler for InMemoryFS {
     type TId = Inode;
+    type FileHandle = ();
 
     easy_fuser::delegate_fs! { safe_defaults, [ fsyncdir, opendir, releasedir ] }
-    easy_fuser::delegate_fs! { unimplemented, [ bmap, copy_file_range, getlk, getxattr, ioctl, link, listxattr, lseek, mknod, open, readlink, release, removexattr, setlk, setxattr, statfs, symlink ] }
+    easy_fuser::delegate_fs! { unimplemented, [ bmap, copy_file_range, getlk, getxattr, ioctl, link, listxattr, lseek, mknod, open, readlink, removexattr, setlk, setxattr, statfs, symlink ] }
 
     // Access is not called for every operation
     fn access(&self, req: &RequestInfo, file_id: Inode, mask: AccessFlags) -> FuseResult<()> {
@@ -79,75 +81,7 @@ impl FuseHandler for InMemoryFS {
             .inodes
             .get(&file_id)
             .ok_or_else(|| ErrorKind::FileNotFound.to_error("File not found"))?;
-
-        let file_mode = node.attr.perm;
-        let file_uid = node.attr.uid;
-        let file_gid = node.attr.gid;
-
-        // Check if the user is root (uid 0)
-        if req.uid == 0 {
-            return Ok(());
-        }
-
-        let mut allowed_mask = AccessFlags::empty();
-
-        // Owner permissions
-        if req.uid == file_uid {
-            if file_mode & 0o400 != 0 {
-                allowed_mask |= AccessFlags::R_OK;
-            }
-            if file_mode & 0o200 != 0 {
-                allowed_mask |= AccessFlags::W_OK;
-            }
-            if file_mode & 0o100 != 0 {
-                allowed_mask |= AccessFlags::X_OK;
-            }
-        }
-        // Group permissions
-        else if req.gid == file_gid {
-            if file_mode & 0o040 != 0 {
-                allowed_mask |= AccessFlags::R_OK;
-            }
-            if file_mode & 0o020 != 0 {
-                allowed_mask |= AccessFlags::W_OK;
-            }
-            if file_mode & 0o010 != 0 {
-                allowed_mask |= AccessFlags::X_OK;
-            }
-        }
-        // Others permissions
-        else {
-            if file_mode & 0o004 != 0 {
-                allowed_mask |= AccessFlags::R_OK;
-            }
-            if file_mode & 0o002 != 0 {
-                allowed_mask |= AccessFlags::W_OK;
-            }
-            if file_mode & 0o001 != 0 {
-                allowed_mask |= AccessFlags::X_OK;
-            }
-        }
-
-        // Special cases for directories
-        if node.attr.kind == FileKind::Directory {
-            // Always need execute permission to access a directory
-            if !allowed_mask.contains(AccessFlags::X_OK) {
-                return Err(ErrorKind::PermissionDenied
-                    .to_error("Execute permission required for directory"));
-            }
-            // Writing to a directory means adding or removing entries, which requires write permission
-            if mask.contains(AccessFlags::W_OK) && !allowed_mask.contains(AccessFlags::W_OK)
-            {
-                return Err(ErrorKind::PermissionDenied
-                    .to_error("Write permission required for directory modification"));
-            }
-        }
-
-        if allowed_mask.contains(mask) {
-            Ok(())
-        } else {
-            Err(ErrorKind::PermissionDenied.to_error("Permission denied"))
-        }
+        check_mode_access(req, &node.attr, mask)
     }
 
     fn create(
@@ -158,14 +92,7 @@ impl FuseHandler for InMemoryFS {
         mode: u32,
         _umask: u32,
         _flags: OpenFlags,
-    ) -> Result<
-        (
-            OwnedFileHandle,
-            (Inode, FileAttribute),
-            FopenFlags,
-        ),
-        PosixError,
-    > {
+    ) -> Result<((), (Inode, FileAttribute), FopenFlags), PosixError> {
         self.access(req, parent.clone(), AccessFlags::W_OK)?;
         let mut fs = self.fs.lock().unwrap();
         let new_inode = fs.next_inode.clone();
@@ -202,12 +129,7 @@ impl FuseHandler for InMemoryFS {
             fs.inodes.insert(new_inode.clone(), new_node);
             fs.next_inode = new_inode.add_one();
 
-            Ok((
-                // Safe because we won't release it
-                unsafe { OwnedFileHandle::from_raw(0) },
-                (new_inode.clone(), attr),
-                FopenFlags::empty(),
-            ))
+            Ok(((), (new_inode.clone(), attr), FopenFlags::empty()))
         } else {
             Err(ErrorKind::FileNotFound.to_error(""))
         }
@@ -217,7 +139,7 @@ impl FuseHandler for InMemoryFS {
         &self,
         req: &RequestInfo,
         file_id: Inode,
-        _file_handle: BorrowedFileHandle,
+        _file_handle: Option<&mut ()>,
         offset: i64,
         length: i64,
         mode: FallocateFlags,
@@ -262,7 +184,7 @@ impl FuseHandler for InMemoryFS {
         &self,
         _req: &RequestInfo,
         _file_id: Inode,
-        _file_handle: BorrowedFileHandle,
+        _file_handle: Option<&mut ()>,
         _lock_owner: u64,
     ) -> FuseResult<()> {
         Ok(())
@@ -272,7 +194,7 @@ impl FuseHandler for InMemoryFS {
         &self,
         _req: &RequestInfo,
         _file_id: Inode,
-        _file_handle: BorrowedFileHandle,
+        _file_handle: Option<&mut ()>,
         _datasync: bool,
     ) -> FuseResult<()> {
         Ok(())
@@ -282,7 +204,7 @@ impl FuseHandler for InMemoryFS {
         &self,
         _req: &RequestInfo,
         ino: Inode,
-        _fh: Option<BorrowedFileHandle>,
+        _fh: Option<&mut ()>,
     ) -> FuseResult<FileAttribute> {
         let fs = self.fs.lock().unwrap();
         fs.inodes
@@ -363,7 +285,7 @@ impl FuseHandler for InMemoryFS {
         &self,
         req: &RequestInfo,
         ino: Inode,
-        _fh: BorrowedFileHandle,
+        _fh: Option<&mut ()>,
         offset: SeekFrom,
         size: u32,
         _flags: OpenFlags,
@@ -512,6 +434,7 @@ impl FuseHandler for InMemoryFS {
         req: &RequestInfo,
         file_id: Inode,
         attrs: SetAttrRequest,
+        _file_handle: Option<&mut ()>,
     ) -> FuseResult<FileAttribute> {
         let mut fs = self.fs.lock().unwrap();
 
@@ -577,7 +500,7 @@ impl FuseHandler for InMemoryFS {
         &self,
         req: &RequestInfo,
         ino: Inode,
-        _fh: BorrowedFileHandle,
+        _fh: Option<&mut ()>,
         offset: SeekFrom,
         data: Vec<u8>,
         _write_flags: WriteFlags,

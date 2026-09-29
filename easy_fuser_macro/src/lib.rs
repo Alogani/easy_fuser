@@ -121,6 +121,7 @@ impl Parse for DelegateFsInput {
 ///
 /// impl FuseHandler for MyFs {
 ///     type TId = PathBuf;
+///     type FileHandle = std::os::fd::OwnedFd;
 ///
 ///     delegate_fs! { mirror_fs, [ read, write, getattr ] }
 /// }
@@ -151,6 +152,7 @@ pub fn delegate_fs(input: TokenStream) -> TokenStream {
 /// #[async_trait]
 /// impl FuseHandler for MyAsyncFs {
 ///     type TId = PathBuf;
+///     type FileHandle = std::os::fd::OwnedFd;
 ///
 ///     delegate_fs_async! { async_mirror_fs, [ read, write ] }
 /// }
@@ -181,6 +183,7 @@ pub fn delegate_fs_async(input: TokenStream) -> TokenStream {
 /// #[async_trait]
 /// impl FuseHandler for MyAsyncFs {
 ///     type TId = PathBuf;
+///     type FileHandle = std::os::fd::OwnedFd;
 ///
 ///     delegate_fs_sync_to_async! { sync_mirror_fs, [ getattr, readlink ] }
 /// }

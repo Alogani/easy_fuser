@@ -115,14 +115,14 @@ impl<TId: FileIdType> UnimplementedFuseHandler<TId> {
         }
     }
 
-    pub fn copy_file_range(
+    pub fn copy_file_range<H>(
         &self,
         _req: &RequestInfo,
         file_in: TId,
-        file_handle_in: BorrowedFileHandle,
+        file_handle_in: Option<&H>,
         offset_in: u64,
         file_out: TId,
-        file_handle_out: BorrowedFileHandle,
+        file_handle_out: Option<&H>,
         offset_out: u64,
         len: u64,
         flags: CopyFileRangeFlags,
@@ -134,10 +134,10 @@ impl<TId: FileIdType> UnimplementedFuseHandler<TId> {
                     format!(
                         "copy_file_range(file_in: {}, file_handle_in: {:?}, offset_in: {}, file_out: {}, file_handle_out: {:?}, offset_out: {}, len: {}, flags: {:?})",
                         file_in.display(),
-                        file_handle_in,
+                        file_handle_in.is_some(),
                         offset_in,
                         file_out.display(),
-                        file_handle_out,
+                        file_handle_out.is_some(),
                         offset_out,
                         len,
                         flags
@@ -149,10 +149,10 @@ impl<TId: FileIdType> UnimplementedFuseHandler<TId> {
             HandlingMethod::Panic => panic!(
                 "[Not Implemented] copy_file_range(file_in: {}, file_handle_in: {:?}, offset_in: {}, file_out: {}, file_handle_out: {:?}, offset_out: {}, len: {}, flags: {:?})",
                 file_in.display(),
-                file_handle_in,
+                file_handle_in.is_some(),
                 offset_in,
                 file_out.display(),
-                file_handle_out,
+                file_handle_out.is_some(),
                 offset_out,
                 len,
                 flags
@@ -160,7 +160,7 @@ impl<TId: FileIdType> UnimplementedFuseHandler<TId> {
         }
     }
 
-    pub fn create(
+    pub fn create<H>(
         &self,
         _req: &RequestInfo,
         parent_id: TId,
@@ -168,7 +168,7 @@ impl<TId: FileIdType> UnimplementedFuseHandler<TId> {
         mode: u32,
         umask: u32,
         flags: OpenFlags,
-    ) -> FuseResult<(OwnedFileHandle, TId::Metadata, FopenFlags)> {
+    ) -> FuseResult<(H, TId::Metadata, FopenFlags)> {
         match self.handling {
             HandlingMethod::Error(kind) => Err(PosixError::new(
                 kind,
@@ -196,11 +196,11 @@ impl<TId: FileIdType> UnimplementedFuseHandler<TId> {
         }
     }
 
-    pub fn fallocate(
+    pub fn fallocate<H>(
         &self,
         _req: &RequestInfo,
         file_id: TId,
-        file_handle: BorrowedFileHandle,
+        file_handle: Option<&mut H>,
         offset: i64,
         length: i64,
         mode: FallocateFlags,
@@ -212,7 +212,7 @@ impl<TId: FileIdType> UnimplementedFuseHandler<TId> {
                     format!(
                         "fallocate(file_id: {}, file_handle: {:?}, offset: {}, length: {}, mode: {:?})",
                         file_id.display(),
-                        file_handle,
+                        file_handle.is_some(),
                         offset,
                         length,
                         mode
@@ -224,7 +224,7 @@ impl<TId: FileIdType> UnimplementedFuseHandler<TId> {
             HandlingMethod::Panic => panic!(
                 "[Not Implemented] fallocate(file_id: {}, file_handle: {:?}, offset: {}, length: {}, mode: {:?})",
                 file_id.display(),
-                file_handle,
+                file_handle.is_some(),
                 offset,
                 length,
                 mode
@@ -232,11 +232,11 @@ impl<TId: FileIdType> UnimplementedFuseHandler<TId> {
         }
     }
 
-    pub fn flush(
+    pub fn flush<H>(
         &self,
         _req: &RequestInfo,
         file_id: TId,
-        file_handle: BorrowedFileHandle,
+        file_handle: Option<&mut H>,
         lock_owner: u64,
     ) -> FuseResult<()> {
         match self.handling {
@@ -246,7 +246,7 @@ impl<TId: FileIdType> UnimplementedFuseHandler<TId> {
                     format!(
                         "flush(file_id: {}, file_handle: {:?}, lock_owner: {})",
                         file_id.display(),
-                        file_handle,
+                        file_handle.is_some(),
                         lock_owner
                     )
                 } else {
@@ -256,17 +256,17 @@ impl<TId: FileIdType> UnimplementedFuseHandler<TId> {
             HandlingMethod::Panic => panic!(
                 "[Not Implemented] flush(file_id: {}, file_handle: {:?}, lock_owner: {})",
                 file_id.display(),
-                file_handle,
+                file_handle.is_some(),
                 lock_owner
             ),
         }
     }
 
-    pub fn fsync(
+    pub fn fsync<H>(
         &self,
         _req: &RequestInfo,
         file_id: TId,
-        file_handle: BorrowedFileHandle,
+        file_handle: Option<&mut H>,
         datasync: bool,
     ) -> FuseResult<()> {
         match self.handling {
@@ -276,7 +276,7 @@ impl<TId: FileIdType> UnimplementedFuseHandler<TId> {
                     format!(
                         "fsync(file_id: {}, file_handle: {:?}, datasync: {})",
                         file_id.display(),
-                        file_handle,
+                        file_handle.is_some(),
                         datasync
                     )
                 } else {
@@ -286,17 +286,17 @@ impl<TId: FileIdType> UnimplementedFuseHandler<TId> {
             HandlingMethod::Panic => panic!(
                 "[Not Implemented] fsync(file_id: {}, file_handle: {:?}, datasync: {})",
                 file_id.display(),
-                file_handle,
+                file_handle.is_some(),
                 datasync
             ),
         }
     }
 
-    pub fn getattr(
+    pub fn getattr<H>(
         &self,
         _req: &RequestInfo,
         file_id: TId,
-        file_handle: Option<BorrowedFileHandle>,
+        file_handle: Option<&mut H>,
     ) -> FuseResult<FileAttribute> {
         match self.handling {
             HandlingMethod::Error(kind) => Err(PosixError::new(
@@ -305,7 +305,7 @@ impl<TId: FileIdType> UnimplementedFuseHandler<TId> {
                     format!(
                         "getattr(file_id: {}, file_handle: {:?})",
                         file_id.display(),
-                        file_handle
+                        file_handle.is_some()
                     )
                 } else {
                     String::new()
@@ -314,16 +314,16 @@ impl<TId: FileIdType> UnimplementedFuseHandler<TId> {
             HandlingMethod::Panic => panic!(
                 "[Not Implemented] getattr(file_id: {}, file_handle: {:?})",
                 file_id.display(),
-                file_handle
+                file_handle.is_some()
             ),
         }
     }
 
-    pub fn getlk(
+    pub fn getlk<H>(
         &self,
         _req: &RequestInfo,
         file_id: TId,
-        file_handle: BorrowedFileHandle,
+        file_handle: Option<&mut H>,
         lock_owner: u64,
         lock_info: LockInfo,
     ) -> FuseResult<LockInfo> {
@@ -334,7 +334,7 @@ impl<TId: FileIdType> UnimplementedFuseHandler<TId> {
                     format!(
                         "getlk(file_id: {}, file_handle: {:?}, lock_owner: {}, lock_info: {:?})",
                         file_id.display(),
-                        file_handle,
+                        file_handle.is_some(),
                         lock_owner,
                         lock_info
                     )
@@ -345,7 +345,7 @@ impl<TId: FileIdType> UnimplementedFuseHandler<TId> {
             HandlingMethod::Panic => panic!(
                 "[Not Implemented] getlk(file_id: {}, file_handle: {:?}, lock_owner: {}, lock_info: {:?})",
                 file_id.display(),
-                file_handle,
+                file_handle.is_some(),
                 lock_owner,
                 lock_info
             ),
@@ -382,11 +382,11 @@ impl<TId: FileIdType> UnimplementedFuseHandler<TId> {
         }
     }
 
-    pub fn ioctl(
+    pub fn ioctl<H>(
         &self,
         _req: &RequestInfo,
         file_id: TId,
-        file_handle: BorrowedFileHandle,
+        file_handle: Option<&mut H>,
         flags: IoctlFlags,
         cmd: u32,
         in_data: Vec<u8>,
@@ -399,7 +399,7 @@ impl<TId: FileIdType> UnimplementedFuseHandler<TId> {
                     format!(
                         "ioctl(file_id: {}, file_handle: {:?}, flags: {:?}, cmd: {}, in_data: {:?}, out_size: {})",
                         file_id.display(),
-                        file_handle,
+                        file_handle.is_some(),
                         flags,
                         cmd,
                         in_data,
@@ -412,7 +412,7 @@ impl<TId: FileIdType> UnimplementedFuseHandler<TId> {
             HandlingMethod::Panic => panic!(
                 "[Not Implemented] ioctl(file_id: {}, file_handle: {:?}, flags: {:?}, cmd: {}, in_data: {:?}, out_size: {})",
                 file_id.display(),
-                file_handle,
+                file_handle.is_some(),
                 flags,
                 cmd,
                 in_data,
@@ -492,11 +492,11 @@ impl<TId: FileIdType> UnimplementedFuseHandler<TId> {
         }
     }
 
-    pub fn lseek(
+    pub fn lseek<H>(
         &self,
         _req: &RequestInfo,
         file_id: TId,
-        file_handle: BorrowedFileHandle,
+        file_handle: Option<&mut H>,
         seek: SeekFrom,
     ) -> FuseResult<i64> {
         match self.handling {
@@ -506,7 +506,7 @@ impl<TId: FileIdType> UnimplementedFuseHandler<TId> {
                     format!(
                         "lseek(file_id: {}, file_handle: {:?}, seek: {:?})",
                         file_id.display(),
-                        file_handle,
+                        file_handle.is_some(),
                         seek
                     )
                 } else {
@@ -516,7 +516,7 @@ impl<TId: FileIdType> UnimplementedFuseHandler<TId> {
             HandlingMethod::Panic => panic!(
                 "[Not Implemented] lseek(file_id: {}, file_handle: {:?}, seek: {:?})",
                 file_id.display(),
-                file_handle,
+                file_handle.is_some(),
                 seek
             ),
         }
@@ -591,12 +591,12 @@ impl<TId: FileIdType> UnimplementedFuseHandler<TId> {
         }
     }
 
-    pub fn open(
+    pub fn open<H>(
         &self,
         _req: &RequestInfo,
         file_id: TId,
         flags: OpenFlags,
-    ) -> FuseResult<(OwnedFileHandle, FopenFlags)> {
+    ) -> FuseResult<(H, FopenFlags)> {
         match self.handling {
             HandlingMethod::Error(kind) => Err(PosixError::new(
                 kind,
@@ -614,11 +614,11 @@ impl<TId: FileIdType> UnimplementedFuseHandler<TId> {
         }
     }
 
-    pub fn read(
+    pub fn read<H>(
         &self,
         _req: &RequestInfo,
         file_id: TId,
-        file_handle: BorrowedFileHandle,
+        file_handle: Option<&mut H>,
         seek: SeekFrom,
         size: u32,
         flags: OpenFlags,
@@ -631,7 +631,7 @@ impl<TId: FileIdType> UnimplementedFuseHandler<TId> {
                     format!(
                         "read(file_id: {}, file_handle: {:?}, seek: {:?}, size: {}, flags: {:?}, lock_owner: {:?})",
                         file_id.display(),
-                        file_handle,
+                        file_handle.is_some(),
                         seek,
                         size,
                         flags,
@@ -644,7 +644,7 @@ impl<TId: FileIdType> UnimplementedFuseHandler<TId> {
             HandlingMethod::Panic => panic!(
                 "[Not Implemented] read(file_id: {}, file_handle: {:?}, seek: {:?}, size: {}, flags: {:?}, lock_owner: {:?})",
                 file_id.display(),
-                file_handle,
+                file_handle.is_some(),
                 seek,
                 size,
                 flags,
@@ -723,11 +723,11 @@ impl<TId: FileIdType> UnimplementedFuseHandler<TId> {
         }
     }
 
-    pub fn release(
+    pub fn release<H>(
         &self,
         _req: &RequestInfo,
         file_id: TId,
-        file_handle: OwnedFileHandle,
+        file_handle: Option<H>,
         flags: OpenFlags,
         lock_owner: Option<u64>,
         flush: bool,
@@ -739,7 +739,7 @@ impl<TId: FileIdType> UnimplementedFuseHandler<TId> {
                     format!(
                         "release(file_id: {}, file_handle: {:?}, flags: {:?}, lock_owner: {:?}, flush: {})",
                         file_id.display(),
-                        file_handle,
+                        file_handle.is_some(),
                         flags,
                         lock_owner,
                         flush
@@ -751,7 +751,7 @@ impl<TId: FileIdType> UnimplementedFuseHandler<TId> {
             HandlingMethod::Panic => panic!(
                 "[Not Implemented] release(file_id: {}, file_handle: {:?}, flags: {:?}, lock_owner: {:?}, flush: {})",
                 file_id.display(),
-                file_handle,
+                file_handle.is_some(),
                 flags,
                 lock_owner,
                 flush
@@ -839,11 +839,12 @@ impl<TId: FileIdType> UnimplementedFuseHandler<TId> {
         }
     }
 
-    pub fn setattr(
+    pub fn setattr<H>(
         &self,
         _req: &RequestInfo,
         file_id: TId,
         attrs: SetAttrRequest,
+        _file_handle: Option<&mut H>,
     ) -> FuseResult<FileAttribute> {
         match self.handling {
             HandlingMethod::Error(kind) => Err(PosixError::new(
@@ -866,11 +867,11 @@ impl<TId: FileIdType> UnimplementedFuseHandler<TId> {
         }
     }
 
-    pub fn setlk(
+    pub fn setlk<H>(
         &self,
         _req: &RequestInfo,
         file_id: TId,
-        file_handle: BorrowedFileHandle,
+        file_handle: Option<&mut H>,
         lock_owner: u64,
         lock_info: LockInfo,
         sleep: bool,
@@ -882,7 +883,7 @@ impl<TId: FileIdType> UnimplementedFuseHandler<TId> {
                     format!(
                         "setlk(file_id: {}, file_handle: {:?}, lock_owner: {}, lock_info: {:?}, sleep: {})",
                         file_id.display(),
-                        file_handle,
+                        file_handle.is_some(),
                         lock_owner,
                         lock_info,
                         sleep
@@ -894,7 +895,7 @@ impl<TId: FileIdType> UnimplementedFuseHandler<TId> {
             HandlingMethod::Panic => panic!(
                 "[Not Implemented] setlk(file_id: {}, file_handle: {:?}, lock_owner: {}, lock_info: {:?}, sleep: {})",
                 file_id.display(),
-                file_handle,
+                file_handle.is_some(),
                 lock_owner,
                 lock_info,
                 sleep
@@ -1004,11 +1005,11 @@ impl<TId: FileIdType> UnimplementedFuseHandler<TId> {
         }
     }
 
-    pub fn write(
+    pub fn write<H>(
         &self,
         _req: &RequestInfo,
         file_id: TId,
-        file_handle: BorrowedFileHandle,
+        file_handle: Option<&mut H>,
         seek: SeekFrom,
         data: Vec<u8>,
         write_flags: WriteFlags,
@@ -1022,7 +1023,7 @@ impl<TId: FileIdType> UnimplementedFuseHandler<TId> {
                     format!(
                         "write(file_id: {}, file_handle: {:?}, seek: {:?}, data_len: {}, write_flags: {:?}, flags: {:?}, lock_owner: {:?})",
                         file_id.display(),
-                        file_handle,
+                        file_handle.is_some(),
                         seek,
                         data.len(),
                         write_flags,
@@ -1036,7 +1037,7 @@ impl<TId: FileIdType> UnimplementedFuseHandler<TId> {
             HandlingMethod::Panic => panic!(
                 "[Not Implemented] write(file_id: {}, file_handle: {:?}, seek: {:?}, data_len: {}, write_flags: {:?}, flags: {:?}, lock_owner: {:?})",
                 file_id.display(),
-                file_handle,
+                file_handle.is_some(),
                 seek,
                 data.len(),
                 write_flags,

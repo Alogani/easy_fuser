@@ -51,6 +51,7 @@ struct BenchmarkFs {
 #[cfg(feature = "parallel")]
 impl FuseHandler for BenchmarkFs {
     type TId = PathBuf;
+    type FileHandle = OwnedFd;
 
     fn get_default_ttl(&self) -> Duration {
         Duration::ZERO
@@ -61,7 +62,7 @@ impl FuseHandler for BenchmarkFs {
         req: &RequestInfo,
         file_id: PathBuf,
         flags: OpenFlags,
-    ) -> FuseResult<(OwnedFileHandle, FopenFlags)> {
+    ) -> FuseResult<(Self::FileHandle, FopenFlags)> {
         let (handle, _) = self.mirror.open(req, file_id, flags)?;
         Ok((handle, FopenFlags::FOPEN_DIRECT_IO))
     }
@@ -98,6 +99,7 @@ struct BenchmarkFs {
 #[async_trait]
 impl FuseHandler for BenchmarkFs {
     type TId = PathBuf;
+    type FileHandle = OwnedFd;
 
     fn get_default_ttl(&self) -> Duration {
         Duration::ZERO
@@ -108,7 +110,7 @@ impl FuseHandler for BenchmarkFs {
         req: &RequestInfo,
         file_id: PathBuf,
         flags: OpenFlags,
-    ) -> FuseResult<(OwnedFileHandle, FopenFlags)> {
+    ) -> FuseResult<(Self::FileHandle, FopenFlags)> {
         #[cfg(feature = "io_uring")]
         let (handle, _) = self.mirror.open(req, file_id, flags).await?;
         #[cfg(not(feature = "io_uring"))]

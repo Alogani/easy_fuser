@@ -90,6 +90,7 @@ impl<TId: BenchmarkId> ConstantFs<TId> {
 
 impl<TId: BenchmarkId> FuseHandler for ConstantFs<TId> {
     type TId = TId;
+    type FileHandle = OwnedFileHandle;
 
     fn get_default_ttl(&self) -> Duration {
         Duration::ZERO
@@ -99,7 +100,7 @@ impl<TId: BenchmarkId> FuseHandler for ConstantFs<TId> {
         &self,
         _req: &RequestInfo,
         file_id: TId,
-        _fh: Option<BorrowedFileHandle<'_>>,
+        _fh: Option<&mut OwnedFileHandle>,
     ) -> FuseResult<FileAttribute> {
         file_id.touch();
         if file_id.is_root() {

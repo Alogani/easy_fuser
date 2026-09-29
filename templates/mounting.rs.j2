@@ -16,7 +16,9 @@ use super::fuse_driver::FuseDriver;
 /// * `filesystem`: The filesystem implementation.
 /// * `mountpoint`: The path where the filesystem should be mounted.
 /// * `options`: Mount options for the filesystem.
-/// * `num_threads` (not available in serial mode): Number of threads for handling filesystem operations concurrently. `None` uses the CPU-based thread heuristic.
+/// * `num_threads`: Number of threads for handling filesystem operations concurrently. Serial
+///   mode always runs one thread; this value only affects parallel and async modes. `None` uses
+///   the CPU-based thread heuristic.
 /// 
 /// # Type Parameters
 /// 
@@ -52,7 +54,8 @@ where
 
 /// Mounts a FUSE filesystem with independent request-reader and operation-worker counts.
 ///
-/// `fuser_threads` controls the threads that read requests from the kernel.
+/// `fuser_threads` controls the threads that read requests from the kernel;
+/// serial mode always uses one reader.
 /// `handler_threads` controls easy_fuser's callback pool in parallel mode or
 /// Tokio's worker pool in async mode. Passing `None` uses a CPU-based starting
 /// point: one reader and one worker for one CPU, one reader and two workers for
@@ -76,7 +79,7 @@ where
     let mountpoint = mountpoint.as_ref();
     let mut config = Config::default();
     config.mount_options = options.to_vec();
-    config.n_threads = Some(threads.fuser_threads);
+    config.n_threads = {% if mode == "serial" %}Some(1){% else %}Some(threads.fuser_threads){% endif %};
     config.clone_fd = threads.clone_fuser_fd;
     info!("Mounting FUSE filesystem at {}", mountpoint.display());
     match fuser_mount(driver, mountpoint, &config) {
@@ -105,7 +108,8 @@ where
 /// * `filesystem`: The filesystem implementation that handles FUSE operations.
 /// * `mountpoint`: The path where the filesystem should be mounted.
 /// * `options`: A slice of mount options for configuring the filesystem mount.
-/// * `num_threads` (non serial argument): Number of threads for handling filesystem operations concurrently.
+/// * `num_threads`: Number of threads for handling filesystem operations concurrently. Serial
+///   mode always runs one thread; this value only affects parallel and async modes.
 /// 
 /// # Type Parameters
 /// 
@@ -165,7 +169,7 @@ where
     let mountpoint = mountpoint.as_ref();
     let mut config = Config::default();
     config.mount_options = options.to_vec();
-    config.n_threads = Some(threads.fuser_threads);
+    config.n_threads = {% if mode == "serial" %}Some(1){% else %}Some(threads.fuser_threads){% endif %};
     config.clone_fd = threads.clone_fuser_fd;
     info!("Mounting FUSE filesystem at {} in the background", mountpoint.display());
     let session = match fuser_spawn_mount(driver, mountpoint, &config) {

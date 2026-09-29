@@ -33,12 +33,13 @@ impl LinkedFs {
 
 impl FuseHandler for LinkedFs {
     type TId = MappedInode;
+    type FileHandle = ();
 
     fn getattr(
         &self,
         _req: &RequestInfo,
         id: MappedInode,
-        _fh: Option<BorrowedFileHandle<'_>>,
+        _fh: Option<&mut ()>,
     ) -> FuseResult<FileAttribute> {
         unix_fs::lookup(&self.source_path(id)?)
     }
@@ -87,7 +88,7 @@ impl FuseHandler for LinkedFs {
     }
 
     delegate_fs! { safe_defaults, [ forget, fsyncdir, opendir, releasedir ] }
-    delegate_fs! { defaults, [ access, bmap, copy_file_range, create, fallocate, flush, fsync, getlk, getxattr, ioctl, listxattr, lseek, mkdir, mknod, open, read, readdir, readlink, release, removexattr, rmdir, setlk, setattr, setxattr, statfs, symlink, write ] }
+    delegate_fs! { defaults, [ access, bmap, copy_file_range, create, fallocate, flush, fsync, getlk, getxattr, ioctl, listxattr, lseek, mkdir, mknod, open, read, readdir, readlink, removexattr, rmdir, setlk, setattr, setxattr, statfs, symlink, write ] }
 }
 
 #[test]

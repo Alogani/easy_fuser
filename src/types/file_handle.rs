@@ -1,42 +1,69 @@
-//! File handle management for FUSE filesystems.
+//! Raw FUSE handle wrappers retained for directory operations and low-level compatibility.
 //!
-//! This module provides abstractions for working with file handles in FUSE (Filesystem in Userspace) implementations.
-//! It offers two main types: `OwnedFileHandle` and `BorrowedFileHandle`, which provide safe wrappers around raw file handles.
+//! Normal file callbacks use the handler's typed `FileHandle` resource, which is stored and
+//! resolved by `FuseDriver`. Conversions in this module are valid only when the raw value is
+//! independently known to be a real file descriptor.
 //!
-//! # Key Features
-//! - Safe abstractions over raw file handles (u64) and file descriptors (i32).
-//! - Conversion methods between file handles and file descriptors.
-//! - Ownership and borrowing semantics for file handles.
+//! # A custom per-open handle
 //!
-//! # Types
-//! - [`OwnedFileHandle`]: Represents ownership of a file handle.
-//! - [`BorrowedFileHandle`]: A borrowed representation of a file handle, tied to a specific lifetime.
+//! Define a type for state that belongs to one open instance, return it from `open`, then access it
+//! through `Option<&mut Self::FileHandle>` in callbacks such as `read`. The driver owns each value
+//! until `release`; it does not require the type to be `Clone` or a file descriptor.
 //!
-//! # Safety Considerations
-//! This module includes several unsafe operations and makes certain assumptions about the validity of file handles and descriptors.
-//! Users should be cautious when working with raw file descriptors and ensure that all safety requirements are met.
+//! The driver assigns a separate, collision-checked FUSE number to each live open. This number is
+//! independent of your `FileHandle`, so the type does not need to contain a unique numeric key and
+//! equal handle values from different opens do not collide in the driver's table. Each open has its
+//! own callback lock. If several handle values refer to shared mutable backend state, synchronize
+//! that state in your handler. The type must be `'static`; parallel and async modes also require
+//! `Send`, while `Clone` and `Sync` are not required.
 //!
-//! Because FileHandle doesn't necessarly represent a concrete resource, no RAII is done when OwnedFileHandle is drop.
-//! It is the role of the user to manipulate the resource by converting to and from OwnedFd.
+//! ```rust,ignore
+//! use easy_fuser::fuse_serial::prelude::*;
+//! use std::io::{Cursor, Read, Seek};
+//! use std::path::PathBuf;
 //!
-//! # Examples
-//! ```rust
-//! use std::os::fd::OwnedFd;
-//! use easy_fuser::types::file_handle::{OwnedFileHandle, BorrowedFileHandle};
+//! struct MemoryFs;
+//! struct OpenFile { cursor: Cursor<Vec<u8>> }
 //!
-//! // Creating an OwnedFileHandle from a raw value (unsafe)
-//! let owned_handle = unsafe { OwnedFileHandle::from_raw(42) };
+//! impl FuseHandler for MemoryFs {
+//!     type TId = PathBuf;
+//!     type FileHandle = OpenFile;
 //!
-//! // Borrowing the file handle
-//! let borrowed_handle = owned_handle.borrow();
+//!     fn open(
+//!         &self,
+//!         _req: &RequestInfo,
+//!         _file_id: PathBuf,
+//!         _flags: OpenFlags,
+//!     ) -> FuseResult<(Self::FileHandle, FopenFlags)> {
+//!         let bytes = b"hello from this open".to_vec();
+//!         Ok((OpenFile { cursor: Cursor::new(bytes) }, FopenFlags::empty()))
+//!     }
 //!
-//! // Converting to and from OwnedFd
-//! let owned_fd = owned_handle.into_owned_fd();
-//! let new_owned_handle = OwnedFileHandle::from_owned_fd(owned_fd).unwrap();
+//!     fn read(
+//!         &self,
+//!         _req: &RequestInfo,
+//!         _file_id: PathBuf,
+//!         file_handle: Option<&mut Self::FileHandle>,
+//!         seek: SeekFrom,
+//!         size: u32,
+//!         _flags: OpenFlags,
+//!         _lock_owner: Option<u64>,
+//!     ) -> FuseResult<Vec<u8>> {
+//!         let open_file = file_handle
+//!             .ok_or_else(|| ErrorKind::BadFileDescriptor.to_error("missing open state"))?;
+//!         open_file.cursor.seek(seek)?;
+//!         let mut bytes = vec![0; size as usize];
+//!         let count = open_file.cursor.read(&mut bytes)?;
+//!         bytes.truncate(count);
+//!         Ok(bytes)
+//!     }
+//! }
 //! ```
 //!
-//! Note: The above example assumes the existence of a valid file handle or descriptor.
-//! In real-world scenarios, ensure proper error handling and validity checks..
+//! This shows only the relevant callbacks; a complete filesystem also implements or delegates
+//! its other required `FuseHandler` operations. When callbacks are delegated to
+//! `FileDescriptorHandler`, use `std::os::fd::OwnedFd` as `FileHandle`. Use `()` for stateless
+//! handlers whose operations do not need per-open state.
 
 use std::marker::PhantomData;
 pub use std::os::fd::*;
