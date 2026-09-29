@@ -1,5 +1,6 @@
 use easy_fuser::fuse_parallel::prelude::*;
 use easy_fuser::fuse_presets::{StatelessHandler, UnimplementedFuseHandler};
+use easy_fuser::types::check_mode_access;
 use std::collections::HashMap;
 use std::ffi::{OsStr, OsString};
 use std::sync::{Arc, Mutex};
@@ -80,75 +81,7 @@ impl FuseHandler for InMemoryFS {
             .inodes
             .get(&file_id)
             .ok_or_else(|| ErrorKind::FileNotFound.to_error("File not found"))?;
-
-        let file_mode = node.attr.perm;
-        let file_uid = node.attr.uid;
-        let file_gid = node.attr.gid;
-
-        // Check if the user is root (uid 0)
-        if req.uid == 0 {
-            return Ok(());
-        }
-
-        let mut allowed_mask = AccessFlags::empty();
-
-        // Owner permissions
-        if req.uid == file_uid {
-            if file_mode & 0o400 != 0 {
-                allowed_mask |= AccessFlags::R_OK;
-            }
-            if file_mode & 0o200 != 0 {
-                allowed_mask |= AccessFlags::W_OK;
-            }
-            if file_mode & 0o100 != 0 {
-                allowed_mask |= AccessFlags::X_OK;
-            }
-        }
-        // Group permissions
-        else if req.gid == file_gid {
-            if file_mode & 0o040 != 0 {
-                allowed_mask |= AccessFlags::R_OK;
-            }
-            if file_mode & 0o020 != 0 {
-                allowed_mask |= AccessFlags::W_OK;
-            }
-            if file_mode & 0o010 != 0 {
-                allowed_mask |= AccessFlags::X_OK;
-            }
-        }
-        // Others permissions
-        else {
-            if file_mode & 0o004 != 0 {
-                allowed_mask |= AccessFlags::R_OK;
-            }
-            if file_mode & 0o002 != 0 {
-                allowed_mask |= AccessFlags::W_OK;
-            }
-            if file_mode & 0o001 != 0 {
-                allowed_mask |= AccessFlags::X_OK;
-            }
-        }
-
-        // Special cases for directories
-        if node.attr.kind == FileKind::Directory {
-            // Always need execute permission to access a directory
-            if !allowed_mask.contains(AccessFlags::X_OK) {
-                return Err(ErrorKind::PermissionDenied
-                    .to_error("Execute permission required for directory"));
-            }
-            // Writing to a directory means adding or removing entries, which requires write permission
-            if mask.contains(AccessFlags::W_OK) && !allowed_mask.contains(AccessFlags::W_OK)
-            {
-                return Err(ErrorKind::PermissionDenied
-                    .to_error("Write permission required for directory modification"));
-            }
-        }
-
-        if allowed_mask.contains(mask) {
-            Ok(())
-        } else {
-            Err(ErrorKind::PermissionDenied.to_error("Permission denied"))
-        }
+        check_mode_access(req, &node.attr, mask)
     }
 
     fn create(
