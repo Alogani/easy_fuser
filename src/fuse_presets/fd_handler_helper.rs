@@ -1,73 +1,27 @@
-/*!
-# FdHandlerHelper and FdHandlerHelperReadOnly
-
-Helper implementations for FUSE (Filesystem in Userspace) handlers that manage file operations using file descriptors.
-
-## Overview
-
-This module provides two helper structs:
-1. `FdHandlerHelper<T>`: Implements the `FuseHandler<T>` trait for full read-write operations.
-2. `FdHandlerHelperReadOnly<T>`: Implements the `FuseHandler<T>` trait for read-only operations.
-
-Both helpers assume that file handles represent file descriptors on the filesystem.
-
-## Implementation Details
-
-### `FdHandlerHelper<T>`
-
-Implements the following `FuseHandler<T>` methods:
-
-- `read`: Reads data from a file using the file descriptor.
-- `write`: Writes data to a file using the file descriptor.
-- `flush`: Flushes the file associated with the file descriptor.
-- `release`: Releases (closes) the file descriptor.
-- `fsync`: Synchronizes the file's in-core state with storage device.
-- `fallocate`: Manipulates the allocated disk space for the file.
-- `lseek`: Repositions the file offset of the file descriptor.
-- `copy_file_range`: Copies a range of data from one file to another.
-
-### `FdHandlerHelperReadOnly<T>`
-
-Implements a subset of `FuseHandler<T>` methods for read-only operations:
-
-- `read`: Reads data from a file using the file descriptor.
-- `flush`: Flushes the file associated with the file descriptor.
-- `release`: Releases (closes) the file descriptor.
-- `fsync`: Synchronizes the file's in-core state with storage device.
-- `lseek`: Repositions the file offset of the file descriptor.
-
-## Usage
-
-To use these helpers:
-
-1. Create an instance of `FdHandlerHelper<T>` or `FdHandlerHelperReadOnly<T>` by passing an inner `FuseHandler<T>` implementation.
-2. Use it as delegator in your own FUSE filesystem implementation (see FuseHandler documentation for more details).
-
-## Important Considerations
-
-When implementing the `open` and `create` methods in your filesystem:
-
-- Ensure that the returned file handle can be converted to a valid file descriptor.
-- The file handle should represent an open file descriptor on the underlying filesystem.
-
-## Example
-
-```text
-let inner_handler = YourInnerHandler::new(); // or DefaultFuseHandler::new{};
-let fd_handler = FdHandlerHelper::new(inner_handler);
-// Use fd_handler as your primary FuseHandler
-
-// For read-only operations:
-let read_only_handler = FdHandlerHelperReadOnly::new(inner_handler); // or DefaultFuseHandler::new{};
-// Use read_only_handler as your primary FuseHandler for read-only operations
-```
-
-## Note
-For more specific implementations or to extend functionality, you can modify these handlers or use them as a reference for implementing your own FuseHandler.
-
-If you intend to enforce read-only at the fuse level,
-prefer the usage of option `MountOption::RO` instead of `FdHandlerHelperReadOnly`.
-*/
+//! Read, write, and close files through file descriptors.
+//!
+//! These helpers provide selected FUSE methods for filesystems whose file
+//! handles contain open file descriptors. They are method helpers, not complete
+//! `FuseHandler` implementations. Add them as fields in your handler and
+//! delegate only the methods they provide.
+//!
+//! # Methods provided
+//!
+//! `FileDescriptorHandlerReadOnly<TId>` provides `flush`, `fsync`, `lseek`, `read`,
+//! and `release`.
+//!
+//! `FileDescriptorHandler<TId>` provides those same methods, plus `copy_file_range`,
+//! `fallocate`, and `write`.
+//!
+//! # Methods your filesystem still provides
+//!
+//! Your `open` and `create` methods must return valid open file descriptors as
+//! file handles. The helpers use those descriptors for later reads or writes,
+//! and `release` closes them. Other methods, such as `lookup`, `getattr`, and
+//! `readdir`, belong to your filesystem or another preset.
+//!
+//! `FileDescriptorHandlerReadOnly` only omits write methods; use a read-only mount
+//! option if the whole mounted filesystem must reject changes.
 
 use std::marker::PhantomData;
 use crate::types::*;
@@ -183,18 +137,22 @@ macro_rules! fd_handler_readwrite_methods {
     };
 }
 
-/// Specific documentation is located in parent module documentation.
-pub struct FdHandlerHelper<TId: FileIdType> {
+/// File-descriptor backed helpers for read and write operations.
+///
+/// Provides `flush`, `fsync`, `lseek`, `read`, `release`, `copy_file_range`,
+/// `fallocate`, and `write`. Your `open` and `create` methods must return an
+/// open file descriptor as the file handle.
+pub struct FileDescriptorHandler<TId: FileIdType> {
     phantom: PhantomData<TId>,
 }
 
-impl<TId: FileIdType> Default for FdHandlerHelper<TId> {
+impl<TId: FileIdType> Default for FileDescriptorHandler<TId> {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl<TId: FileIdType> FdHandlerHelper<TId> {
+impl<TId: FileIdType> FileDescriptorHandler<TId> {
     pub fn new() -> Self {
         Self {
             phantom: PhantomData,
@@ -202,23 +160,26 @@ impl<TId: FileIdType> FdHandlerHelper<TId> {
     }
 }
 
-impl<TId: FileIdType> FdHandlerHelper<TId> {
+impl<TId: FileIdType> FileDescriptorHandler<TId> {
     fd_handler_readonly_methods!(TId);
     fd_handler_readwrite_methods!(TId);
 }
 
-/// Specific documentation is located in parent module documentation.
-pub struct FdHandlerHelperReadOnly<TId: FileIdType> {
+/// Read-only file-descriptor backed helpers.
+///
+/// Provides `flush`, `fsync`, `lseek`, `read`, and `release`. Your `open`
+/// method must return an open file descriptor as the file handle.
+pub struct FileDescriptorHandlerReadOnly<TId: FileIdType> {
     phantom: PhantomData<TId>,
 }
 
-impl<TId: FileIdType> Default for FdHandlerHelperReadOnly<TId> {
+impl<TId: FileIdType> Default for FileDescriptorHandlerReadOnly<TId> {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl<TId: FileIdType> FdHandlerHelperReadOnly<TId> {
+impl<TId: FileIdType> FileDescriptorHandlerReadOnly<TId> {
     pub fn new() -> Self {
         Self {
             phantom: PhantomData,
@@ -226,9 +187,23 @@ impl<TId: FileIdType> FdHandlerHelperReadOnly<TId> {
     }
 }
 
-impl<TId: FileIdType> FdHandlerHelperReadOnly<TId> {
+impl<TId: FileIdType> FileDescriptorHandlerReadOnly<TId> {
     fd_handler_readonly_methods!(TId);
 }
+
+/// Deprecated alias for [`FileDescriptorHandler`].
+#[deprecated(
+    since = "0.8.0",
+    note = "use `FileDescriptorHandler` instead"
+)]
+pub type FdHandlerHelper<TId> = FileDescriptorHandler<TId>;
+
+/// Deprecated alias for [`FileDescriptorHandlerReadOnly`].
+#[deprecated(
+    since = "0.8.0",
+    note = "use `FileDescriptorHandlerReadOnly` instead"
+)]
+pub type FdHandlerHelperReadOnly<TId> = FileDescriptorHandlerReadOnly<TId>;
 
 pub(super) use fd_handler_readonly_methods;
 pub(super) use fd_handler_readwrite_methods;

@@ -1,7 +1,7 @@
 #![doc = include_str!("../README.md")]
 
 use easy_fuser::fuse_parallel::prelude::*;
-use easy_fuser::fuse_presets::DefaultFuseHandler;
+use easy_fuser::fuse_presets::{StatelessHandler, UnimplementedFuseHandler};
 use rand::rngs::ThreadRng;
 use rand::RngExt;
 use std::ffi::{OsStr, OsString};
@@ -9,7 +9,8 @@ use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 pub struct RandomFS {
-    inner: DefaultFuseHandler<Inode>,
+    unimplemented: UnimplementedFuseHandler<Inode>,
+    safe_defaults: StatelessHandler<Inode>,
 }
 
 const ROOT_ATTR: (Inode, FileAttribute) = (
@@ -37,7 +38,8 @@ const ROOT_ATTR: (Inode, FileAttribute) = (
 impl RandomFS {
     pub fn new() -> Self {
         Self {
-            inner: DefaultFuseHandler::new(),
+            unimplemented: UnimplementedFuseHandler::new(),
+            safe_defaults: StatelessHandler::new(),
         }
     }
 
@@ -63,9 +65,8 @@ impl RandomFS {
 impl FuseHandler for RandomFS {
     type TId = Inode;
 
-    easy_fuser::delegate_fs! { inner, [
-        bmap, copy_file_range, fallocate, flush, fsync, fsyncdir, getlk, getxattr, ioctl, link, listxattr, lseek, mknod, open, opendir, readlink, release, releasedir, removexattr, rename, setlk, setxattr, statfs, symlink
-    ] }
+    easy_fuser::delegate_fs! { safe_defaults, [ fsyncdir, opendir, releasedir ] }
+    easy_fuser::delegate_fs! { unimplemented, [ bmap, copy_file_range, fallocate, flush, fsync, getlk, getxattr, ioctl, link, listxattr, lseek, mknod, open, readlink, release, removexattr, rename, setlk, setxattr, statfs, symlink ] }
 
     fn access(&self, _req: &RequestInfo, _file_id: Inode, _mask: AccessFlags) -> FuseResult<()> {
         Ok(())

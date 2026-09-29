@@ -4,7 +4,7 @@
 
 #[cfg(all(feature = "parallel", not(feature = "serial")))]
 use easy_fuser::fuse_parallel::prelude::*;
-use easy_fuser::fuse_presets::DefaultFuseHandler;
+use easy_fuser::fuse_presets::{StatelessHandler, UnimplementedFuseHandler};
 use easy_fuser::fuse_presets::mirror_fs::*;
 #[cfg(feature = "serial")]
 use easy_fuser::fuse_serial::prelude::*;
@@ -21,7 +21,8 @@ use tempfile::TempDir;
 
 struct MyFs {
     mirror_fs: MirrorFs,
-    default_fs: DefaultFuseHandler<PathBuf>,
+    unimplemented: UnimplementedFuseHandler<PathBuf>,
+    safe_defaults: StatelessHandler<PathBuf>,
 }
 
 impl FuseHandler for MyFs {
@@ -38,12 +39,14 @@ impl FuseHandler for MyFs {
         ]
     }
 
-    delegate_fs! {default_fs, [ bmap, forget, fsyncdir, getlk, ioctl, link, opendir, releasedir, setlk, statfs ]}
+    delegate_fs! { safe_defaults, [ forget, fsyncdir, opendir, releasedir ] }
+    delegate_fs! { unimplemented, [ bmap, getlk, ioctl, link, setlk, statfs ] }
 }
 
 struct MyFsReadOnly {
     mirror_fs: MirrorFsReadOnly,
-    default_fs: DefaultFuseHandler<PathBuf>,
+    unimplemented: UnimplementedFuseHandler<PathBuf>,
+    safe_defaults: StatelessHandler<PathBuf>,
 }
 
 impl FuseHandler for MyFsReadOnly {
@@ -54,11 +57,8 @@ impl FuseHandler for MyFsReadOnly {
         access, getattr, getxattr, listxattr, lookup, open, readdir, readlink
     ]}
 
-    delegate_fs! { default_fs, [
-        copy_file_range, fallocate, write,
-        create, mkdir, mknod, removexattr, rename, rmdir, setattr, setxattr, symlink, unlink,
-        bmap, forget, fsyncdir, getlk, ioctl, link, opendir, releasedir, setlk, statfs
-    ]}
+    delegate_fs! { safe_defaults, [ forget, fsyncdir, opendir, releasedir ] }
+    delegate_fs! { unimplemented, [ copy_file_range, fallocate, write, create, mkdir, mknod, removexattr, rename, rmdir, setattr, setxattr, symlink, unlink, bmap, getlk, ioctl, link, setlk, statfs ] }
 }
 
 static MOUNT_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
@@ -82,7 +82,8 @@ fn test_mirror_fs_operations() {
     let handle = std::thread::spawn(move || {
         let fs = MyFs {
             mirror_fs: MirrorFs::new(source_path_clone),
-            default_fs: DefaultFuseHandler::new(),
+            unimplemented: UnimplementedFuseHandler::new(),
+            safe_defaults: StatelessHandler::new(),
         };
         mount(fs, &mntpoint_clone, &[], Some(4)).unwrap();
     });
@@ -221,7 +222,8 @@ fn test_mirror_fs_readonly_operations() {
     let handle = std::thread::spawn(move || {
         let fs = MyFsReadOnly {
             mirror_fs: MirrorFsReadOnly::new(source_path_clone),
-            default_fs: DefaultFuseHandler::new(),
+            unimplemented: UnimplementedFuseHandler::new(),
+            safe_defaults: StatelessHandler::new(),
         };
         mount(fs, &mntpoint_clone, &[], Some(4)).unwrap();
     });

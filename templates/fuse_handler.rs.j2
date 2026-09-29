@@ -20,14 +20,17 @@ use async_trait::async_trait;
 ///
 /// # Usage
 ///
-/// To create a custom filesystem, implement this trait for your struct. You can choose to implement all methods
-/// or rely on default implementations provided by one of the provided templates (like `MirrorFs` or `DefaultFuseHandler`).
+/// Implement this trait for your filesystem. Presets such as `MirrorFs` provide
+/// selected operations that you can delegate to with `delegate_fs!`; they do
+/// not implement this trait for you. Use `StatelessHandler` only for its
+/// simple directory methods, and `UnimplementedFuseHandler` for unsupported
+/// operations that should return `ENOSYS`.
 ///
 /// ## Example: Custom Filesystem with MirrorFs as base
 ///
 /// ```rust,ignore
 /// use easy_fuser::fuse_presets::mirror_fs::*;
-/// use easy_fuser::fuse_presets::DefaultFuseHandler;
+/// use easy_fuser::fuse_presets::{StatelessHandler, UnimplementedFuseHandler};
 /// use easy_fuser::fuse_parallel::prelude::*; // or fuse_serial::prelude::* or fuse_async::prelude::*
 /// use easy_fuser_macro::delegate_fs; // or delegate_fs_sync_to_async for async mode
 /// use std::path::PathBuf;
@@ -35,7 +38,8 @@ use async_trait::async_trait;
 ///
 /// struct MyCustomFs {
 ///     mirror_fs: MirrorFs,
-///     default_fs: DefaultFuseHandler<PathBuf>,
+///     defaults: StatelessHandler<PathBuf>,
+///     unimplemented: UnimplementedFuseHandler<PathBuf>,
 /// }
 ///
 /// impl FuseHandler for MyCustomFs {
@@ -48,9 +52,14 @@ use async_trait::async_trait;
 ///         self.mirror_fs.lookup(req, parent_id, name)
 ///     }
 ///
-///     // Delegate other methods:
+///     // Simple directory operations that need no extra state:
+///     delegate_fs! { defaults, [ forget, fsyncdir, opendir, releasedir ] }
+///
+///     // Unsupported operations return ENOSYS:
+///     delegate_fs! { unimplemented, [ statfs, link ] }
+///
+///     // Delegate file operations to MirrorFs:
 ///     delegate_fs! { mirror_fs, [ read, write, getattr ] }
-///     delegate_fs! { default_fs, [ statfs, link ] }
 /// }
 /// ```
 ///
@@ -68,8 +77,9 @@ use async_trait::async_trait;
 ///
 /// # Default Implementations
 ///
-/// Many methods in this trait have default implementations that delegate to the inner handler returned by `get_inner()`.
-/// This allows for easy extension and customization of existing filesystem implementations by chaining/overriding their behaviors.
+/// `FuseHandler` has default bodies for selected callbacks. Presets are separate
+/// structs: they provide only the operations documented for them, and you must
+/// explicitly delegate those operations or implement them in your handler.
 ///
 /// # Multithreading, Safety, Traits & Lifetime
 ///

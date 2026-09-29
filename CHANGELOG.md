@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Breaking changes
+
+- Renamed `DefaultFuseHandler` to `StatelessHandler` without a compatibility
+  alias. Update imports and delegation fields to use the new name.
+- Renamed `FdHandlerHelper` and `FdHandlerHelperReadOnly` to
+  `FileDescriptorHandler` and `FileDescriptorHandlerReadOnly`. The old names
+  remain deprecated aliases for this release.
+
+### Added
+
+- Added an `OverlayFs` preset with ordered lower layers, merged directories,
+  copy-up for writes, and persistent whiteouts in the upper layer.
+
 ## [0.7.0] - 2026-09-28
 
 ### Changed

@@ -4,7 +4,7 @@
 #![cfg(feature = "parallel")]
 
 use easy_fuser::fuse_parallel::prelude::*;
-use easy_fuser::fuse_presets::{DefaultFuseHandler, mirror_fs::*};
+use easy_fuser::fuse_presets::{StatelessHandler, UnimplementedFuseHandler, mirror_fs::*};
 use easy_fuser::unix_fs;
 use easy_fuser_macro::delegate_fs;
 use std::{
@@ -24,7 +24,8 @@ use tempfile::TempDir;
 
 struct MeasuredFs {
     mirror: MirrorFs,
-    defaults: DefaultFuseHandler<PathBuf>,
+    defaults: UnimplementedFuseHandler<PathBuf>,
+    safe_defaults: StatelessHandler<PathBuf>,
     getattr_calls: Arc<AtomicUsize>,
     lookup_calls: Arc<AtomicUsize>,
     readdir_calls: Arc<AtomicUsize>,
@@ -155,9 +156,8 @@ impl FuseHandler for MeasuredFs {
         copy_file_range, fallocate,
         mkdir, mknod, removexattr, rmdir, setattr, setxattr, symlink
     ] }
-    delegate_fs! { defaults, [
-        bmap, fsyncdir, getlk, ioctl, link, opendir, releasedir, setlk, statfs
-    ] }
+    delegate_fs! { safe_defaults, [ fsyncdir, opendir, releasedir ] }
+    delegate_fs! { defaults, [ bmap, getlk, ioctl, link, setlk, statfs ] }
 }
 
 #[test]
@@ -194,7 +194,8 @@ fn benchmark_parallel_getattr() {
     let session = spawn_mount(
         MeasuredFs {
             mirror: MirrorFs::new(source.path().to_path_buf()),
-            defaults: DefaultFuseHandler::new(),
+            defaults: UnimplementedFuseHandler::new(),
+            safe_defaults: StatelessHandler::new(),
             getattr_calls: calls.clone(),
             lookup_calls: lookup_calls.clone(),
             readdir_calls: readdir_calls.clone(),

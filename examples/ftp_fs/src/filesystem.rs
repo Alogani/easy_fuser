@@ -1,5 +1,5 @@
 use easy_fuser::fuse_parallel::prelude::*;
-use easy_fuser::fuse_presets::DefaultFuseHandler;
+use easy_fuser::fuse_presets::{StatelessHandler, UnimplementedFuseHandler};
 use io::{Read, Seek, SeekFrom};
 use std::error;
 use std::ffi::{OsStr, OsString};
@@ -13,7 +13,8 @@ use crate::{helpers::*, DirectoryDetectionMethod};
 pub struct FtpFs {
     ftp_client: Mutex<FtpStream>,
     detection_method: DirectoryDetectionMethod,
-    inner_fs: DefaultFuseHandler<PathBuf>,
+    inner_fs: UnimplementedFuseHandler<PathBuf>,
+    safe_defaults: StatelessHandler<PathBuf>,
 }
 
 impl FtpFs {
@@ -30,7 +31,8 @@ impl FtpFs {
         Ok(Self {
             ftp_client: Mutex::new(ftp_stream),
             detection_method,
-            inner_fs: DefaultFuseHandler::new(),
+            inner_fs: UnimplementedFuseHandler::new(),
+            safe_defaults: StatelessHandler::new(),
         })
     }
 
@@ -46,9 +48,8 @@ impl FtpFs {
 impl FuseHandler for FtpFs {
     type TId = PathBuf;
 
-    easy_fuser::delegate_fs! { inner_fs, [
-        access, bmap, copy_file_range, create, fallocate, flush, forget, fsync, fsyncdir, getlk, getxattr, ioctl, link, listxattr, lseek, mkdir, mknod, open, opendir, readlink, release, releasedir, removexattr, rename, rmdir, setattr, setlk, setxattr, statfs, symlink, write, unlink
-    ] }
+    easy_fuser::delegate_fs! { safe_defaults, [ forget, fsyncdir, opendir, releasedir ] }
+    easy_fuser::delegate_fs! { inner_fs, [ access, bmap, copy_file_range, create, fallocate, flush, fsync, getlk, getxattr, ioctl, link, listxattr, lseek, mkdir, mknod, open, readlink, release, removexattr, rename, rmdir, setattr, setlk, setxattr, statfs, symlink, write, unlink ] }
 
     fn getattr(
         &self,

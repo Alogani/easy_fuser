@@ -1,7 +1,7 @@
 #![cfg(feature = "async")]
 
 use easy_fuser::fuse_async::prelude::*;
-use easy_fuser::fuse_presets::DefaultFuseHandler;
+use easy_fuser::fuse_presets::{StatelessHandler, UnimplementedFuseHandler};
 use easy_fuser::fuse_presets::mirror_fs::*;
 use easy_fuser_macro::delegate_fs_sync_to_async;
 
@@ -13,7 +13,8 @@ use tempfile::TempDir;
 
 struct MyAsyncFs {
     mirror_fs: MirrorFs,
-    default_fs: DefaultFuseHandler<PathBuf>,
+    unimplemented: UnimplementedFuseHandler<PathBuf>,
+    safe_defaults: StatelessHandler<PathBuf>,
 }
 
 #[async_trait]
@@ -27,7 +28,8 @@ impl FuseHandler for MyAsyncFs {
         create, mkdir, mknod, removexattr, rename, rmdir, setattr, setxattr, symlink, unlink
     ]}
 
-    delegate_fs_sync_to_async! { default_fs, [ bmap, forget, fsyncdir, getlk, ioctl, link, opendir, releasedir, setlk, statfs ] }
+    delegate_fs_sync_to_async! { safe_defaults, [ forget, fsyncdir, opendir, releasedir ] }
+    delegate_fs_sync_to_async! { unimplemented, [ bmap, getlk, ioctl, link, setlk, statfs ] }
 }
 
 #[test]
@@ -46,7 +48,8 @@ fn test_async_mirror_fs() {
     let handle = std::thread::spawn(move || {
         let fs = MyAsyncFs {
             mirror_fs: MirrorFs::new(source_path),
-            default_fs: DefaultFuseHandler::new(),
+            unimplemented: UnimplementedFuseHandler::new(),
+            safe_defaults: StatelessHandler::new(),
         };
         mount(fs, &mntpoint_clone, &[], Some(4)).unwrap();
     });
