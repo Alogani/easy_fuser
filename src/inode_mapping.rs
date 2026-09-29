@@ -7,4 +7,4 @@ mod mapper;
 mod resolver;
 
 pub use mapper::*;
-pub(crate) use resolver::{FileIdResolver, InodeResolvable};
+pub(crate) use resolver::{FileIdResolver, InodeResolvable, RequestResolver};

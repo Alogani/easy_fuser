@@ -1,10 +1,10 @@
 #!/usr/bin/env rust-script
 //! ```cargo
 //! [dependencies]
-//! libunftp = "0.20"
-//! unftp-sbe-fs = "0.2"
-//! async-trait = "0.1.68"
-//! tokio = { version = "1.42", features = ["full"] }
+//! libunftp = "^0.23.1"
+//! unftp-sbe-fs = "^0.4.0"
+//! async-trait = "^0.1.92"
+//! tokio = { version = "^1.53.1", features = ["full"] }
 //! ```
 
 use std::path::{Path, PathBuf};
@@ -12,7 +12,7 @@ use std::{env, error::Error};
 use tokio::runtime::Runtime;
 use tokio::signal;
 
-use unftp_sbe_fs::ServerExt;
+use unftp_sbe_fs::Filesystem;
 
 pub fn spawn_ftp_server(serve_dir: &Path, port: u16) -> std::thread::JoinHandle<()> {
     let rt = Runtime::new().unwrap();
@@ -33,11 +33,13 @@ pub async fn run_ftp_server(
     eprintln!("Starting FTP server on 127.0.0.1:{}", port);
     let serve_dir = PathBuf::from(serve_dir);
 
-    let server = libunftp::Server::with_fs(serve_dir)
-        .greeting("Welcome to my FTP server")
-        .passive_ports(50000..65535)
-        .build()
-        .unwrap();
+    let server = libunftp::ServerBuilder::new(Box::new(move || {
+        Filesystem::new(serve_dir.clone()).unwrap()
+    }))
+    .greeting("Welcome to my FTP server")
+    .passive_ports(50000..=65535)
+    .build()
+    .unwrap();
 
     let server_handle = tokio::spawn(server.listen(format!("127.0.0.1:{}", port)));
 
