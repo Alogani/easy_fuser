@@ -1010,6 +1010,163 @@ mod benchmarks {
         }
     }
 
+    // Run with:
+    // cargo test --release --lib benchmark_id_resolution_costs -- --ignored --nocapture
+    #[test]
+    #[ignore = "manual performance benchmark"]
+    fn benchmark_id_resolution_costs() {
+        let iterations = std::env::var("EASY_FUSER_BENCH_ITERS")
+            .ok()
+            .and_then(|value| value.parse().ok())
+            .unwrap_or(50_000);
+        let samples = std::env::var("EASY_FUSER_BENCH_SAMPLES")
+            .ok()
+            .and_then(|value| value.parse().ok())
+            .unwrap_or(3);
+
+        let inode = ROOT_INODE.add_one();
+        let guard_resolver = Arc::new(PathResolver::new());
+        let path_resolver = Arc::new(PathResolver::new());
+        let path_ino = path_resolver.lookup(ROOT_INODE, OsStr::new("alpha"), (), true);
+        let path_ino = path_resolver.lookup(path_ino, OsStr::new("beta"), (), true);
+        let path_ino = path_resolver.lookup(path_ino, OsStr::new("file"), (), true);
+
+        let components_resolver = Arc::new(ComponentsResolver::new());
+        let components_ino = components_resolver.lookup(ROOT_INODE, OsStr::new("alpha"), (), true);
+        let components_ino =
+            components_resolver.lookup(components_ino, OsStr::new("beta"), (), true);
+        let components_ino =
+            components_resolver.lookup(components_ino, OsStr::new("file"), (), true);
+
+        let mapped_resolver = Arc::new(MappedResolver::new());
+        let mapped_ino = mapped_resolver.lookup(ROOT_INODE, OsStr::new("alpha"), (), true);
+        let mapped_ino = mapped_resolver.lookup(mapped_ino, OsStr::new("beta"), (), true);
+        let mapped_ino = mapped_resolver.lookup(mapped_ino, OsStr::new("file"), (), true);
+        let mapped_id = Arc::new(mapped_resolver.resolve_id(mapped_ino));
+
+        let cases: Vec<(&str, Arc<dyn Fn() + Send + Sync>)> = vec![
+            (
+                "inode_copy",
+                Arc::new(move || {
+                    black_box(InodeResolver::new().resolve_id(inode));
+                }),
+            ),
+            (
+                "guard_only",
+                Arc::new({
+                    let resolver = guard_resolver.clone();
+                    move || drop(RequestResolver::new(resolver.clone()))
+                }),
+            ),
+            (
+                "components_guarded",
+                Arc::new({
+                    let resolver = components_resolver.clone();
+                    move || {
+                        let request = RequestResolver::new(resolver.clone());
+                        black_box(request.resolve_id(components_ino));
+                    }
+                }),
+            ),
+            (
+                "components_unprotected",
+                Arc::new({
+                    let resolver = components_resolver.clone();
+                    move || {
+                        black_box(resolver.resolve_id(components_ino));
+                    }
+                }),
+            ),
+            (
+                "pathbuf_guarded",
+                Arc::new({
+                    let resolver = path_resolver.clone();
+                    move || {
+                        let request = RequestResolver::new(resolver.clone());
+                        black_box(request.resolve_id(path_ino));
+                    }
+                }),
+            ),
+            (
+                "pathbuf_unprotected",
+                Arc::new({
+                    let resolver = path_resolver.clone();
+                    move || {
+                        black_box(resolver.resolve_id(path_ino));
+                    }
+                }),
+            ),
+            (
+                "mapped_handle_only",
+                Arc::new({
+                    let resolver = mapped_resolver.clone();
+                    move || {
+                        black_box(resolver.resolve_id(mapped_ino));
+                    }
+                }),
+            ),
+            (
+                "mapped_parts_paths",
+                Arc::new({
+                    let id = mapped_id.clone();
+                    move || {
+                        black_box(id.parts_paths());
+                    }
+                }),
+            ),
+            (
+                "mapped_paths",
+                Arc::new({
+                    let id = mapped_id.clone();
+                    move || {
+                        black_box(id.paths());
+                    }
+                }),
+            ),
+        ];
+
+        println!("case,threads,iterations_per_thread,sample,ns_per_op,aggregate_ops_per_second");
+        for threads in [1, 4, 8] {
+            for sample in 0..samples {
+                for (name, operation) in &cases {
+                    let elapsed = measure_ops(threads, iterations, operation.clone());
+                    let operations = iterations as u128 * threads as u128;
+                    println!(
+                        "{name},{threads},{iterations},{sample},{},{}",
+                        elapsed.as_nanos() / operations,
+                        operations * 1_000_000_000 / elapsed.as_nanos()
+                    );
+                }
+            }
+        }
+    }
+
+    fn measure_ops(
+        threads: usize,
+        iterations: usize,
+        operation: Arc<dyn Fn() + Send + Sync>,
+    ) -> std::time::Duration {
+        let barrier = Arc::new(Barrier::new(threads + 1));
+        let workers: Vec<_> = (0..threads)
+            .map(|_| {
+                let operation = operation.clone();
+                let barrier = barrier.clone();
+                thread::spawn(move || {
+                    barrier.wait();
+                    for _ in 0..iterations {
+                        operation();
+                    }
+                })
+            })
+            .collect();
+        let start = Instant::now();
+        barrier.wait();
+        for worker in workers {
+            worker.join().unwrap();
+        }
+        start.elapsed()
+    }
+
     fn run(path: &str, guarded: bool, threads: usize, iterations: usize) -> std::time::Duration {
         let resolver = Arc::new(PathResolver::new());
         let inode = resolver.lookup(ROOT_INODE, OsStr::new("stable"), (), true);

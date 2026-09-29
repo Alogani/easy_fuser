@@ -23,7 +23,10 @@ pub mod file_handle;
 mod file_id_type;
 pub mod flags;
 mod inode;
+pub mod mount_threads;
 
-pub use self::{arguments::*, errors::*, file_handle::*, file_id_type::*, flags::*, inode::*};
+pub use self::{
+    arguments::*, errors::*, file_handle::*, file_id_type::*, flags::*, inode::*, mount_threads::*,
+};
 
 pub use fuser::{FileType as FileKind, KernelConfig, TimeOrNow};

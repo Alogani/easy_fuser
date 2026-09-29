@@ -10,11 +10,23 @@
 //! metadata operations, locks, `ioctl`, `lseek`, and `copy_file_range` remain
 //! synchronous because their behavior or lifetime rules need separate work.
 //!
-//! Each request currently creates one ring. This avoids shared completion
-//! routing, but ring setup adds overhead, so this implementation targets runtime
-//! responsiveness and makes no throughput claim. The host kernel or seccomp
-//! policy may reject ring creation; such errors are returned without falling
-//! back to synchronous syscalls. Operations can also be punted to kernel io-wq.
+//! Each request currently creates one ring, submits one operation, waits for its
+//! completion, and then drops the ring. The request also uses Tokio task,
+//! `AsyncFd`, and `oneshot` machinery. That makes the current implementation
+//! expected to lose throughput against an ordinary async syscall for cheap I/O;
+//! it does not show that io_uring itself is inherently slower. In the local
+//! warm-file benchmark, the current implementation measured about 3–10x lower
+//! throughput than async syscalls (see `benches/README.md`). It gets none of the
+//! ring reuse or batching benefits of a persistent ring.
+//!
+//! Before treating io_uring as a performance optimization, use a persistent
+//! ring—such as one owned by each executor worker or a dedicated ring driver
+//! that routes multiple in-flight submissions and completions—and rerun the
+//! benchmark. Warm cached 4 KiB reads particularly favor a plain `pread`, while
+//! cold storage or genuinely concurrent I/O may have different results. The
+//! host kernel or seccomp policy may reject ring creation; such errors are
+//! returned without falling back to synchronous syscalls. Operations can also
+//! be punted to kernel io-wq.
 //!
 //! The request task owns its read/write buffer until completion. If the task is
 //! dropped while the kernel still owns the buffer, it drains that completion

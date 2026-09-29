@@ -24,6 +24,11 @@
 //! descriptor-backed `read`, `write`, `flush`, `fsync`, and `fallocate`
 //! operations use io_uring. Path, metadata, namespace, and other operations
 //! remain synchronous, as do all operations on BSD/macOS.
+//! The current implementation creates and drops a ring for each operation and
+//! measured roughly 3–10x lower throughput than async syscalls on warm local
+//! files. This is an implementation-specific result, not evidence that io_uring
+//! itself is inherently slower; keep the feature experimental and opt-in until
+//! persistent-ring reuse and concurrent submissions are measured.
 //!
 //! # Methods to provide or delegate elsewhere
 //!
