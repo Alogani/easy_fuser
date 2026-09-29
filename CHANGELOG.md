@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Breaking changes
+
+- Public `fuser` types now come from 0.18.0. Projects that also depend directly
+  on `fuser` should align that dependency to 0.18.0 to avoid mismatched types.
+
+### Changed
+
+- Updated `fuser` to 0.18.0 and adapted the mount wrappers to its renamed
+  `mount` and `spawn_mount` APIs. Mount option conflicts are now reported when
+  `fuser` creates the session.
+
+### Fixed
+
+- On FreeBSD, `MountOption::AllowOther` is now passed correctly, allowing
+  non-owner users to access the mount when that option is enabled.
+
 ## [0.7.0] - 2026-09-28
 
 ### Changed
