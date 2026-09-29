@@ -219,7 +219,7 @@ pub fn get_fuse_handler_trait_fn(func_name: &str) -> TraitItemFn {
                 &self,
                 req: &RequestInfo,
                 file_id: Self::TId,
-                file_handle: BorrowedFileHandle,
+                file_handle: BorrowedFileHandle<'_>,
             ) -> FuseResult<Vec<(std::ffi::OsString, <Self::TId as FileIdType>::Metadata)>>;
         },
         "readlink" => parse_quote! {

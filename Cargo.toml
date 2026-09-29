@@ -12,6 +12,7 @@ default = ["serial", "parallel", "async"]
 serial = []
 parallel = ["dep:threadpool"]
 async = ["dep:async-trait", "dep:tokio"]
+io_uring = ["async", "dep:io-uring"]
 deadlock_detection = ["parallel", "dep:parking_lot"]
 libfuse = ["fuser/libfuse"]
 
@@ -33,6 +34,9 @@ parking_lot = { version = "^0.12.5", features = ["deadlock_detection"], optional
 # easy_fuser_async_macro = { path = "./easy_fuser_async_macro", optional = true }
 tokio = { version = "^1.53.1", features = ["full"], optional = true }
 async-trait = { version = "^0.1.92", optional = true }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+io-uring = { version = "^0.7.15", optional = true }
 
 [dev-dependencies]
 tempfile = "^3.27.0"

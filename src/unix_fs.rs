@@ -39,6 +39,8 @@ use crate::types::*;
 use libc::{c_char, c_void, timespec};
 
 // Modify to #[cfg_attr(windows, path = "windows/mod.rs")]
+#[cfg(all(target_os = "linux", feature = "io_uring"))]
+pub mod io_uring;
 #[cfg(target_os = "linux")]
 pub(crate) mod linux_fs;
 #[cfg(target_os = "linux")]
@@ -615,8 +617,7 @@ fn flock_to_lock_info(lock: libc::flock) -> LockInfo {
 /// For `SeekFrom::Current` or `SeekFrom::End`, it first updates the file's current position,
 /// then reads from there. In all cases, the file's position after the read operation
 /// remains where it was before the read, regardless of how much data was read.
-pub fn read(fd: BorrowedFd, seek: SeekFrom, size: usize) -> Result<Vec<u8>, PosixError> {
-    let mut buffer = vec![0; size as usize];
+pub(crate) fn resolve_io_offset(fd: BorrowedFd, seek: SeekFrom) -> Result<i64, PosixError> {
     let offset: i64 = match seek {
         SeekFrom::Start(offset) => i64::try_from(offset).map_err(|_| {
             PosixError::new(
@@ -643,6 +644,12 @@ pub fn read(fd: BorrowedFd, seek: SeekFrom, size: usize) -> Result<Vec<u8>, Posi
             })?
         }
     };
+    Ok(offset)
+}
+
+pub fn read(fd: BorrowedFd, seek: SeekFrom, size: usize) -> Result<Vec<u8>, PosixError> {
+    let mut buffer = vec![0; size];
+    let offset = resolve_io_offset(fd, seek)?;
     let bytes_read = unsafe {
         unix_impl::pread(
             fd.as_raw_fd(),
@@ -668,33 +675,8 @@ pub fn read(fd: BorrowedFd, seek: SeekFrom, size: usize) -> Result<Vec<u8>, Posi
 /// then reads from there. In all cases, the file's position after the read operation
 /// remains where it was before the read, regardless of how much data was read.
 pub fn write(fd: BorrowedFd, seek: SeekFrom, data: &[u8]) -> Result<usize, PosixError> {
-    let bytes_to_write = data.len() as usize;
-    let offset: i64 = match seek {
-        SeekFrom::Start(offset) => i64::try_from(offset).map_err(|_| {
-            PosixError::new(
-                ErrorKind::InvalidArgument,
-                "Offset too large for i64".to_string(),
-            )
-        })?,
-        SeekFrom::Current(offset) => {
-            let current = lseek(fd, SeekFrom::Current(0))?;
-            current.checked_add(offset).ok_or_else(|| {
-                PosixError::new(
-                    ErrorKind::InvalidArgument,
-                    "Resulting offset too large for off_t".to_string(),
-                )
-            })?
-        }
-        SeekFrom::End(offset) => {
-            let end = lseek(fd, SeekFrom::End(0))?;
-            end.checked_add(offset).ok_or_else(|| {
-                PosixError::new(
-                    ErrorKind::InvalidArgument,
-                    "Resulting offset too large for off_t".to_string(),
-                )
-            })?
-        }
-    };
+    let bytes_to_write = data.len();
+    let offset = resolve_io_offset(fd, seek)?;
     let bytes_written = unsafe {
         unix_impl::pwrite(
             fd.as_raw_fd(),

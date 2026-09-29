@@ -18,6 +18,13 @@
 //! `MirrorFsReadOnly` does not provide write operations. To make the entire
 //! mount read-only, use the FUSE read-only mount option as well.
 //!
+//! With the `async` feature, `MirrorFsAsync` and `MirrorFsReadOnlyAsync`
+//! provide the same operations as async methods for use with
+//! `delegate_fs_async!`. On Linux, enabling `io_uring` makes their
+//! descriptor-backed `read`, `write`, `flush`, `fsync`, and `fallocate`
+//! operations use io_uring. Path, metadata, namespace, and other operations
+//! remain synchronous, as do all operations on BSD/macOS.
+//!
 //! # Methods to provide or delegate elsewhere
 //!
 //! Neither type provides `forget`, `fsyncdir`, `link`, `opendir`, or
@@ -38,8 +45,8 @@ use crate::types::*;
 use crate::unix_fs;
 
 macro_rules! mirror_fs_readonly_methods {
-    () => {
-        pub fn access(
+    ($( $asyncness:ident )?) => {
+        pub $( $asyncness )? fn access(
             &self,
             _req: &RequestInfo,
             file_id: std::path::PathBuf,
@@ -49,7 +56,7 @@ macro_rules! mirror_fs_readonly_methods {
             unix_fs::access(&file_path, mask)
         }
 
-        pub fn getattr(
+        pub $( $asyncness )? fn getattr(
             &self,
             _req: &RequestInfo,
             file_id: std::path::PathBuf,
@@ -59,7 +66,7 @@ macro_rules! mirror_fs_readonly_methods {
             unix_fs::lookup(&file_path)
         }
 
-        pub fn getxattr(
+        pub $( $asyncness )? fn getxattr(
             &self,
             _req: &RequestInfo,
             file_id: std::path::PathBuf,
@@ -70,7 +77,7 @@ macro_rules! mirror_fs_readonly_methods {
             unix_fs::getxattr(&file_path, name, size)
         }
 
-        pub fn listxattr(
+        pub $( $asyncness )? fn listxattr(
             &self,
             _req: &RequestInfo,
             file_id: std::path::PathBuf,
@@ -80,7 +87,7 @@ macro_rules! mirror_fs_readonly_methods {
             unix_fs::listxattr(&file_path, size)
         }
 
-        pub fn lookup(
+        pub $( $asyncness )? fn lookup(
             &self,
             _req: &RequestInfo,
             parent_id: std::path::PathBuf,
@@ -90,7 +97,7 @@ macro_rules! mirror_fs_readonly_methods {
             unix_fs::lookup(&file_path)
         }
 
-        pub fn open(
+        pub $( $asyncness )? fn open(
             &self,
             _req: &RequestInfo,
             file_id: std::path::PathBuf,
@@ -101,11 +108,11 @@ macro_rules! mirror_fs_readonly_methods {
             Ok((fd, FopenFlags::empty()))
         }
 
-        pub fn readdir(
+        pub $( $asyncness )? fn readdir<'a>(
             &self,
             _req: &RequestInfo,
             file_id: std::path::PathBuf,
-            _file_handle: BorrowedFileHandle,
+            _file_handle: BorrowedFileHandle<'a>,
         ) -> FuseResult<Vec<(std::ffi::OsString, FileKind)>> {
             let folder_path = self.source_path.join(file_id);
             let children = unix_fs::readdir(folder_path.as_ref())?;
@@ -118,32 +125,7 @@ macro_rules! mirror_fs_readonly_methods {
             Ok(result)
         }
 
-        pub fn readdirplus(
-            &self,
-            req: &RequestInfo,
-            file_id: std::path::PathBuf,
-            file_handle: BorrowedFileHandle<'_>,
-        ) -> FuseResult<Vec<(std::ffi::OsString, FileAttribute)>> {
-            let entries = self.readdir(req, file_id.clone(), file_handle)?;
-            entries
-                .into_iter()
-                .map(|(name, _)| {
-                    let attribute = match name.as_os_str() {
-                        name if name == std::ffi::OsStr::new(".") => {
-                            self.getattr(req, file_id.clone(), None)?
-                        }
-                        name if name == std::ffi::OsStr::new("..") => {
-                            let parent = file_id.parent().unwrap_or(std::path::Path::new(""));
-                            self.getattr(req, parent.to_path_buf(), None)?
-                        }
-                        _ => self.lookup(req, file_id.clone(), &name)?,
-                    };
-                    Ok((name, attribute))
-                })
-                .collect()
-        }
-
-        pub fn readlink(
+        pub $( $asyncness )? fn readlink(
             &self,
             _req: &RequestInfo,
             file_id: std::path::PathBuf,
@@ -152,7 +134,7 @@ macro_rules! mirror_fs_readonly_methods {
             unix_fs::readlink(&file_path)
         }
 
-        pub fn statfs(
+        pub $( $asyncness )? fn statfs(
             &self,
             _req: &RequestInfo,
             file_id: std::path::PathBuf,
@@ -163,9 +145,35 @@ macro_rules! mirror_fs_readonly_methods {
     };
 }
 
+fn mirror_readdirplus(
+    source_path: &Path,
+    file_id: std::path::PathBuf,
+) -> FuseResult<Vec<(std::ffi::OsString, FileAttribute)>> {
+    let folder_path = source_path.join(&file_id);
+    let mut entries = vec![
+        (std::ffi::OsString::from("."), FileKind::Directory),
+        (std::ffi::OsString::from(".."), FileKind::Directory),
+    ];
+    entries.extend(unix_fs::readdir(&folder_path)?);
+
+    let mut result = Vec::with_capacity(entries.len());
+    for (name, _) in entries {
+        let entry_path = match name.as_os_str() {
+            name if name == std::ffi::OsStr::new(".") => folder_path.clone(),
+            name if name == std::ffi::OsStr::new("..") => {
+                let parent = file_id.parent().unwrap_or(std::path::Path::new(""));
+                source_path.join(parent)
+            }
+            _ => folder_path.join(&name),
+        };
+        result.push((name, unix_fs::lookup(&entry_path)?));
+    }
+    Ok(result)
+}
+
 macro_rules! mirror_fs_readwrite_methods {
-    () => {
-        pub fn create(
+    ($( $asyncness:ident )?) => {
+        pub $( $asyncness )? fn create(
             &self,
             _req: &RequestInfo,
             parent_id: std::path::PathBuf,
@@ -179,7 +187,7 @@ macro_rules! mirror_fs_readwrite_methods {
             Ok((fd, file_attr, FopenFlags::empty()))
         }
 
-        pub fn mkdir(
+        pub $( $asyncness )? fn mkdir(
             &self,
             _req: &RequestInfo,
             parent_id: std::path::PathBuf,
@@ -191,7 +199,7 @@ macro_rules! mirror_fs_readwrite_methods {
             unix_fs::mkdir(&file_path, mode, umask)
         }
 
-        pub fn mknod(
+        pub $( $asyncness )? fn mknod(
             &self,
             _req: &RequestInfo,
             parent_id: std::path::PathBuf,
@@ -204,7 +212,7 @@ macro_rules! mirror_fs_readwrite_methods {
             unix_fs::mknod(&file_path, mode, umask, rdev)
         }
 
-        pub fn removexattr(
+        pub $( $asyncness )? fn removexattr(
             &self,
             _req: &RequestInfo,
             file_id: std::path::PathBuf,
@@ -214,7 +222,7 @@ macro_rules! mirror_fs_readwrite_methods {
             unix_fs::removexattr(&file_path, name)
         }
 
-        pub fn rename(
+        pub $( $asyncness )? fn rename(
             &self,
             _req: &RequestInfo,
             parent_id: std::path::PathBuf,
@@ -228,7 +236,7 @@ macro_rules! mirror_fs_readwrite_methods {
             unix_fs::rename(&oldpath, &newpath, flags)
         }
 
-        pub fn rmdir(
+        pub $( $asyncness )? fn rmdir(
             &self,
             _req: &RequestInfo,
             parent_id: std::path::PathBuf,
@@ -238,7 +246,7 @@ macro_rules! mirror_fs_readwrite_methods {
             unix_fs::rmdir(&file_path)
         }
 
-        pub fn setattr(
+        pub $( $asyncness )? fn setattr(
             &self,
             _req: &RequestInfo,
             file_id: std::path::PathBuf,
@@ -249,7 +257,7 @@ macro_rules! mirror_fs_readwrite_methods {
             unix_fs::setattr(&file_path, attrs)
         }
 
-        pub fn setxattr(
+        pub $( $asyncness )? fn setxattr(
             &self,
             _req: &RequestInfo,
             file_id: std::path::PathBuf,
@@ -262,7 +270,7 @@ macro_rules! mirror_fs_readwrite_methods {
             unix_fs::setxattr(&file_path, name, &value, flags, position)
         }
 
-        pub fn symlink(
+        pub $( $asyncness )? fn symlink(
             &self,
             _req: &RequestInfo,
             parent_id: std::path::PathBuf,
@@ -273,7 +281,7 @@ macro_rules! mirror_fs_readwrite_methods {
             unix_fs::symlink(&file_path, target)
         }
 
-        pub fn unlink(
+        pub $( $asyncness )? fn unlink(
             &self,
             _req: &RequestInfo,
             parent_id: std::path::PathBuf,
@@ -316,6 +324,15 @@ impl MirrorFs {
     file_descriptor_handler_readonly_methods!(std::path::PathBuf);
     file_descriptor_handler_readwrite_methods!(std::path::PathBuf);
 
+    pub fn readdirplus<'a>(
+        &self,
+        _req: &RequestInfo,
+        file_id: std::path::PathBuf,
+        _file_handle: BorrowedFileHandle<'a>,
+    ) -> FuseResult<Vec<(std::ffi::OsString, FileAttribute)>> {
+        mirror_readdirplus(&self.source_path, file_id)
+    }
+
     pub fn bmap(
         &self,
         _req: &RequestInfo,
@@ -350,7 +367,122 @@ impl MirrorFsReadOnly {
     mirror_fs_readonly_methods!();
     file_descriptor_handler_readonly_methods!(std::path::PathBuf);
 
+    pub fn readdirplus<'a>(
+        &self,
+        _req: &RequestInfo,
+        file_id: std::path::PathBuf,
+        _file_handle: BorrowedFileHandle<'a>,
+    ) -> FuseResult<Vec<(std::ffi::OsString, FileAttribute)>> {
+        mirror_readdirplus(&self.source_path, file_id)
+    }
+
     pub fn bmap(
+        &self,
+        _req: &RequestInfo,
+        file_id: std::path::PathBuf,
+        blocksize: u32,
+        index: u64,
+    ) -> FuseResult<u64> {
+        unix_fs::bmap(&self.source_path.join(file_id), blocksize, index)
+    }
+}
+
+/// Async mirror of a source directory.
+///
+/// With Linux feature `io_uring`, descriptor-backed `read`, `write`, `flush`,
+/// `fsync`, and `fallocate` use io_uring. Other filesystem operations remain
+/// synchronous. On BSD/macOS, all methods use the synchronous implementation.
+#[cfg(feature = "async")]
+pub struct MirrorFsAsync {
+    source_path: std::path::PathBuf,
+    #[cfg(all(target_os = "linux", feature = "io_uring"))]
+    io_uring: unix_fs::io_uring::IoUringExecutor,
+}
+
+#[cfg(feature = "async")]
+impl MirrorFsTrait for MirrorFsAsync {
+    fn new(source_path: std::path::PathBuf) -> Self {
+        Self {
+            source_path,
+            #[cfg(all(target_os = "linux", feature = "io_uring"))]
+            io_uring: unix_fs::io_uring::IoUringExecutor::new(),
+        }
+    }
+
+    fn source_dir(&self) -> &Path {
+        self.source_path.as_path()
+    }
+}
+
+#[cfg(feature = "async")]
+impl MirrorFsAsync {
+    mirror_fs_readonly_methods!(async);
+    mirror_fs_readwrite_methods!(async);
+    file_descriptor_handler_readonly_methods!(std::path::PathBuf, async);
+    file_descriptor_handler_readwrite_methods!(std::path::PathBuf, async);
+
+    pub async fn readdirplus<'a>(
+        &self,
+        _req: &RequestInfo,
+        file_id: std::path::PathBuf,
+        _file_handle: BorrowedFileHandle<'a>,
+    ) -> FuseResult<Vec<(std::ffi::OsString, FileAttribute)>> {
+        mirror_readdirplus(&self.source_path, file_id)
+    }
+
+    pub async fn bmap(
+        &self,
+        _req: &RequestInfo,
+        file_id: std::path::PathBuf,
+        blocksize: u32,
+        index: u64,
+    ) -> FuseResult<u64> {
+        unix_fs::bmap(&self.source_path.join(file_id), blocksize, index)
+    }
+}
+
+/// Async read-only mirror of a source directory.
+///
+/// With Linux feature `io_uring`, descriptor-backed `read`, `flush`, and
+/// `fsync` use io_uring. Other filesystem operations remain synchronous; all
+/// methods are synchronous internally on BSD/macOS.
+#[cfg(feature = "async")]
+pub struct MirrorFsReadOnlyAsync {
+    source_path: std::path::PathBuf,
+    #[cfg(all(target_os = "linux", feature = "io_uring"))]
+    io_uring: unix_fs::io_uring::IoUringExecutor,
+}
+
+#[cfg(feature = "async")]
+impl MirrorFsTrait for MirrorFsReadOnlyAsync {
+    fn new(source_path: std::path::PathBuf) -> Self {
+        Self {
+            source_path,
+            #[cfg(all(target_os = "linux", feature = "io_uring"))]
+            io_uring: unix_fs::io_uring::IoUringExecutor::new(),
+        }
+    }
+
+    fn source_dir(&self) -> &Path {
+        self.source_path.as_path()
+    }
+}
+
+#[cfg(feature = "async")]
+impl MirrorFsReadOnlyAsync {
+    mirror_fs_readonly_methods!(async);
+    file_descriptor_handler_readonly_methods!(std::path::PathBuf, async);
+
+    pub async fn readdirplus<'a>(
+        &self,
+        _req: &RequestInfo,
+        file_id: std::path::PathBuf,
+        _file_handle: BorrowedFileHandle<'a>,
+    ) -> FuseResult<Vec<(std::ffi::OsString, FileAttribute)>> {
+        mirror_readdirplus(&self.source_path, file_id)
+    }
+
+    pub async fn bmap(
         &self,
         _req: &RequestInfo,
         file_id: std::path::PathBuf,
