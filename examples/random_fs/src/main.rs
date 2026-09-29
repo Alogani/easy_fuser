@@ -3,7 +3,7 @@
 use easy_fuser::fuse_parallel::prelude::*;
 use easy_fuser::fuse_presets::DefaultFuseHandler;
 use rand::rngs::ThreadRng;
-use rand::Rng;
+use rand::RngExt;
 use std::ffi::{OsStr, OsString};
 use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -42,17 +42,17 @@ impl RandomFS {
     }
 
     fn random_inode(rng: &mut ThreadRng) -> Inode {
-        INodeNo(rng.gen::<u64>())
+        INodeNo(rng.random::<u64>())
     }
 
     fn random_string(rng: &mut ThreadRng, len: usize) -> String {
         (0..len)
-            .map(|_| rng.gen_range(b'a'..=b'z') as char)
+            .map(|_| rng.random_range(b'a'..=b'z') as char)
             .collect()
     }
 
     fn random_data(rng: &mut ThreadRng, lines: usize) -> Vec<u8> {
-        let line_length = rng.gen_range(10..50);
+        let line_length = rng.random_range(10..50);
         (0..lines)
             .map(|_| format!("{}\n", Self::random_string(rng, line_length)))
             .collect::<String>()
@@ -87,7 +87,7 @@ impl FuseHandler for RandomFS {
         ),
         PosixError,
     > {
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rng();
         let ino = Self::random_inode(&mut rng);
         let attr = self.getattr(_req, ino.clone(), None)?;
         Ok((
@@ -107,12 +107,12 @@ impl FuseHandler for RandomFS {
         if ino == ROOT_INODE {
             return Ok(ROOT_ATTR.1);
         }
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rng();
         let now = SystemTime::now();
 
         let attr = FileAttribute {
-            size: rng.gen_range(0..10000),
-            blocks: rng.gen_range(1..20),
+            size: rng.random_range(0..10000),
+            blocks: rng.random_range(1..20),
             atime: now,
             mtime: now,
             ctime: now,
@@ -120,14 +120,14 @@ impl FuseHandler for RandomFS {
             kind: if ino == ROOT_INODE {
                 FileKind::Directory
             } else {
-                if rng.gen_bool(0.7) {
+                if rng.random_bool(0.7) {
                     FileKind::RegularFile
                 } else {
                     FileKind::Directory
                 }
             },
             perm: 0o755,
-            nlink: rng.gen_range(1..5),
+            nlink: rng.random_range(1..5),
             uid: 1000,
             gid: 1000,
             rdev: 0,
@@ -146,7 +146,7 @@ impl FuseHandler for RandomFS {
         _parent: Inode,
         _name: &OsStr,
     ) -> FuseResult<(Inode, FileAttribute)> {
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rng();
         let ino = Self::random_inode(&mut rng);
         let attr = self.getattr(_req, ino.clone(), None)?;
         Ok((ino, attr))
@@ -160,7 +160,7 @@ impl FuseHandler for RandomFS {
         _mode: u32,
         _umask: u32,
     ) -> FuseResult<(Inode, FileAttribute)> {
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rng();
         let ino = Self::random_inode(&mut rng);
         let attr = self.getattr(_req, ino.clone(), None)?;
         Ok((ino, attr))
@@ -176,8 +176,8 @@ impl FuseHandler for RandomFS {
         _flags: OpenFlags,
         _lock_owner: Option<u64>,
     ) -> FuseResult<Vec<u8>> {
-        let mut rng = rand::thread_rng();
-        let lines = rng.gen_range(0..81);
+        let mut rng = rand::rng();
+        let lines = rng.random_range(0..81);
         let data = Self::random_data(&mut rng, lines);
 
         let offset = match offset {
@@ -194,8 +194,8 @@ impl FuseHandler for RandomFS {
         ino: Inode,
         _fh: BorrowedFileHandle,
     ) -> FuseResult<Vec<(OsString, (Inode, FileKind))>> {
-        let mut rng = rand::thread_rng();
-        let count = rng.gen_range(0..13);
+        let mut rng = rand::rng();
+        let count = rng.random_range(0..13);
         let mut entries = vec![
             (OsString::from("."), (ino, FileKind::Directory)),
             (
@@ -205,9 +205,9 @@ impl FuseHandler for RandomFS {
         ];
 
         for _ in 0..count {
-            let lines = rng.gen_range(0..10);
+            let lines = rng.random_range(0..10);
             let name = OsString::from(Self::random_string(&mut rng, lines));
-            let kind = if rng.gen_bool(0.7) {
+            let kind = if rng.random_bool(0.7) {
                 FileKind::RegularFile
             } else {
                 FileKind::Directory
