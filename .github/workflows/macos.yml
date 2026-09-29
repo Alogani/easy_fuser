@@ -1,16 +1,22 @@
-name: macOS FSKit test
+name: CI MacOS
 
 on:
   workflow_dispatch:
+  push:
+    branches: [main, devel]
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    branches: [main, devel]
 
 jobs:
-  fskit_test:
-    name: "FSKit mount test"
+  build_and_test:
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    name: "macOS FSKit tests"
     runs-on: macos-15
 
     env:
       PKG_CONFIG_PATH: /opt/homebrew/lib/pkgconfig
-      RUST_BACKTRACE: 1
+      RUST_BACKTRACE: full
 
     steps:
       - uses: actions/checkout@v4
@@ -33,16 +39,16 @@ jobs:
           rustc --version
           cargo --version
 
-      # FSKit only supports mountpoints under /Volumes.
-      # tempfile::TempDir will use TMPDIR.
       - name: Prepare FSKit temp directory
         run: |
           sudo mkdir -p /Volumes/easy_fuser_tmp
           sudo chown "$(id -u):$(id -g)" /Volumes/easy_fuser_tmp
+
           echo "TMPDIR=/Volumes/easy_fuser_tmp" >> "$GITHUB_ENV"
 
-      # Experimental CI-only patch:
-      # [] -> backend=fskit for test_async_mirror_fs
+          ls -la /Volumes
+          ls -la /Volumes/easy_fuser_tmp
+
       - name: Enable FSKit backend
         run: |
           python3 - <<'PY'
@@ -52,14 +58,13 @@ jobs:
           source = path.read_text()
 
           old = 'mount(fs, &mntpoint_clone, &[], Some(4)).unwrap();'
-          new = '''
-          mount(
+
+          new = '''mount(
               fs,
               &mntpoint_clone,
               &[fuser::MountOption::CUSTOM("backend=fskit".into())],
               Some(4),
-          ).unwrap();
-          '''.strip()
+          ).unwrap();'''
 
           if old not in source:
               raise SystemExit("Expected mount call not found")
@@ -69,7 +74,14 @@ jobs:
 
           git diff -- tests/async_test.rs
 
-      - name: Build async test
+      - name: Build library
+        run: |
+          cargo build \
+            --verbose \
+            --no-default-features \
+            --features "async libfuse"
+
+      - name: Compile async test
         run: |
           cargo test \
             --test async_test \
@@ -78,7 +90,24 @@ jobs:
             --no-default-features \
             --features "async libfuse"
 
-      - name: Run async FUSE mount test
+      - name: FSKit state before test
+        run: |
+          echo "=== macFUSE installation ==="
+          find /Library/Filesystems -maxdepth 3 -iname '*fuse*' -print 2>/dev/null || true
+
+          echo "=== FSKit plugins ==="
+          pluginkit -m -v | grep -i -A10 -B10 fuse || true
+
+          echo "=== processes ==="
+          ps aux | grep -i fuse || true
+
+          echo "=== mounts ==="
+          mount
+
+          echo "=== /Volumes ==="
+          ls -la /Volumes
+
+      - name: Run async FSKit mount test
         run: |
           cargo test \
             --test async_test \
@@ -87,11 +116,61 @@ jobs:
             --no-default-features \
             --features "async libfuse" \
             -- \
-            --nocapture
+            --nocapture \
+            --test-threads=1
 
-      - name: Mount diagnostics
+      - name: macFUSE / FSKit diagnostics
         if: always()
         run: |
-          mount
+          echo "========================================"
+          echo "MOUNTS"
+          echo "========================================"
+          mount || true
+
+          echo
+          echo "========================================"
+          echo "/VOLUMES"
+          echo "========================================"
           ls -la /Volumes || true
+          find /Volumes/easy_fuser_tmp -maxdepth 2 -print 2>/dev/null || true
+
+          echo
+          echo "========================================"
+          echo "MACFUSE PROCESSES"
+          echo "========================================"
           ps aux | grep -i fuse || true
+
+          echo
+          echo "========================================"
+          echo "FSKIT PLUGINS"
+          echo "========================================"
+          pluginkit -m -v | grep -i -A15 -B15 fuse || true
+
+          echo
+          echo "========================================"
+          echo "MACFUSE FILES"
+          echo "========================================"
+          find /Library/Filesystems \
+            /Library/SystemExtensions \
+            /Applications \
+            -maxdepth 5 \
+            -iname '*fuse*' \
+            -print 2>/dev/null || true
+
+          echo
+          echo "========================================"
+          echo "SYSTEM LOGS: FSKit / macFUSE"
+          echo "========================================"
+          sudo log show \
+            --last 10m \
+            --style compact \
+            --info \
+            --debug \
+            --predicate '
+              process == "fskitd"
+              OR process CONTAINS[c] "fuse"
+              OR subsystem CONTAINS[c] "fuse"
+              OR subsystem CONTAINS[c] "FSKit"
+              OR eventMessage CONTAINS[c] "macFUSE"
+              OR eventMessage CONTAINS[c] "FSKit"
+            ' || true
