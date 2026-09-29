@@ -1,7 +1,7 @@
 #![doc = include_str!("../README.md")]
 
 use easy_fuser::fuse_serial::prelude::*;
-use easy_fuser::fuse_presets::DefaultFuseHandler;
+use easy_fuser::fuse_presets::{StatelessHandler, UnimplementedFuseHandler};
 use std::ffi::{OsStr, OsString};
 use std::path::Path;
 use std::time::{Duration, UNIX_EPOCH};
@@ -56,13 +56,15 @@ const HELLO_TXT_ATTR: (Inode, FileAttribute) = (
 
 struct HelloFS {
     // To avoid implemeting all fuse methods
-    inner: DefaultFuseHandler<Inode>,
+    unimplemented: UnimplementedFuseHandler<Inode>,
+    safe_defaults: StatelessHandler<Inode>,
 }
 
 impl HelloFS {
     fn new() -> Self {
         Self {
-            inner: DefaultFuseHandler::new(),
+            unimplemented: UnimplementedFuseHandler::new(),
+            safe_defaults: StatelessHandler::new(),
         }
     }
 }
@@ -70,9 +72,8 @@ impl HelloFS {
 impl FuseHandler for HelloFS {
     type TId = Inode;
 
-    easy_fuser::delegate_fs! { inner, [
-        access, bmap, copy_file_range, create, fallocate, flush, forget, fsync, fsyncdir, getlk, getxattr, ioctl, link, listxattr, lseek, mkdir, mknod, open, opendir, readlink, release, releasedir, removexattr, rename, rmdir, setattr, setlk, setxattr, statfs, symlink, write, unlink
-    ] }
+    easy_fuser::delegate_fs! { safe_defaults, [ forget, fsyncdir, opendir, releasedir ] }
+    easy_fuser::delegate_fs! { unimplemented, [ access, bmap, copy_file_range, create, fallocate, flush, fsync, getlk, getxattr, ioctl, link, listxattr, lseek, mkdir, mknod, open, readlink, release, removexattr, rename, rmdir, setattr, setlk, setxattr, statfs, symlink, write, unlink ] }
 
     fn get_default_ttl(&self) -> Duration {
         TTL

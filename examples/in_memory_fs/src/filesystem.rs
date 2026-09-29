@@ -1,12 +1,13 @@
 use easy_fuser::fuse_parallel::prelude::*;
-use easy_fuser::fuse_presets::DefaultFuseHandler;
+use easy_fuser::fuse_presets::{StatelessHandler, UnimplementedFuseHandler};
 use std::collections::HashMap;
 use std::ffi::{OsStr, OsString};
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 pub struct InMemoryFS {
-    inner: DefaultFuseHandler<Inode>,
+    unimplemented: UnimplementedFuseHandler<Inode>,
+    safe_defaults: StatelessHandler<Inode>,
     fs: Arc<Mutex<DataBank>>,
 }
 
@@ -58,7 +59,8 @@ impl InMemoryFS {
         );
 
         Self {
-            inner: DefaultFuseHandler::new(),
+            unimplemented: UnimplementedFuseHandler::new(),
+            safe_defaults: StatelessHandler::new(),
             fs: Arc::new(Mutex::new(fs)),
         }
     }
@@ -67,9 +69,8 @@ impl InMemoryFS {
 impl FuseHandler for InMemoryFS {
     type TId = Inode;
 
-    easy_fuser::delegate_fs! { inner, [
-        bmap, copy_file_range, fsyncdir, getlk, getxattr, ioctl, link, listxattr, lseek, mknod, open, opendir, readlink, release, releasedir, removexattr, setlk, setxattr, statfs, symlink
-    ] }
+    easy_fuser::delegate_fs! { safe_defaults, [ fsyncdir, opendir, releasedir ] }
+    easy_fuser::delegate_fs! { unimplemented, [ bmap, copy_file_range, getlk, getxattr, ioctl, link, listxattr, lseek, mknod, open, readlink, release, removexattr, setlk, setxattr, statfs, symlink ] }
 
     // Access is not called for every operation
     fn access(&self, req: &RequestInfo, file_id: Inode, mask: AccessFlags) -> FuseResult<()> {

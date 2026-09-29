@@ -1,6 +1,6 @@
 use zip::ZipArchive;
 
-use easy_fuser::fuse_presets::DefaultFuseHandler;
+use easy_fuser::fuse_presets::{StatelessHandler, UnimplementedFuseHandler};
 use easy_fuser::fuse_serial::prelude::*;
 use easy_fuser::inode_mapping::*;
 
@@ -19,7 +19,8 @@ pub struct ZipFs {
     archive: Mutex<ZipArchive<File>>,
     // index and is_dir are stored in a tuple
     mapper: RwLock<InodeMapper<(usize, bool)>>,
-    inner_fs: DefaultFuseHandler<Inode>,
+    unimplemented: UnimplementedFuseHandler<Inode>,
+    safe_defaults: StatelessHandler<Inode>,
 }
 
 impl ZipFs {
@@ -74,7 +75,8 @@ impl ZipFs {
         Ok(Self {
             archive: Mutex::new(archive),
             mapper: RwLock::new(mapper),
-            inner_fs: DefaultFuseHandler::new(),
+            unimplemented: UnimplementedFuseHandler::new(),
+            safe_defaults: StatelessHandler::new(),
         })
     }
 }
@@ -82,9 +84,8 @@ impl ZipFs {
 impl FuseHandler for ZipFs {
     type TId = Inode;
 
-    easy_fuser::delegate_fs! { inner_fs, [
-        access, bmap, copy_file_range, create, fallocate, flush, fsync, fsyncdir, getlk, getxattr, ioctl, link, listxattr, lseek, mkdir, mknod, open, opendir, readlink, release, releasedir, removexattr, rename, rmdir, setattr, setlk, setxattr, statfs, symlink, write, unlink
-    ] }
+    easy_fuser::delegate_fs! { safe_defaults, [ fsyncdir, opendir, releasedir ] }
+    easy_fuser::delegate_fs! { unimplemented, [ access, bmap, copy_file_range, create, fallocate, flush, fsync, getlk, getxattr, ioctl, link, listxattr, lseek, mkdir, mknod, open, readlink, release, removexattr, rename, rmdir, setattr, setlk, setxattr, statfs, symlink, write, unlink ] }
 
     fn getattr(
         &self,

@@ -1,49 +1,34 @@
-use std::{
-    ffi::{OsStr, OsString}, marker::PhantomData, path::Path
-};
+//! Fallback behavior for operations a filesystem does not support.
+//!
+//! Use [`UnimplementedFuseHandler::new`] for an `ENOSYS` error. This is the
+//! recommended mode. Use [`UnimplementedFuseHandler::new_with_panic`] during
+//! development to find missing implementations. A custom error is available
+//! when a different response is appropriate.
+//!
+//! # Operations this handles
+//!
+//! `access`, `bmap`, `copy_file_range`, `create`, `fallocate`, `flush`, `fsync`,
+//! `getattr`, `getlk`, `getxattr`, `ioctl`, `link`, `listxattr`, `lookup`,
+//! `lseek`, `mkdir`, `mknod`, `open`, `read`, `readdir`, `readdirplus`,
+//! `readlink`, `release`, `removexattr`, `rename`, `rmdir`, `setattr`, `setlk`,
+//! `setxattr`, `statfs`, `symlink`, `unlink`, and `write`.
+//!
+//! Delegate a method here only when your filesystem intentionally leaves that
+//! operation unsupported. Otherwise, implement it or use another preset.
+
+use std::ffi::{OsStr, OsString};
+use std::marker::PhantomData;
+use std::path::Path;
 
 use crate::types::*;
 
-/**
-# DefaultFuseHandler
-
-A default skeleton implementation for a FUSE (Filesystem in Userspace) handler. This struct provides a basic framework for implementing a custom filesystem.
-
-## Overview
-
-The `DefaultFuseHandler` implements the `FuseHandler` trait, providing default implementations for all FUSE operations. Most of these default implementations will return a "Not Implemented" error or panic, depending on the configuration.
-
-## Default Implementations
-
-The following functions are implemented with default responses, so they don't need to be explicitly implemented in derived handlers:
-
-- `init`: Returns `Ok(())`.
-- `opendir`: Returns a `OwnedFileHandle` with value 0 and empty `FUSEOpenResponseFlags`. Only safe because releasedir don't use the file handle
-- `releasedir`: Returns `Ok(())`.
-- `fsyncdir`: Returns `Ok(())`.
-- `statfs`: Returns `StatFs::default()`.
-
-## Usage
-
-To use this handler, either:
-
-1. Compose it with a more specific implementation, such as `MirrorFs`, which can use `DefaultFuseHandler` as its inner handler.
-2. Use it as a reference for implementing your own `FuseHandler`.
-
-## Configuration
-
-The `DefaultFuseHandler` can be configured to either return errors or panic when unimplemented methods are called:
-
-- `DefaultFuseHandler::new()`: Creates a handler that returns "Not Implemented" errors.
-- `DefaultFuseHandler::new_with_panic()`: Creates a handler that panics on unimplemented methods.
-
-## Note
-
-This is a basic skeleton. For more complete implementations, refer to the templates provided in the library.
-*/
-pub struct DefaultFuseHandler<TId> {
+/// Returns an error or panics for operations delegated to it.
+///
+/// Use [`new`](Self::new) for the recommended `ENOSYS` response. The panic
+/// mode is intended for development when locating missing implementations.
+pub struct UnimplementedFuseHandler<TId> {
     handling: HandlingMethod,
-    phantom: PhantomData<TId>
+    phantom: PhantomData<TId>,
 }
 
 enum HandlingMethod {
@@ -51,34 +36,32 @@ enum HandlingMethod {
     Error(ErrorKind),
 }
 
-impl<TId: FileIdType> DefaultFuseHandler<TId> {
-    /// Creates a new `DefaultFuseHandler` that returns "Not Implemented" errors for each unimplemented FUSE call.
-    ///
-    /// This is useful for gradually implementing FUSE operations, as it allows the filesystem to
-    /// function (albeit with limited capabilities) even when not all operations are implemented.
+impl<TId: FileIdType> UnimplementedFuseHandler<TId> {
+    /// Returns `ENOSYS` for operations delegated to this handler.
+    /// This is the recommended mode for unsupported operations.
     pub fn new() -> Self {
-        DefaultFuseHandler {
+        UnimplementedFuseHandler {
             handling: HandlingMethod::Error(ErrorKind::FunctionNotImplemented),
             phantom: PhantomData,
         }
     }
 
-    /// Creates a new `DefaultFuseHandler` that panics for each unimplemented FUSE call.
+    /// Creates a new `UnimplementedFuseHandler` that panics for each unimplemented FUSE call.
     ///
     /// This is useful for debugging purposes, as it immediately highlights which FUSE operations
     /// are being called but not yet implemented.
     pub fn new_with_panic() -> Self {
-        DefaultFuseHandler {
+        UnimplementedFuseHandler {
             handling: HandlingMethod::Panic,
             phantom: PhantomData,
         }
     }
 
-    /// Creates a new `DefaultFuseHandler` that returns a custom error for each unimplemented FUSE call.
+    /// Creates a new `UnimplementedFuseHandler` that returns a custom error for each unimplemented FUSE call.
     ///
     /// This is useful to give a different message for the user, like PermissionDenied.
     pub fn new_with_custom_error(error_kind: ErrorKind) -> Self {
-        DefaultFuseHandler {
+        UnimplementedFuseHandler {
             handling: HandlingMethod::Error(error_kind),
             phantom: PhantomData,
         }
@@ -102,7 +85,13 @@ impl<TId: FileIdType> DefaultFuseHandler<TId> {
         }
     }
 
-    pub fn bmap(&self, _req: &RequestInfo, file_id: TId, blocksize: u32, idx: u64) -> FuseResult<u64> {
+    pub fn bmap(
+        &self,
+        _req: &RequestInfo,
+        file_id: TId,
+        blocksize: u32,
+        idx: u64,
+    ) -> FuseResult<u64> {
         match self.handling {
             HandlingMethod::Error(kind) => Err(PosixError::new(
                 kind,
@@ -273,8 +262,6 @@ impl<TId: FileIdType> DefaultFuseHandler<TId> {
         }
     }
 
-    pub fn forget(&self, _req: &RequestInfo, _file_id: TId, _nlookup: u64) {}
-
     pub fn fsync(
         &self,
         _req: &RequestInfo,
@@ -303,16 +290,6 @@ impl<TId: FileIdType> DefaultFuseHandler<TId> {
                 datasync
             ),
         }
-    }
-
-    pub fn fsyncdir(
-        &self,
-        _req: &RequestInfo,
-        _file_id: TId,
-        _file_handle: BorrowedFileHandle,
-        _datasync: bool,
-    ) -> FuseResult<()> {
-        Ok(())
     }
 
     pub fn getattr(
@@ -637,19 +614,6 @@ impl<TId: FileIdType> DefaultFuseHandler<TId> {
         }
     }
 
-    pub fn opendir(
-        &self,
-        _req: &RequestInfo,
-        _file_id: TId,
-        _flags: OpenFlags,
-    ) -> FuseResult<(OwnedFileHandle, FopenFlags)> {
-        // Safe because in releasedir we don't use it
-        Ok((
-            unsafe { OwnedFileHandle::from_raw(0) },
-            FopenFlags::empty(),
-        ))
-    }
-
     pub fn read(
         &self,
         _req: &RequestInfo,
@@ -793,16 +757,6 @@ impl<TId: FileIdType> DefaultFuseHandler<TId> {
                 flush
             ),
         }
-    }
-
-    pub fn releasedir(
-        &self,
-        _req: &RequestInfo,
-        _file_id: TId,
-        _file_handle: OwnedFileHandle,
-        _flags: OpenFlags,
-    ) -> FuseResult<()> {
-        Ok(())
     }
 
     pub fn removexattr(&self, _req: &RequestInfo, file_id: TId, name: &OsStr) -> FuseResult<()> {
@@ -982,8 +936,20 @@ impl<TId: FileIdType> DefaultFuseHandler<TId> {
         }
     }
 
-    pub fn statfs(&self, _req: &RequestInfo, _file_id: TId) -> FuseResult<StatFs> {
-        Ok(StatFs::default())
+    pub fn statfs(&self, _req: &RequestInfo, file_id: TId) -> FuseResult<StatFs> {
+        match self.handling {
+            HandlingMethod::Error(kind) => Err(PosixError::new(
+                kind,
+                if cfg!(debug_assertions) {
+                    format!("statfs(file_id: {})", file_id.display())
+                } else {
+                    String::new()
+                },
+            )),
+            HandlingMethod::Panic => {
+                panic!("[Not Implemented] statfs(file_id: {})", file_id.display())
+            }
+        }
     }
 
     pub fn symlink(

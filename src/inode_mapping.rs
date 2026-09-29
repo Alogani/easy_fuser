@@ -7,4 +7,6 @@ mod mapper;
 mod resolver;
 
 pub use mapper::*;
-pub(crate) use resolver::{FileIdResolver, InodeResolvable, RequestResolver};
+#[cfg(any(feature = "parallel", feature = "async"))]
+pub(crate) use resolver::RequestResolver;
+pub(crate) use resolver::{FileIdResolver, InodeResolvable};

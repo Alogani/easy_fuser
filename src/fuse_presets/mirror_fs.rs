@@ -1,75 +1,34 @@
-/*!
-# MirrorFs
-
-A FUSE (Filesystem in Userspace) handler that mirrors the content of another folder in either read-only or read-write mode.
-
-## Overview
-
-The `MirrorFs` struct implements the `FuseHandler` trait, providing a way to create a mirror of an existing filesystem. It comes in two variants:
-
-1. `MirrorFsReadOnly`: A read-only version that only allows read operations on the mirrored content.
-2. `MirrorFs`: A read-write version that allows both read and write operations on the mirrored content.
-
-## Implementation Details
-
-- Both variants use a `std::path:: PathBuf` to represent the repository path they're mirroring.
-- They wrap another `FuseHandler<std::path:: PathBuf>` implementation, allowing for composition of filesystem behaviors.
-- Most FUSE operations are implemented by translating paths and delegating to the `unix_fs` module.
-- The implementation uses macros to define common methods for both read-only and read-write variants.
-
-## Usage
-
-To use these handlers:
-
-1. Create a new `MirrorFsReadOnly` or `MirrorFs` instance by providing a repository path and an inner `FuseHandler<std::path:: PathBuf>` implementation:
-
-   ```text
-   let read_only_fs = MirrorFsReadOnly::new(repo_path, inner_handler);
-   // or
-   let read_write_fs = MirrorFs::new(repo_path, inner_handler);
-   ```
-
-2. Use the resulting MirrorFsReadOnly or MirrorFs as your FUSE handler.
-
-3. Alternatively, you can use MirrorFs or MirrorFsReadOnly as delegators in your own FUSE implementation (see FuseHandler documentation for more details).
-
-## Unimplemented Functions
-The following FUSE operations are not implemented in either variant:
-
-- link
-- setlk
-- getlk
-- bmap
-- ioctl
-
-
-## Important Note
-This implementation does not include safeguards against recursive mounting scenarios. Users should be cautious when choosing mount points to avoid potential system hangs.
-
-For example, if the MirrorFs is set up like this:
-```text
-let fs = MirrorFs::new("/my_repo");
-mount(fs, "/my_repo/mountpoint")
-```
-
-Operations like ls /my_repo/mountpoint could cause the system to hang indefinitely. This occurs because the filesystem would repeatedly try to access its own mountpoint, creating an endless loop.
-
-Specifically, operations such as lstat (used in lookup, getattr, and ls commands) can trigger this recursive behavior when a child directory in the mirrored filesystem is also a parent in the actual filesystem hierarchy.
-
-To avoid this issue, ensure that the mountpoint is not located within the mirrored repository.
-
-## Read-Only vs Read-Write
-- MirrorFsReadOnly: This variant only implements methods for reading and accessing file metadata. It does not allow any modifications to the mirrored filesystem.
-- MirrorFs: This variant implements all methods from MirrorFsReadOnly plus additional methods for modifying the filesystem, such as creating, deleting, and modifying files and directories.
-
-
-## Note
-For more specific implementations or to extend functionality, you can modify these handlers or use them as a reference for implementing your own FuseHandler.
-
-If you intend to enforce read-only at the fuse level,
-prefer the usage of option `MountOption::RO` instead of `MirrorFsReadOnly`.
-*/
-
+//! Mirror an existing folder through a FUSE filesystem.
+//!
+//! `MirrorFs` reads and writes files in the source folder. `MirrorFsReadOnly`
+//! provides the read operations only. Both use paths relative to the mount root.
+//! Neither type implements `FuseHandler` by itself: put it in your own handler
+//! and delegate the methods listed below.
+//!
+//! # Methods provided
+//!
+//! Both types provide `access`, `getattr`, `getxattr`, `listxattr`, `lookup`,
+//! `open`, `readdir`, `readlink`, `statfs`, `flush`, `fsync`, `lseek`, `read`,
+//! and `release`.
+//!
+//! `MirrorFs` also provides `copy_file_range`, `fallocate`, `write`, `create`,
+//! `mkdir`, `mknod`, `removexattr`, `rename`, `rmdir`, `setattr`, `setxattr`,
+//! `symlink`, and `unlink`.
+//!
+//! `MirrorFsReadOnly` does not provide write operations. To make the entire
+//! mount read-only, use the FUSE read-only mount option as well.
+//!
+//! # Methods to provide or delegate elsewhere
+//!
+//! Neither type provides `bmap`, `forget`, `fsyncdir`, `getlk`, `ioctl`, `link`,
+//! `opendir`, `readdirplus`, `releasedir`, or `setlk`. Use
+//! [`StatelessHandler`](crate::fuse_presets::StatelessHandler) for the
+//! simple directory methods when they suit your filesystem, and
+//! [`UnimplementedFuseHandler`](crate::fuse_presets::UnimplementedFuseHandler)
+//! for methods your filesystem does not support. Implement any behavior you need.
+//!
+//! Keep the mount point outside the source folder. Otherwise the filesystem
+//! could try to read its own mounted contents recursively.
 
 use std::path::Path;
 
@@ -286,7 +245,11 @@ pub trait MirrorFsTrait {
     fn source_dir(&self) -> &Path;
 }
 
-/// Specific documentation is located in parent module documentation.
+/// Mirrors a source directory and provides read and write file operations.
+///
+/// Delegate the methods listed in the module documentation to this preset.
+/// Implement other operations in your own handler or delegate them to another
+/// preset. The source directory must be outside the mount point.
 pub struct MirrorFs {
     source_path: std::path:: PathBuf,
 }
@@ -308,7 +271,11 @@ impl MirrorFs {
     fd_handler_readwrite_methods!(std::path::PathBuf);
 }
 
-/// Specific documentation is located in parent module documentation.
+/// Read-only mirror of a source directory.
+///
+/// Provides the read methods listed in the module documentation. It does not
+/// reject changes made through other methods in your handler; configure a
+/// read-only mount when the whole filesystem must be read-only.
 pub struct MirrorFsReadOnly {
     source_path: std::path:: PathBuf,
 }

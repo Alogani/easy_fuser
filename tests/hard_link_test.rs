@@ -5,7 +5,7 @@ use easy_fuser::fuse_parallel::prelude::*;
 #[cfg(feature = "serial")]
 use easy_fuser::fuse_serial::prelude::*;
 
-use easy_fuser::fuse_presets::DefaultFuseHandler;
+use easy_fuser::fuse_presets::{StatelessHandler, UnimplementedFuseHandler};
 use easy_fuser::unix_fs;
 use easy_fuser_macro::delegate_fs;
 use std::ffi::OsStr;
@@ -16,7 +16,8 @@ use tempfile::TempDir;
 
 struct LinkedFs {
     source: PathBuf,
-    defaults: DefaultFuseHandler<MappedInode>,
+    defaults: UnimplementedFuseHandler<MappedInode>,
+    safe_defaults: StatelessHandler<MappedInode>,
 }
 
 impl LinkedFs {
@@ -85,13 +86,8 @@ impl FuseHandler for LinkedFs {
         Ok(())
     }
 
-    delegate_fs! { defaults, [
-        access, bmap, copy_file_range, create, fallocate, flush, forget,
-        fsync, fsyncdir, getlk, getxattr, ioctl, listxattr, lseek,
-        mkdir, mknod, open, opendir, read, readdir, readlink, release,
-        releasedir, removexattr, rmdir, setlk, setattr, setxattr,
-        statfs, symlink, write
-    ]}
+    delegate_fs! { safe_defaults, [ forget, fsyncdir, opendir, releasedir ] }
+    delegate_fs! { defaults, [ access, bmap, copy_file_range, create, fallocate, flush, fsync, getlk, getxattr, ioctl, listxattr, lseek, mkdir, mknod, open, read, readdir, readlink, release, removexattr, rmdir, setlk, setattr, setxattr, statfs, symlink, write ] }
 }
 
 #[test]
@@ -102,7 +98,8 @@ fn mounted_hard_links_share_one_inode() {
     let session = spawn_mount(
         LinkedFs {
             source: source.path().to_path_buf(),
-            defaults: DefaultFuseHandler::new(),
+            defaults: UnimplementedFuseHandler::new(),
+            safe_defaults: StatelessHandler::new(),
         },
         Path::new(mountpoint.path()),
         &[],

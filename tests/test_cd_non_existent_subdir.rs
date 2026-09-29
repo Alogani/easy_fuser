@@ -2,7 +2,7 @@
 
 #[cfg(all(feature = "parallel", not(feature = "serial")))]
 use easy_fuser::fuse_parallel::prelude::*;
-use easy_fuser::fuse_presets::DefaultFuseHandler;
+use easy_fuser::fuse_presets::{StatelessHandler, UnimplementedFuseHandler};
 use easy_fuser::fuse_presets::mirror_fs::*;
 #[cfg(feature = "serial")]
 use easy_fuser::fuse_serial::prelude::*;
@@ -14,7 +14,8 @@ use tempfile::TempDir;
 
 struct MyFs {
     mirror_fs: MirrorFs,
-    default_fs: DefaultFuseHandler<PathBuf>,
+    unimplemented: UnimplementedFuseHandler<PathBuf>,
+    safe_defaults: StatelessHandler<PathBuf>,
 }
 
 impl FuseHandler for MyFs {
@@ -31,7 +32,8 @@ impl FuseHandler for MyFs {
         ]
     }
 
-    easy_fuser::delegate_fs! {default_fs, [ bmap, forget, fsyncdir, getlk, ioctl, link, opendir, releasedir, setlk, statfs ]}
+    easy_fuser::delegate_fs! { safe_defaults, [ forget, fsyncdir, opendir, releasedir ] }
+    easy_fuser::delegate_fs! { unimplemented, [ bmap, getlk, ioctl, link, setlk, statfs ] }
 }
 
 static MOUNT_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
@@ -60,7 +62,8 @@ fn test_cd_non_existing_subdir_io_error() {
     let handle = std::thread::spawn(move || {
         let fs = MyFs {
             mirror_fs: MirrorFs::new(source_path_clone),
-            default_fs: DefaultFuseHandler::new(),
+            unimplemented: UnimplementedFuseHandler::new(),
+            safe_defaults: StatelessHandler::new(),
         };
         mount(fs, &mntpoint_clone, &[], Some(4)).unwrap();
     });

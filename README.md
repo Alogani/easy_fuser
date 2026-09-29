@@ -7,11 +7,9 @@
 [![dependency status](https://deps.rs/repo/github/Alogani/easy_fuser/status.svg)](https://deps.rs/repo/github/Alogani/easy_fuser)
 
 > [!IMPORTANT]
-> This crate is a school project and should not be considered production ready until proven otherwise, keep in mind and have fun !
-> **Breaking Changes in v0.5.0**: The crate has been reorganized to support separate code generation structures per mode.
-> - Instead of a single prelude (`easy_fuser::prelude`), use the mode-specific preludes: `easy_fuser::fuse_serial::prelude::*`, `easy_fuser::fuse_parallel::prelude::*`, or `easy_fuser::fuse_async::prelude::*`.
-> - Template/Preset implementations (like `DefaultFuseHandler` and `MirrorFs`) are now located in the `easy_fuser::fuse_presets` module (instead of `easy_fuser::templates`).
-> - The presets no longer implement `FuseHandler` directly. Users now implement `FuseHandler` for their custom struct and delegate operations using the `delegate_fs!` macro from the `easy_fuser_macro` crate.
+> The API is not stabilized, some breaking changes can still happen.
+> See CHANGELOG.md to see it.
+> This crate shall still be considered experimental and not production ready.
 
 ## About
 
@@ -59,7 +57,7 @@ To use `easy_fuser`, follow these steps:
 
 1. Import the appropriate prelude for your concurrency mode (e.g. `easy_fuser::fuse_parallel::prelude::*`).
 2. Implement the `FuseHandler` trait for your filesystem structure, specifying the `TId` type (e.g. `PathBuf`).
-3. (Optional) Compose presets (like `DefaultFuseHandler` or `MirrorFs` from `easy_fuser::fuse_presets`) and delegate operations to them using the `delegate_fs!` macro.
+3. (Optional) Add preset values as fields in your filesystem struct and delegate selected operations to them with `delegate_fs!`.
 4. Mount or spawn-mount your filesystem.
 
 Here's a basic example:
@@ -72,28 +70,35 @@ use easy_fuser::fuse_parallel::prelude::*;
 #[cfg(all(feature = "async", not(feature = "parallel"), not(feature = "serial")))]
 use easy_fuser::fuse_async::prelude::*;
 
-use easy_fuser::fuse_presets::DefaultFuseHandler;
+use easy_fuser::fuse_presets::{StatelessHandler, UnimplementedFuseHandler};
 use easy_fuser_macro::delegate_fs;
 use std::path::{Path, PathBuf};
 
 struct MyFS {
-    default_fs: DefaultFuseHandler<PathBuf>,
+    defaults: StatelessHandler<PathBuf>,
+    unimplemented: UnimplementedFuseHandler<PathBuf>,
 }
 
 impl FuseHandler for MyFS {
     type TId = PathBuf;
 
-    // Delegate all standard FUSE methods to default_fs
-    delegate_fs! { default_fs, [
-        access, bmap, copy_file_range, create, fallocate, flush, forget, fsync, fsyncdir,
+    // These operations need no directory state in this filesystem.
+    delegate_fs! { defaults, [ forget, fsyncdir, opendir, releasedir ] }
+
+    // Return ENOSYS for operations this filesystem has not implemented.
+    delegate_fs! { unimplemented, [
+        access, bmap, copy_file_range, create, fallocate, flush, fsync,
         getattr, getlk, getxattr, ioctl, link, listxattr, lookup, lseek, mkdir, mknod,
-        open, opendir, read, readdir, readlink, release, releasedir, removexattr, rename,
+        open, read, readdir, readlink, release, removexattr, rename,
         rmdir, setattr, setlk, setxattr, statfs, symlink, unlink, write
     ]}
 }
 
 fn main() -> std::io::Result<()> {
-    let fs = MyFS { default_fs: DefaultFuseHandler::new() };
+    let fs = MyFS {
+        defaults: StatelessHandler::new(),
+        unimplemented: UnimplementedFuseHandler::new(),
+    };
     
     // Mount the filesystem, optionally configuring the number of threads.
     // In parallel mode, Some(4) runs FUSE handlers on 4 worker threads.
@@ -103,6 +108,69 @@ fn main() -> std::io::Result<()> {
     mount(fs, Path::new("/mnt/myfs"), &[], Some(4))?;
     
     Ok(())
+}
+```
+
+## Presets / Templates
+
+A preset is a helper that provides implementations for common operations. Presets do not implement your `FuseHandler`; add them as fields on your own filesystem type and delegate only the operations you want to use. You can implement an operation yourself, or add custom logic before calling a preset from your implementation.
+
+Presets can be composed with `delegate_fs!`, or with `delegate_fs_async!` and `delegate_fs_sync_to_async!` in async handlers.
+
+### Available presets
+
+`easy_fuser` provides a set of template implementations (presets) under the `easy_fuser::fuse_presets` module to help you get started quickly:
+
+- **UnimplementedFuseHandler**: Returns `ENOSYS` for unsupported operations by default; panic mode is available for debugging.
+- **StatelessHandler**: Provides simple directory responses when no directory state is needed.
+- **FileDescriptorHandler**: Supplies I/O methods for file handles backed by file descriptors; a read-only variant is also available.
+- **MirrorFs**: Reads and writes through to an existing folder; `MirrorFsReadOnly` omits write methods.
+- **OverlayFs**: Combines files from source folders and saves changes in a separate writable folder. For setup, examples, customization, supported operations, and limits, see the [detailed OverlayFs guide](src/fuse_presets/overlay_fs.rs).
+
+See each type's documentation for more information about its usage.
+
+### Composing presets
+
+Store presets as fields on your filesystem. Each `delegate_fs!` list sends the named operations to
+that field. Give each operation one owner: delegate it to a preset or implement it yourself. When
+you add a custom method, remove it from the delegation list.
+
+```rust,ignore
+use easy_fuser::fuse_parallel::prelude::*;
+use easy_fuser::fuse_presets::mirror_fs::MirrorFs;
+use easy_fuser::fuse_presets::{StatelessHandler, UnimplementedFuseHandler};
+use easy_fuser_macro::delegate_fs;
+use std::path::PathBuf;
+
+struct AppFs {
+    mirror: MirrorFs,
+    defaults: StatelessHandler<PathBuf>,
+    unsupported: UnimplementedFuseHandler<PathBuf>,
+}
+
+impl FuseHandler for AppFs {
+    type TId = PathBuf;
+
+    delegate_fs! { mirror, [ lookup, getattr, open, readdir, release ] }
+    delegate_fs! { defaults, [ forget, fsyncdir, opendir, releasedir ] }
+    delegate_fs! { unsupported, [ bmap, getlk, ioctl, readdirplus, setlk ] }
+
+    fn read(
+        &self,
+        req: &RequestInfo,
+        file_id: PathBuf,
+        file_handle: BorrowedFileHandle<'_>,
+        seek: SeekFrom,
+        size: u32,
+        flags: OpenFlags,
+        lock_owner: Option<u64>,
+    ) -> FuseResult<Vec<u8>> {
+        if file_id == PathBuf::from("secret.txt") {
+            return Err(ErrorKind::PermissionDenied.to_error("this file is private"));
+        }
+        self.mirror
+            .read(req, file_id, file_handle, seek, size, flags, lock_owner)
+    }
 }
 ```
 
@@ -131,14 +199,14 @@ To solve this, `easy_fuser` provides two specialized async delegation macros tha
 ```rust,ignore
 use easy_fuser::fuse_async::prelude::*;
 use easy_fuser::fuse_presets::mirror_fs::MirrorFs;
-use easy_fuser::fuse_presets::DefaultFuseHandler;
+use easy_fuser::fuse_presets::UnimplementedFuseHandler;
 use easy_fuser_macro::delegate_fs_sync_to_async;
 use std::path::PathBuf;
 
 struct MyAsyncFS {
     // MirrorFs has standard synchronous/blocking methods
     mirror_fs: MirrorFs,
-    default_fs: DefaultFuseHandler<PathBuf>,
+    unimplemented: UnimplementedFuseHandler<PathBuf>,
 }
 
 #[async_trait]
@@ -148,8 +216,8 @@ impl FuseHandler for MyAsyncFS {
     // Delegate to the synchronous MirrorFs target inside an async handler
     delegate_fs_sync_to_async! { mirror_fs, [ read, write, getattr ] }
 
-    // Delegate remaining methods to default_fs
-    delegate_fs_sync_to_async! { default_fs, [ statfs, link ] }
+    // These operations return ENOSYS until the filesystem supports them.
+    delegate_fs_sync_to_async! { unimplemented, [ statfs, link ] }
 }
 ```
 
@@ -177,17 +245,6 @@ easy_fuser = { version = "0.5.0", features = ["parallel"] }
 By leveraging `easy_fuser`, you can focus more on your filesystem's logic and less on the
 intricacies of FUSE implementation, making it easier to create robust, efficient, and
 maintainable filesystem solutions in Rust.
-
-## Presets / Templates
-
-`easy_fuser` provides a set of template implementations (presets) under the `easy_fuser::fuse_presets` module to help you get started quickly:
-
-- **DefaultFuseHandler**: A backbone implementation that acts as a NullFs, implementing every
-  operation. It can also be used as a PanicFs for debugging purposes.
-- **FdHandlerHelper**: Provides boilerplate for operations on open files (ReadOnly and ReadWrite variants available).
-- **MirrorFs**: A passthrough filesystem template that can be leveraged for creating more complex filesystems.
-
-These presets serve as composable building blocks, allowing you to mix and match functionalities to create custom, complex filesystem implementations with ease using delegation (via `delegate_fs!`).
 
 ## Examples
 
