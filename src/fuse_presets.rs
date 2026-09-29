@@ -16,7 +16,7 @@
 //! not support. Its recommended mode returns `ENOSYS`.
 //!
 //! ```rust,no_run
-//! use easy_fuser::fuse_parallel::prelude::*;
+//! use easy_fuser::fuse_serial::prelude::*;
 //! use easy_fuser::fuse_presets::{StatelessHandler, UnimplementedFuseHandler};
 //! use easy_fuser_macro::delegate_fs;
 //! use std::path::PathBuf;
@@ -47,7 +47,7 @@
 //! you want to add a rule around its behavior:
 //!
 //! ```rust,no_run
-//! use easy_fuser::fuse_parallel::prelude::*;
+//! use easy_fuser::fuse_serial::prelude::*;
 //! use easy_fuser::fuse_presets::{OverlayFs, StatelessHandler, UnimplementedFuseHandler};
 //! use easy_fuser_macro::delegate_fs;
 //! use std::ffi::OsStr;
