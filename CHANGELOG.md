@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Re-exported `fuser::BsdFileFlags` through `easy_fuser::types` and the
+  mode-specific preludes for use with `SetAttrRequest`.
+
 ### Breaking changes
 
 - Public `fuser` types now come from 0.18.0. Projects that also depend directly
