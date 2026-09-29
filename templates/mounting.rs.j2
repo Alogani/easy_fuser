@@ -17,7 +17,8 @@ use super::fuse_driver::FuseDriver;
 /// * `mountpoint`: The path where the filesystem should be mounted.
 /// * `options`: Mount options for the filesystem.
 /// * `num_threads`: Number of threads for handling filesystem operations concurrently. Serial
-///   mode always runs one thread; this value only affects parallel and async modes.
+///   mode always runs one thread; this value only affects parallel and async modes. `None` uses
+///   the CPU-based thread heuristic.
 /// 
 /// # Type Parameters
 /// 
@@ -43,14 +44,43 @@ where
     FS: FuseHandler<TId = TId>,
     P: AsRef<Path>,
 {
-    let driver = FuseDriver::new(
+    mount_with_threads(
         filesystem,
-        num_threads,
-        );
+        mountpoint,
+        options,
+        num_threads.map(MountThreads::same),
+    )
+}
+
+/// Mounts a FUSE filesystem with independent request-reader and operation-worker counts.
+///
+/// `fuser_threads` controls the threads that read requests from the kernel;
+/// serial mode always uses one reader.
+/// `handler_threads` controls easy_fuser's callback pool in parallel mode or
+/// Tokio's worker pool in async mode. Passing `None` uses a CPU-based starting
+/// point: one reader and one worker for one CPU, one reader and two workers for
+/// two CPUs, and otherwise one reader per eight CPUs plus half the CPU count in
+/// workers. Multiple readers enable cloned FUSE descriptors by default.
+/// On Linux, [`MountThreads::with_fuser_fd_cloning`] can give each reader an
+/// independent `/dev/fuse` descriptor when multiple readers are used.
+pub fn mount_with_threads<TId, FS, P>(
+    filesystem: FS,
+    mountpoint: P,
+    options: &[MountOption],
+    threads: Option<MountThreads>,
+) -> io::Result<()>
+where
+    TId: FileIdType,
+    FS: FuseHandler<TId = TId>,
+    P: AsRef<Path>,
+{
+    let threads = threads.unwrap_or_default();
+    let driver = FuseDriver::new(filesystem, Some(threads.handler_threads));
     let mountpoint = mountpoint.as_ref();
     let mut config = Config::default();
     config.mount_options = options.to_vec();
-    config.n_threads = {% if mode == "serial" %}Some(1){% else %}num_threads{% endif %};
+    config.n_threads = {% if mode == "serial" %}Some(1){% else %}Some(threads.fuser_threads){% endif %};
+    config.clone_fd = threads.clone_fuser_fd;
     info!("Mounting FUSE filesystem at {}", mountpoint.display());
     match fuser_mount(driver, mountpoint, &config) {
         Ok(()) => {
@@ -111,15 +141,36 @@ where
     FS: FuseHandler<TId = TId> + Send,
     P: AsRef<Path>,
 {
-    let driver = FuseDriver::new(
+    spawn_mount_with_threads(
         filesystem,
-        num_threads,
-        );
+        mountpoint,
+        options,
+        num_threads.map(MountThreads::same),
+    )
+}
+
+/// Spawns a FUSE filesystem with independent request-reader and operation-worker counts.
+///
+/// See [`mount_with_threads`] for the meaning and defaults of each count.
+pub fn spawn_mount_with_threads<TId, FS, P>(
+    filesystem: FS,
+    mountpoint: P,
+    options: &[MountOption],
+    threads: Option<MountThreads>,
+) -> io::Result<FuseSession<TId>>
+where
+    TId: FileIdType,
+    FS: FuseHandler<TId = TId> + Send,
+    P: AsRef<Path>,
+{
+    let threads = threads.unwrap_or_default();
+    let driver = FuseDriver::new(filesystem, Some(threads.handler_threads));
     let resolver = driver.resolver.clone();
     let mountpoint = mountpoint.as_ref();
     let mut config = Config::default();
     config.mount_options = options.to_vec();
-    config.n_threads = {% if mode == "serial" %}Some(1){% else %}num_threads{% endif %};
+    config.n_threads = {% if mode == "serial" %}Some(1){% else %}Some(threads.fuser_threads){% endif %};
+    config.clone_fd = threads.clone_fuser_fd;
     info!("Mounting FUSE filesystem at {} in the background", mountpoint.display());
     let session = match fuser_spawn_mount(driver, mountpoint, &config) {
         Ok(session) => session,

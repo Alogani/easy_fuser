@@ -140,9 +140,9 @@ where
 {
     pub fn new(
         handler: THandler,
-        num_threads: Option<usize>,
+        handler_threads: Option<usize>,
     ) -> FuseDriver<TId, THandler> {
-        let _ = num_threads;
+        let _ = handler_threads;
         {% if mode == "parallel" %}
             #[cfg(feature = "deadlock_detection")]
             spawn_deadlock_checker();
@@ -163,7 +163,7 @@ where
 
             {% if mode == "parallel" %}
                 threadpool: {
-                    let threads = num_threads.or_else(|| {
+                    let threads = handler_threads.or_else(|| {
                         std::thread::available_parallelism().map(|n| n.get()).ok()
                     }).unwrap_or(4);
                     ThreadPool::new(threads)
@@ -172,7 +172,7 @@ where
                 runtime: Arc::new({
                     let mut builder = tokio::runtime::Builder::new_multi_thread();
                     builder.enable_all();
-                    if let Some(threads) = num_threads {
+                    if let Some(threads) = handler_threads {
                         builder.worker_threads(threads);
                     }
                     builder.build().unwrap()

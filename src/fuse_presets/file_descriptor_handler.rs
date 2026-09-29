@@ -20,6 +20,12 @@
 //! io_uring. Other methods, and all methods on BSD/macOS, retain the synchronous
 //! `unix_fs` implementation.
 //!
+//! The current io_uring implementation creates and drops a ring for each
+//! operation. In a warm local-file benchmark it delivered roughly 3–10x lower
+//! throughput than async syscalls. This describes the current implementation,
+//! not io_uring's general performance; treat the feature as experimental and
+//! opt-in until a persistent-ring implementation is measured.
+//!
 //! # Methods your filesystem still provides
 //!
 //! Your `open` and `create` methods must return valid open file descriptors as
