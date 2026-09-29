@@ -194,7 +194,9 @@ To solve this, `easy_fuser` provides two specialized async delegation macros tha
 1. **`delegate_fs_async!`**: Use this when delegating to a field/target that itself exposes **asynchronous** methods (returning Futures).
 2. **`delegate_fs_sync_to_async!`**: Use this when delegating to a field/target that exposes **synchronous/blocking** methods. The macro automatically wraps the synchronous method call in a pinned async block.
 
-#### Example for Async Mode
+For a preset with async method signatures, use `delegate_fs_async!` and its async-compatible type. `MirrorFsAsync` and `FileDescriptorHandlerAsync` are compatibility layers: their methods call the same synchronous `unix_fs` functions directly and do not use `spawn_blocking`. They make preset composition consistent with the async `FuseHandler` API, but blocking filesystem calls can still occupy Tokio worker threads. Use `MirrorFs` with `delegate_fs_sync_to_async!` when you prefer the synchronous preset surface.
+
+#### Example for Async Mode with synchronous preset
 
 ```rust,ignore
 use easy_fuser::fuse_async::prelude::*;
@@ -217,6 +219,29 @@ impl FuseHandler for MyAsyncFS {
     delegate_fs_sync_to_async! { mirror_fs, [ read, write, getattr ] }
 
     // These operations return ENOSYS until the filesystem supports them.
+    delegate_fs_sync_to_async! { unimplemented, [ statfs, link ] }
+}
+```
+
+#### Example with `MirrorFsAsync`
+
+```rust,ignore
+use easy_fuser::fuse_async::prelude::*;
+use easy_fuser::fuse_presets::{MirrorFsAsync, UnimplementedFuseHandler};
+use easy_fuser_macro::{delegate_fs_async, delegate_fs_sync_to_async};
+use async_trait::async_trait;
+use std::path::PathBuf;
+
+struct MyAsyncFS {
+    mirror_fs: MirrorFsAsync,
+    unimplemented: UnimplementedFuseHandler<PathBuf>,
+}
+
+#[async_trait]
+impl FuseHandler for MyAsyncFS {
+    type TId = PathBuf;
+
+    delegate_fs_async! { mirror_fs, [ access, getattr, lookup, open, read, readdir, release ] }
     delegate_fs_sync_to_async! { unimplemented, [ statfs, link ] }
 }
 ```

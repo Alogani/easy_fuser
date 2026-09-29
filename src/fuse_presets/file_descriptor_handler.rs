@@ -13,6 +13,12 @@
 //! `FileDescriptorHandler<TId>` provides those same methods, plus `copy_file_range`,
 //! `fallocate`, and `write`.
 //!
+//! With the `async` feature, `FileDescriptorHandlerAsync` and
+//! `FileDescriptorHandlerReadOnlyAsync` expose the same methods as async
+//! functions for use with `delegate_fs_async!`. They call the synchronous
+//! `unix_fs` functions directly; they do not offload blocking calls from the
+//! async runtime.
+//!
 //! # Methods your filesystem still provides
 //!
 //! Your `open` and `create` methods must return valid open file descriptors as
@@ -28,42 +34,42 @@ use crate::unix_fs;
 use std::marker::PhantomData;
 
 macro_rules! file_descriptor_handler_readonly_methods {
-    ($file_id:path) => {
-        pub fn flush(
+    ($file_id:path $(, $asyncness:ident)?) => {
+        pub $( $asyncness )? fn flush<'a>(
             &self,
             _req: &RequestInfo,
             _file_id: $file_id,
-            file_handle: BorrowedFileHandle,
+            file_handle: BorrowedFileHandle<'a>,
             _lock_owner: u64,
         ) -> FuseResult<()> {
             unix_fs::flush(file_handle.as_borrowed_fd())
         }
 
-        pub fn fsync(
+        pub $( $asyncness )? fn fsync<'a>(
             &self,
             _req: &RequestInfo,
             _file_id: $file_id,
-            file_handle: BorrowedFileHandle,
+            file_handle: BorrowedFileHandle<'a>,
             datasync: bool,
         ) -> FuseResult<()> {
             unix_fs::fsync(file_handle.as_borrowed_fd(), datasync)
         }
 
-        pub fn lseek(
+        pub $( $asyncness )? fn lseek<'a>(
             &self,
             _req: &RequestInfo,
             _file_id: $file_id,
-            file_handle: BorrowedFileHandle,
+            file_handle: BorrowedFileHandle<'a>,
             seek: SeekFrom,
         ) -> FuseResult<i64> {
             unix_fs::lseek(file_handle.as_borrowed_fd(), seek)
         }
 
-        pub fn read(
+        pub $( $asyncness )? fn read<'a>(
             &self,
             _req: &RequestInfo,
             _file_id: $file_id,
-            file_handle: BorrowedFileHandle,
+            file_handle: BorrowedFileHandle<'a>,
             seek: SeekFrom,
             size: u32,
             _flags: OpenFlags,
@@ -72,7 +78,7 @@ macro_rules! file_descriptor_handler_readonly_methods {
             unix_fs::read(file_handle.as_borrowed_fd(), seek, size as usize)
         }
 
-        pub fn release(
+        pub $( $asyncness )? fn release(
             &self,
             _req: &RequestInfo,
             _file_id: $file_id,
@@ -84,22 +90,22 @@ macro_rules! file_descriptor_handler_readonly_methods {
             unix_fs::release(file_handle.into_owned_fd())
         }
 
-        pub fn getlk(
+        pub $( $asyncness )? fn getlk<'a>(
             &self,
             _req: &RequestInfo,
             _file_id: $file_id,
-            file_handle: BorrowedFileHandle,
+            file_handle: BorrowedFileHandle<'a>,
             lock_owner: u64,
             lock_info: LockInfo,
         ) -> FuseResult<LockInfo> {
             unix_fs::getlk(file_handle.as_borrowed_fd(), lock_owner, lock_info)
         }
 
-        pub fn ioctl(
+        pub $( $asyncness )? fn ioctl<'a>(
             &self,
             _req: &RequestInfo,
             _file_id: $file_id,
-            file_handle: BorrowedFileHandle,
+            file_handle: BorrowedFileHandle<'a>,
             _flags: IoctlFlags,
             cmd: u32,
             in_data: Vec<u8>,
@@ -108,11 +114,11 @@ macro_rules! file_descriptor_handler_readonly_methods {
             unix_fs::ioctl(file_handle.as_borrowed_fd(), cmd, in_data, out_size)
         }
 
-        pub fn setlk(
+        pub $( $asyncness )? fn setlk<'a>(
             &self,
             _req: &RequestInfo,
             _file_id: $file_id,
-            file_handle: BorrowedFileHandle,
+            file_handle: BorrowedFileHandle<'a>,
             lock_owner: u64,
             lock_info: LockInfo,
             sleep: bool,
@@ -123,15 +129,15 @@ macro_rules! file_descriptor_handler_readonly_methods {
 }
 
 macro_rules! file_descriptor_handler_readwrite_methods {
-    ($file_id:path) => {
-        pub fn copy_file_range(
+    ($file_id:path $(, $asyncness:ident)?) => {
+        pub $( $asyncness )? fn copy_file_range<'a, 'b>(
             &self,
             _req: &RequestInfo,
             _file_in: $file_id,
-            file_handle_in: BorrowedFileHandle,
+            file_handle_in: BorrowedFileHandle<'a>,
             offset_in: u64,
             _file_out: $file_id,
-            file_handle_out: BorrowedFileHandle,
+            file_handle_out: BorrowedFileHandle<'b>,
             offset_out: u64,
             len: u64,
             _flags: CopyFileRangeFlags,
@@ -145,11 +151,11 @@ macro_rules! file_descriptor_handler_readwrite_methods {
             )
         }
 
-        pub fn fallocate(
+        pub $( $asyncness )? fn fallocate<'a>(
             &self,
             _req: &RequestInfo,
             _file_id: $file_id,
-            file_handle: BorrowedFileHandle,
+            file_handle: BorrowedFileHandle<'a>,
             offset: i64,
             length: i64,
             mode: FallocateFlags,
@@ -157,11 +163,11 @@ macro_rules! file_descriptor_handler_readwrite_methods {
             unix_fs::fallocate(file_handle.as_borrowed_fd(), offset, length, mode)
         }
 
-        pub fn write(
+        pub $( $asyncness )? fn write<'a>(
             &self,
             _req: &RequestInfo,
             _file_id: $file_id,
-            file_handle: BorrowedFileHandle,
+            file_handle: BorrowedFileHandle<'a>,
             seek: SeekFrom,
             data: Vec<u8>,
             _write_flags: WriteFlags,
@@ -227,6 +233,71 @@ impl<TId: FileIdType> FileDescriptorHandlerReadOnly<TId> {
 
 impl<TId: FileIdType> FileDescriptorHandlerReadOnly<TId> {
     file_descriptor_handler_readonly_methods!(TId);
+}
+
+/// Async-compatible file-descriptor helpers.
+///
+/// These methods satisfy the async `FuseHandler` interface, but call the same
+/// synchronous `unix_fs` operations directly. They do not move blocking system
+/// calls off the Tokio runtime. Use them to compose an async handler with
+/// `delegate_fs_async!`. Alternatively, use `delegate_fs_sync_to_async!` with
+/// [`FileDescriptorHandler`]. A blocking-pool implementation may be added
+/// separately if runtime responsiveness proves to require it.
+#[cfg(feature = "async")]
+pub struct FileDescriptorHandlerAsync<TId: FileIdType> {
+    phantom: PhantomData<TId>,
+}
+
+#[cfg(feature = "async")]
+impl<TId: FileIdType> Default for FileDescriptorHandlerAsync<TId> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[cfg(feature = "async")]
+impl<TId: FileIdType> FileDescriptorHandlerAsync<TId> {
+    pub fn new() -> Self {
+        Self {
+            phantom: PhantomData,
+        }
+    }
+}
+
+#[cfg(feature = "async")]
+impl<TId: FileIdType> FileDescriptorHandlerAsync<TId> {
+    file_descriptor_handler_readonly_methods!(TId, async);
+    file_descriptor_handler_readwrite_methods!(TId, async);
+}
+
+/// Async-compatible read-only file-descriptor helpers.
+///
+/// These methods call synchronous `unix_fs` operations directly and do not
+/// offload blocking system calls from the Tokio runtime.
+#[cfg(feature = "async")]
+pub struct FileDescriptorHandlerReadOnlyAsync<TId: FileIdType> {
+    phantom: PhantomData<TId>,
+}
+
+#[cfg(feature = "async")]
+impl<TId: FileIdType> Default for FileDescriptorHandlerReadOnlyAsync<TId> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[cfg(feature = "async")]
+impl<TId: FileIdType> FileDescriptorHandlerReadOnlyAsync<TId> {
+    pub fn new() -> Self {
+        Self {
+            phantom: PhantomData,
+        }
+    }
+}
+
+#[cfg(feature = "async")]
+impl<TId: FileIdType> FileDescriptorHandlerReadOnlyAsync<TId> {
+    file_descriptor_handler_readonly_methods!(TId, async);
 }
 
 /// Deprecated alias for [`FileDescriptorHandler`].
