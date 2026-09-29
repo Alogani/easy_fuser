@@ -23,8 +23,8 @@ jobs:
 
       - name: Install macFUSE
         run: |
-          brew install macfuse pkgconf
-          brew list --versions macfuse
+          brew install --cask macfuse
+          brew info --cask macfuse
 
       - name: Setup Rust
         run: |
