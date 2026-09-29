@@ -2,11 +2,7 @@ use super::super::file_descriptor_handler::{
     file_descriptor_handler_readonly_methods, file_descriptor_handler_readwrite_methods,
 };
 use super::*;
-
-fn into_file_handle(fd: std::os::fd::OwnedFd) -> FuseResult<OwnedFileHandle> {
-    OwnedFileHandle::from_owned_fd(fd)
-        .ok_or_else(|| ErrorKind::BadFileDescriptor.to_error("could not convert file descriptor"))
-}
+use std::os::fd::{AsFd, OwnedFd};
 
 impl OverlayFs {
     pub fn access(
@@ -25,10 +21,10 @@ impl OverlayFs {
         &self,
         _req: &RequestInfo,
         file_id: PathBuf,
-        file_handle: Option<BorrowedFileHandle<'_>>,
+        file_handle: Option<&mut OwnedFd>,
     ) -> FuseResult<FileAttribute> {
         if let Some(file_handle) = file_handle {
-            return unix_fs::getattr(file_handle.as_borrowed_fd());
+            return unix_fs::getattr(file_handle.as_fd());
         }
         let entry = self
             .resolve(&file_id)?
@@ -91,7 +87,7 @@ impl OverlayFs {
         _req: &RequestInfo,
         file_id: PathBuf,
         flags: OpenFlags,
-    ) -> FuseResult<(OwnedFileHandle, FopenFlags)> {
+    ) -> FuseResult<(OwnedFd, FopenFlags)> {
         let path = self.normalize_path(&file_id)?;
         if flags.0 & libc::O_ACCMODE != libc::O_RDONLY {
             let _guard = self.mutation_guard()?;
@@ -101,8 +97,7 @@ impl OverlayFs {
             .resolve(&path)?
             .ok_or_else(|| ErrorKind::FileNotFound.to_error("overlay entry does not exist"))?;
         let fd = unix_fs::open(&entry.path, flags)?;
-        let file_handle = into_file_handle(fd)?;
-        Ok((file_handle, FopenFlags::empty()))
+        Ok((fd, FopenFlags::empty()))
     }
 
     pub fn readdir(
@@ -125,9 +120,7 @@ impl OverlayFs {
             .into_iter()
             .map(|(name, _)| {
                 let attribute = match name.as_os_str() {
-                    name if name == OsStr::new(".") => {
-                        self.getattr(req, file_id.clone(), None)?
-                    }
+                    name if name == OsStr::new(".") => self.getattr(req, file_id.clone(), None)?,
                     name if name == OsStr::new("..") => {
                         let parent = file_id.parent().unwrap_or(Path::new(""));
                         self.getattr(req, parent.to_path_buf(), None)?
@@ -171,7 +164,7 @@ impl OverlayFs {
         mode: u32,
         umask: u32,
         flags: OpenFlags,
-    ) -> FuseResult<(OwnedFileHandle, FileAttribute, FopenFlags)> {
+    ) -> FuseResult<(OwnedFd, FileAttribute, FopenFlags)> {
         let _guard = self.mutation_guard()?;
         let path = self.child_path(&parent_id, name)?;
         if let Some(entry) = self.resolve(&path)? {
@@ -185,8 +178,7 @@ impl OverlayFs {
         self.ensure_upper_parents(&path)?;
         let upper_path = self.upper_dir.join(&path);
         let (fd, attributes) = unix_fs::create(&upper_path, mode, umask, flags)?;
-        let file_handle = into_file_handle(fd)?;
-        Ok((file_handle, attributes, FopenFlags::empty()))
+        Ok((fd, attributes, FopenFlags::empty()))
     }
 
     pub fn mkdir(
@@ -261,7 +253,8 @@ impl OverlayFs {
         &self,
         _req: &RequestInfo,
         file_id: PathBuf,
-        attrs: SetAttrRequest<'_>,
+        attrs: SetAttrRequest,
+        _file_handle: Option<&mut OwnedFd>,
     ) -> FuseResult<FileAttribute> {
         let _guard = self.mutation_guard()?;
         let path = self.normalize_path(&file_id)?;

@@ -33,6 +33,7 @@
 use crate::types::*;
 use crate::unix_fs;
 use std::marker::PhantomData;
+use std::os::fd::{AsFd, OwnedFd};
 
 #[doc(hidden)]
 #[macro_export]
@@ -127,91 +128,107 @@ macro_rules! file_descriptor_handler_readonly_methods {
             &self,
             _req: &RequestInfo,
             _file_id: $file_id,
-            file_handle: BorrowedFileHandle<'a>,
+            file_handle: Option<&mut OwnedFd>,
             _lock_owner: u64,
         ) -> FuseResult<()> {
-            $crate::file_descriptor_io_call!(self, flush, file_handle.as_borrowed_fd() $(, $asyncness)?)
+            let fd = file_handle
+                .ok_or_else(|| ErrorKind::BadFileDescriptor.to_error("missing file handle"))?;
+            $crate::file_descriptor_io_call!(self, flush, fd.as_fd() $(, $asyncness)?)
         }
 
         pub $( $asyncness )? fn fsync<'a>(
             &self,
             _req: &RequestInfo,
             _file_id: $file_id,
-            file_handle: BorrowedFileHandle<'a>,
+            file_handle: Option<&mut OwnedFd>,
             datasync: bool,
         ) -> FuseResult<()> {
-            $crate::file_descriptor_io_call!(self, fsync, file_handle.as_borrowed_fd(), datasync $(, $asyncness)?)
+            let fd = file_handle
+                .ok_or_else(|| ErrorKind::BadFileDescriptor.to_error("missing file handle"))?;
+            $crate::file_descriptor_io_call!(self, fsync, fd.as_fd(), datasync $(, $asyncness)?)
         }
 
         pub $( $asyncness )? fn lseek<'a>(
             &self,
             _req: &RequestInfo,
             _file_id: $file_id,
-            file_handle: BorrowedFileHandle<'a>,
+            file_handle: Option<&mut OwnedFd>,
             seek: SeekFrom,
         ) -> FuseResult<i64> {
-            unix_fs::lseek(file_handle.as_borrowed_fd(), seek)
+            let fd = file_handle
+                .ok_or_else(|| ErrorKind::BadFileDescriptor.to_error("missing file handle"))?;
+            unix_fs::lseek(fd.as_fd(), seek)
         }
 
         pub $( $asyncness )? fn read<'a>(
             &self,
             _req: &RequestInfo,
             _file_id: $file_id,
-            file_handle: BorrowedFileHandle<'a>,
+            file_handle: Option<&mut OwnedFd>,
             seek: SeekFrom,
             size: u32,
             _flags: OpenFlags,
             _lock_owner: Option<u64>,
         ) -> FuseResult<Vec<u8>> {
-            $crate::file_descriptor_io_call!(self, read, file_handle.as_borrowed_fd(), seek, size as usize $(, $asyncness)?)
+            let fd = file_handle
+                .ok_or_else(|| ErrorKind::BadFileDescriptor.to_error("missing file handle"))?;
+            $crate::file_descriptor_io_call!(self, read, fd.as_fd(), seek, size as usize $(, $asyncness)?)
         }
 
         pub $( $asyncness )? fn release(
             &self,
             _req: &RequestInfo,
             _file_id: $file_id,
-            file_handle: OwnedFileHandle,
+            file_handle: Option<OwnedFd>,
             _flags: OpenFlags,
             _lock_owner: Option<u64>,
             _flush: bool,
         ) -> FuseResult<()> {
-            $crate::file_descriptor_io_call!(self, release, file_handle.into_owned_fd() $(, $asyncness)?)
+            let fd = file_handle
+                .ok_or_else(|| ErrorKind::BadFileDescriptor.to_error("missing file handle"))?;
+            $crate::file_descriptor_io_call!(self, release, fd $(, $asyncness)?)
         }
 
         pub $( $asyncness )? fn getlk<'a>(
             &self,
             _req: &RequestInfo,
             _file_id: $file_id,
-            file_handle: BorrowedFileHandle<'a>,
+            file_handle: Option<&mut OwnedFd>,
             lock_owner: u64,
             lock_info: LockInfo,
         ) -> FuseResult<LockInfo> {
-            unix_fs::getlk(file_handle.as_borrowed_fd(), lock_owner, lock_info)
+            let fd = file_handle
+                .ok_or_else(|| ErrorKind::BadFileDescriptor.to_error("missing file handle"))?;
+            unix_fs::getlk(fd.as_fd(), lock_owner, lock_info)
         }
 
         pub $( $asyncness )? fn ioctl<'a>(
             &self,
             _req: &RequestInfo,
             _file_id: $file_id,
-            file_handle: BorrowedFileHandle<'a>,
+            file_handle: Option<&mut OwnedFd>,
             _flags: IoctlFlags,
             cmd: u32,
             in_data: Vec<u8>,
             out_size: u32,
         ) -> FuseResult<(i32, Vec<u8>)> {
-            unix_fs::ioctl(file_handle.as_borrowed_fd(), cmd, in_data, out_size)
+            let fd = file_handle
+                .ok_or_else(|| ErrorKind::BadFileDescriptor.to_error("missing file handle"))?;
+            unix_fs::ioctl(fd.as_fd(), cmd, in_data, out_size)
         }
 
         pub $( $asyncness )? fn setlk<'a>(
             &self,
             _req: &RequestInfo,
             _file_id: $file_id,
-            file_handle: BorrowedFileHandle<'a>,
+            file_handle: Option<&mut OwnedFd>,
             lock_owner: u64,
             lock_info: LockInfo,
             sleep: bool,
         ) -> FuseResult<()> {
-            unix_fs::setlk(file_handle.as_borrowed_fd(), lock_owner, lock_info, sleep)
+            let fd = file_handle
+                .ok_or_else(|| ErrorKind::BadFileDescriptor.to_error("missing file handle"))?;
+            unix_fs::setlk(fd.as_fd(), lock_owner, lock_info, sleep)
         }
     };
 }
@@ -222,18 +239,26 @@ macro_rules! file_descriptor_handler_readwrite_methods {
             &self,
             _req: &RequestInfo,
             _file_in: $file_id,
-            file_handle_in: BorrowedFileHandle<'a>,
+            file_handle_in: Option<&OwnedFd>,
             offset_in: u64,
             _file_out: $file_id,
-            file_handle_out: BorrowedFileHandle<'b>,
+            file_handle_out: Option<&OwnedFd>,
             offset_out: u64,
             len: u64,
             _flags: CopyFileRangeFlags,
         ) -> FuseResult<u32> {
             unix_fs::copy_file_range(
-                file_handle_in.as_borrowed_fd(),
+                file_handle_in
+                    .ok_or_else(|| {
+                        ErrorKind::BadFileDescriptor.to_error("missing source file handle")
+                    })?
+                    .as_fd(),
                 offset_in as i64,
-                file_handle_out.as_borrowed_fd(),
+                file_handle_out
+                    .ok_or_else(|| {
+                        ErrorKind::BadFileDescriptor.to_error("missing destination file handle")
+                    })?
+                    .as_fd(),
                 offset_out as i64,
                 len,
             )
@@ -243,26 +268,30 @@ macro_rules! file_descriptor_handler_readwrite_methods {
             &self,
             _req: &RequestInfo,
             _file_id: $file_id,
-            file_handle: BorrowedFileHandle<'a>,
+            file_handle: Option<&mut OwnedFd>,
             offset: i64,
             length: i64,
             mode: FallocateFlags,
         ) -> FuseResult<()> {
-            $crate::file_descriptor_io_call!(self, fallocate, file_handle.as_borrowed_fd(), offset, length, mode $(, $asyncness)?)
+            let fd = file_handle
+                .ok_or_else(|| ErrorKind::BadFileDescriptor.to_error("missing file handle"))?;
+            $crate::file_descriptor_io_call!(self, fallocate, fd.as_fd(), offset, length, mode $(, $asyncness)?)
         }
 
         pub $( $asyncness )? fn write<'a>(
             &self,
             _req: &RequestInfo,
             _file_id: $file_id,
-            file_handle: BorrowedFileHandle<'a>,
+            file_handle: Option<&mut OwnedFd>,
             seek: SeekFrom,
             data: Vec<u8>,
             _write_flags: WriteFlags,
             _flags: OpenFlags,
             _lock_owner: Option<u64>,
         ) -> FuseResult<u32> {
-            $crate::file_descriptor_io_call!(self, write, file_handle.as_borrowed_fd(), seek, data $(, $asyncness)?)
+            let fd = file_handle
+                .ok_or_else(|| ErrorKind::BadFileDescriptor.to_error("missing file handle"))?;
+            $crate::file_descriptor_io_call!(self, write, fd.as_fd(), seek, data $(, $asyncness)?)
                 .map(|res| res as u32)
         }
     };
@@ -272,8 +301,8 @@ macro_rules! file_descriptor_handler_readwrite_methods {
 ///
 /// Provides descriptor-backed `flush`, `fsync`, `getlk`, `ioctl`, `lseek`,
 /// `read`, `release`, and `setlk`, plus `copy_file_range`, `fallocate`, and
-/// `write`. Your `open` and `create` methods must return an open file descriptor
-/// as the file handle.
+/// `write`. Use `OwnedFd` as your handler's `FileHandle` and return it from
+/// `open` and `create`.
 pub struct FileDescriptorHandler<TId: FileIdType> {
     phantom: PhantomData<TId>,
 }
@@ -301,7 +330,7 @@ impl<TId: FileIdType> FileDescriptorHandler<TId> {
 ///
 /// Provides descriptor-backed `flush`, `fsync`, `getlk`, `ioctl`, `lseek`,
 /// `read`, `release`, and `setlk`. Your `open` method must return an open file
-/// descriptor as the file handle.
+/// descriptor as its `FileHandle`.
 pub struct FileDescriptorHandlerReadOnly<TId: FileIdType> {
     phantom: PhantomData<TId>,
 }
@@ -408,3 +437,38 @@ pub type FdHandlerHelperReadOnly<TId> = FileDescriptorHandlerReadOnly<TId>;
 
 pub(super) use file_descriptor_handler_readonly_methods;
 pub(super) use file_descriptor_handler_readwrite_methods;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    #[test]
+    fn missing_resource_returns_bad_file_descriptor() {
+        let request = RequestInfo {
+            id: RequestId(0),
+            uid: 0,
+            gid: 0,
+            pid: 0,
+        };
+        let handler = FileDescriptorHandler::<PathBuf>::new();
+
+        let read_error = handler
+            .read(
+                &request,
+                PathBuf::new(),
+                None,
+                SeekFrom::Start(0),
+                1,
+                OpenFlags(0),
+                None,
+            )
+            .unwrap_err();
+        assert_eq!(read_error.kind(), ErrorKind::BadFileDescriptor);
+
+        let release_error = handler
+            .release(&request, PathBuf::new(), None, OpenFlags(0), None, false)
+            .unwrap_err();
+        assert_eq!(release_error.kind(), ErrorKind::BadFileDescriptor);
+    }
+}

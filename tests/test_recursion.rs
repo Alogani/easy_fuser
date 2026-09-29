@@ -27,6 +27,7 @@ struct MyFs {
 
 impl FuseHandler for MyFs {
     type TId = PathBuf;
+    type FileHandle = std::os::fd::OwnedFd;
 
     delegate_fs! { mirror_fs, [
         flush, fsync, lseek, read, release,

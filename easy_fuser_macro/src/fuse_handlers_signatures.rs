@@ -28,10 +28,10 @@ pub fn get_fuse_handler_trait_fn(func_name: &str) -> TraitItemFn {
                 &self,
                 req: &RequestInfo,
                 file_in: Self::TId,
-                file_handle_in: BorrowedFileHandle<'_>,
+                file_handle_in: Option<&Self::FileHandle>,
                 offset_in: u64,
                 file_out: Self::TId,
-                file_handle_out: BorrowedFileHandle<'_>,
+                file_handle_out: Option<&Self::FileHandle>,
                 offset_out: u64,
                 len: u64,
                 flags: CopyFileRangeFlags,
@@ -46,14 +46,14 @@ pub fn get_fuse_handler_trait_fn(func_name: &str) -> TraitItemFn {
                 mode: u32,
                 umask: u32,
                 flags: OpenFlags,
-            ) -> FuseResult<(OwnedFileHandle, <Self::TId as FileIdType>::Metadata, FopenFlags)>;
+            ) -> FuseResult<(Self::FileHandle, <Self::TId as FileIdType>::Metadata, FopenFlags)>;
         },
         "fallocate" => parse_quote! {
             fn fallocate(
                 &self,
                 req: &RequestInfo,
                 file_id: Self::TId,
-                file_handle: BorrowedFileHandle<'_>,
+                file_handle: Option<&mut Self::FileHandle>,
                 offset: i64,
                 length: i64,
                 mode: FallocateFlags,
@@ -64,7 +64,7 @@ pub fn get_fuse_handler_trait_fn(func_name: &str) -> TraitItemFn {
                 &self,
                 req: &RequestInfo,
                 file_id: Self::TId,
-                file_handle: BorrowedFileHandle<'_>,
+                file_handle: Option<&mut Self::FileHandle>,
                 lock_owner: u64,
             ) -> FuseResult<()>;
         },
@@ -76,7 +76,7 @@ pub fn get_fuse_handler_trait_fn(func_name: &str) -> TraitItemFn {
                 &self,
                 req: &RequestInfo,
                 file_id: Self::TId,
-                file_handle: BorrowedFileHandle<'_>,
+                file_handle: Option<&mut Self::FileHandle>,
                 datasync: bool,
             ) -> FuseResult<()>;
         },
@@ -94,7 +94,7 @@ pub fn get_fuse_handler_trait_fn(func_name: &str) -> TraitItemFn {
                 &self,
                 req: &RequestInfo,
                 file_id: Self::TId,
-                file_handle: Option<BorrowedFileHandle<'_>>,
+                file_handle: Option<&mut Self::FileHandle>,
             ) -> FuseResult<FileAttribute>;
         },
         "getlk" => parse_quote! {
@@ -102,7 +102,7 @@ pub fn get_fuse_handler_trait_fn(func_name: &str) -> TraitItemFn {
                 &self,
                 req: &RequestInfo,
                 file_id: Self::TId,
-                file_handle: BorrowedFileHandle<'_>,
+                file_handle: Option<&mut Self::FileHandle>,
                 lock_owner: u64,
                 lock_info: LockInfo,
             ) -> FuseResult<LockInfo>;
@@ -121,7 +121,7 @@ pub fn get_fuse_handler_trait_fn(func_name: &str) -> TraitItemFn {
                 &self,
                 req: &RequestInfo,
                 file_id: Self::TId,
-                file_handle: BorrowedFileHandle<'_>,
+                file_handle: Option<&mut Self::FileHandle>,
                 flags: IoctlFlags,
                 cmd: u32,
                 in_data: Vec<u8>,
@@ -153,7 +153,7 @@ pub fn get_fuse_handler_trait_fn(func_name: &str) -> TraitItemFn {
                 &self,
                 req: &RequestInfo,
                 file_id: Self::TId,
-                file_handle: BorrowedFileHandle<'_>,
+                file_handle: Option<&mut Self::FileHandle>,
                 seek: SeekFrom,
             ) -> FuseResult<i64>;
         },
@@ -184,7 +184,7 @@ pub fn get_fuse_handler_trait_fn(func_name: &str) -> TraitItemFn {
                 req: &RequestInfo,
                 file_id: Self::TId,
                 flags: OpenFlags,
-            ) -> FuseResult<(OwnedFileHandle, FopenFlags)>;
+            ) -> FuseResult<(Self::FileHandle, FopenFlags)>;
         },
         "opendir" => parse_quote! {
             fn opendir(
@@ -199,7 +199,7 @@ pub fn get_fuse_handler_trait_fn(func_name: &str) -> TraitItemFn {
                 &self,
                 req: &RequestInfo,
                 file_id: Self::TId,
-                file_handle: BorrowedFileHandle<'_>,
+                file_handle: Option<&mut Self::FileHandle>,
                 seek: SeekFrom,
                 size: u32,
                 flags: OpenFlags,
@@ -230,7 +230,7 @@ pub fn get_fuse_handler_trait_fn(func_name: &str) -> TraitItemFn {
                 &self,
                 req: &RequestInfo,
                 file_id: Self::TId,
-                file_handle: OwnedFileHandle,
+                file_handle: Option<Self::FileHandle>,
                 flags: OpenFlags,
                 lock_owner: Option<u64>,
                 flush: bool,
@@ -267,7 +267,8 @@ pub fn get_fuse_handler_trait_fn(func_name: &str) -> TraitItemFn {
                 &self,
                 req: &RequestInfo,
                 file_id: Self::TId,
-                attrs: SetAttrRequest<'_>,
+                attrs: SetAttrRequest,
+                file_handle: Option<&mut Self::FileHandle>,
             ) -> FuseResult<FileAttribute>;
         },
         "setlk" => parse_quote! {
@@ -275,7 +276,7 @@ pub fn get_fuse_handler_trait_fn(func_name: &str) -> TraitItemFn {
                 &self,
                 req: &RequestInfo,
                 file_id: Self::TId,
-                file_handle: BorrowedFileHandle<'_>,
+                file_handle: Option<&mut Self::FileHandle>,
                 lock_owner: u64,
                 lock_info: LockInfo,
                 sleep: bool,
@@ -309,7 +310,7 @@ pub fn get_fuse_handler_trait_fn(func_name: &str) -> TraitItemFn {
                 &self,
                 req: &RequestInfo,
                 file_id: Self::TId,
-                file_handle: BorrowedFileHandle<'_>,
+                file_handle: Option<&mut Self::FileHandle>,
                 seek: SeekFrom,
                 data: Vec<u8>,
                 write_flags: WriteFlags,

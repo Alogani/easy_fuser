@@ -55,6 +55,9 @@ fn main() -> std::io::Result<()> {
         let content = FuseDriverTemplate { mode }.render()?;
         fs::write(mode_dir.join("fuse_driver.rs"), content)?;
 
+        let content = FileHandleTableTemplate { mode }.render()?;
+        fs::write(mode_dir.join("file_handle_table.rs"), content)?;
+
         let content = FuseHandlerTemplate { mode }.render()?;
         fs::write(mode_dir.join("fuse_handler.rs"), content)?;
 

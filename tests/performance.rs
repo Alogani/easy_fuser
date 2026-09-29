@@ -11,6 +11,7 @@ use std::{
     fs,
     hint::black_box,
     io::SeekFrom,
+    os::fd::OwnedFd,
     os::unix::fs::FileExt,
     path::PathBuf,
     sync::{
@@ -39,6 +40,7 @@ struct MeasuredFs {
 
 impl FuseHandler for MeasuredFs {
     type TId = PathBuf;
+    type FileHandle = OwnedFd;
 
     fn get_default_ttl(&self) -> Duration {
         Duration::ZERO
@@ -48,7 +50,7 @@ impl FuseHandler for MeasuredFs {
         &self,
         _req: &RequestInfo,
         id: PathBuf,
-        _fh: Option<BorrowedFileHandle<'_>>,
+        _fh: Option<&mut OwnedFd>,
     ) -> FuseResult<FileAttribute> {
         self.getattr_calls.fetch_add(1, Ordering::Relaxed);
         unix_fs::lookup(&self.mirror.source_dir().join(id))
@@ -93,7 +95,7 @@ impl FuseHandler for MeasuredFs {
         req: &RequestInfo,
         id: PathBuf,
         flags: OpenFlags,
-    ) -> FuseResult<(OwnedFileHandle, FopenFlags)> {
+    ) -> FuseResult<(OwnedFd, FopenFlags)> {
         let (fh, _) = self.mirror.open(req, id, flags)?;
         Ok((fh, FopenFlags::FOPEN_DIRECT_IO))
     }
@@ -102,7 +104,7 @@ impl FuseHandler for MeasuredFs {
         &self,
         req: &RequestInfo,
         id: PathBuf,
-        fh: BorrowedFileHandle<'_>,
+        fh: Option<&mut OwnedFd>,
         seek: SeekFrom,
         size: u32,
         flags: OpenFlags,
@@ -116,7 +118,7 @@ impl FuseHandler for MeasuredFs {
         &self,
         req: &RequestInfo,
         id: PathBuf,
-        fh: BorrowedFileHandle<'_>,
+        fh: Option<&mut OwnedFd>,
         seek: SeekFrom,
         data: Vec<u8>,
         write_flags: WriteFlags,
@@ -136,7 +138,7 @@ impl FuseHandler for MeasuredFs {
         mode: u32,
         umask: u32,
         flags: OpenFlags,
-    ) -> FuseResult<(OwnedFileHandle, FileAttribute, FopenFlags)> {
+    ) -> FuseResult<(OwnedFd, FileAttribute, FopenFlags)> {
         self.create_calls.fetch_add(1, Ordering::Relaxed);
         self.mirror.create(req, parent, name, mode, umask, flags)
     }

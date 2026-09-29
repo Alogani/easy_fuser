@@ -7,6 +7,12 @@ pub struct FuseDriverTemplate<'a> {
 }
 
 #[derive(Template)]
+#[template(path = "file_handle_table.rs.j2")]
+pub struct FileHandleTableTemplate<'a> {
+    pub mode: &'a str,
+}
+
+#[derive(Template)]
 #[template(path = "fuse_handler.rs.j2")]
 pub struct FuseHandlerTemplate<'a> {
     pub mode: &'a str,

@@ -20,7 +20,7 @@ fn create_memory_fs() -> InMemoryFS {
             gid: 0,
             pid: 0,
         }; // dummy RequestInfo
-        let (fd, (inode, _), _) = memoryfs
+        let (mut file_handle, (inode, _), _) = memoryfs
             .create(
                 &request_info,
                 ROOT_INODE,
@@ -34,7 +34,7 @@ fn create_memory_fs() -> InMemoryFS {
             .write(
                 &request_info,
                 inode,
-                fd.borrow(),
+                Some(&mut file_handle),
                 SeekFrom::Start(0),
                 README_CONTENT.to_vec(),
                 WriteFlags::empty(),

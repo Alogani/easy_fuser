@@ -2,8 +2,8 @@
 
 #[cfg(all(feature = "parallel", not(feature = "serial")))]
 use easy_fuser::fuse_parallel::prelude::*;
-use easy_fuser::fuse_presets::{StatelessHandler, UnimplementedFuseHandler};
 use easy_fuser::fuse_presets::mirror_fs::*;
+use easy_fuser::fuse_presets::{StatelessHandler, UnimplementedFuseHandler};
 #[cfg(feature = "serial")]
 use easy_fuser::fuse_serial::prelude::*;
 
@@ -20,6 +20,7 @@ struct MyFs {
 
 impl FuseHandler for MyFs {
     type TId = PathBuf;
+    type FileHandle = std::os::fd::OwnedFd;
 
     easy_fuser::delegate_fs! { mirror_fs, [ // readonly functions
         flush, fsync, lseek, read, release,
@@ -84,7 +85,10 @@ fn test_cd_non_existing_subdir_io_error() {
         let output = std::process::Command::new("bash")
             .env("LC_ALL", "C")
             .arg("-c")
-            .arg(format!("cd {}/debug && sleep 2 && cd asd; ls", mntpoint.display()))
+            .arg(format!(
+                "cd {}/debug && sleep 2 && cd asd; ls",
+                mntpoint.display()
+            ))
             .output()
             .expect("failed to execute bash command");
 

@@ -64,9 +64,10 @@ impl RandomFS {
 
 impl FuseHandler for RandomFS {
     type TId = Inode;
+    type FileHandle = ();
 
     easy_fuser::delegate_fs! { safe_defaults, [ fsyncdir, opendir, releasedir ] }
-    easy_fuser::delegate_fs! { unimplemented, [ bmap, copy_file_range, fallocate, flush, fsync, getlk, getxattr, ioctl, link, listxattr, lseek, mknod, open, readlink, release, removexattr, rename, setlk, setxattr, statfs, symlink ] }
+    easy_fuser::delegate_fs! { unimplemented, [ bmap, copy_file_range, fallocate, flush, fsync, getlk, getxattr, ioctl, link, listxattr, lseek, mknod, open, readlink, removexattr, rename, setlk, setxattr, statfs, symlink ] }
 
     fn access(&self, _req: &RequestInfo, _file_id: Inode, _mask: AccessFlags) -> FuseResult<()> {
         Ok(())
@@ -80,30 +81,18 @@ impl FuseHandler for RandomFS {
         _mode: u32,
         _umask: u32,
         _flags: OpenFlags,
-    ) -> Result<
-        (
-            OwnedFileHandle,
-            (Inode, FileAttribute),
-            FopenFlags,
-        ),
-        PosixError,
-    > {
+    ) -> Result<((), (Inode, FileAttribute), FopenFlags), PosixError> {
         let mut rng = rand::rng();
         let ino = Self::random_inode(&mut rng);
         let attr = self.getattr(_req, ino.clone(), None)?;
-        Ok((
-            // Safe because we won't release it
-            unsafe { OwnedFileHandle::from_raw(0) },
-            (ino, attr),
-            FopenFlags::empty(),
-        ))
+        Ok(((), (ino, attr), FopenFlags::empty()))
     }
 
     fn getattr(
         &self,
         _req: &RequestInfo,
         ino: Inode,
-        _fh: Option<BorrowedFileHandle>,
+        _fh: Option<&mut ()>,
     ) -> FuseResult<FileAttribute> {
         if ino == ROOT_INODE {
             return Ok(ROOT_ATTR.1);
@@ -171,7 +160,7 @@ impl FuseHandler for RandomFS {
         &self,
         _req: &RequestInfo,
         _ino: Inode,
-        _fh: BorrowedFileHandle,
+        _fh: Option<&mut ()>,
         offset: SeekFrom,
         size: u32,
         _flags: OpenFlags,
@@ -228,6 +217,7 @@ impl FuseHandler for RandomFS {
         req: &RequestInfo,
         file_id: Inode,
         _attrs: SetAttrRequest,
+        _file_handle: Option<&mut ()>,
     ) -> FuseResult<FileAttribute> {
         self.getattr(req, file_id, None)
     }
@@ -236,7 +226,7 @@ impl FuseHandler for RandomFS {
         &self,
         _req: &RequestInfo,
         _ino: Inode,
-        _fh: BorrowedFileHandle,
+        _fh: Option<&mut ()>,
         _offset: SeekFrom,
         data: Vec<u8>,
         _write_flags: WriteFlags,

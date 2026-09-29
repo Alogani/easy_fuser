@@ -29,6 +29,7 @@ struct MyAsyncFs {
 #[async_trait]
 impl FuseHandler for MyAsyncFs {
     type TId = PathBuf;
+    type FileHandle = std::os::fd::OwnedFd;
 
     delegate_mirror! { mirror_fs, [
         flush, fsync, lseek, read, release,
