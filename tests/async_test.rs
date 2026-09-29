@@ -1,9 +1,13 @@
 #![cfg(feature = "async")]
 
 use easy_fuser::fuse_async::prelude::*;
-use easy_fuser::fuse_presets::{StatelessHandler, UnimplementedFuseHandler};
 use easy_fuser::fuse_presets::mirror_fs::*;
+use easy_fuser::fuse_presets::{StatelessHandler, UnimplementedFuseHandler};
+#[cfg(feature = "io_uring")]
+use easy_fuser_macro::delegate_fs_async as delegate_mirror;
 use easy_fuser_macro::delegate_fs_sync_to_async;
+#[cfg(not(feature = "io_uring"))]
+use easy_fuser_macro::delegate_fs_sync_to_async as delegate_mirror;
 
 use async_trait::async_trait;
 use std::fs;
@@ -11,8 +15,13 @@ use std::path::PathBuf;
 use std::time::Duration;
 use tempfile::TempDir;
 
+#[cfg(feature = "io_uring")]
+type AsyncMirror = MirrorFsAsync;
+#[cfg(not(feature = "io_uring"))]
+type AsyncMirror = MirrorFs;
+
 struct MyAsyncFs {
-    mirror_fs: MirrorFs,
+    mirror_fs: AsyncMirror,
     unimplemented: UnimplementedFuseHandler<PathBuf>,
     safe_defaults: StatelessHandler<PathBuf>,
 }
@@ -21,7 +30,7 @@ struct MyAsyncFs {
 impl FuseHandler for MyAsyncFs {
     type TId = PathBuf;
 
-    delegate_fs_sync_to_async! { mirror_fs, [
+    delegate_mirror! { mirror_fs, [
         flush, fsync, lseek, read, release,
         access, getattr, getxattr, listxattr, lookup, open, readdir, readlink,
         copy_file_range, fallocate, write,
@@ -34,6 +43,12 @@ impl FuseHandler for MyAsyncFs {
 
 #[test]
 fn test_async_mirror_fs() {
+    #[cfg(all(feature = "io_uring", target_os = "linux"))]
+    if io_uring::IoUring::new(8).is_err() {
+        // Some CI/container seccomp profiles disable io_uring_setup.
+        return;
+    }
+
     let mount_dir = TempDir::new().unwrap();
     let source_dir = TempDir::new().unwrap();
 
@@ -47,7 +62,7 @@ fn test_async_mirror_fs() {
     let mntpoint_clone = mntpoint.clone();
     let handle = std::thread::spawn(move || {
         let fs = MyAsyncFs {
-            mirror_fs: MirrorFs::new(source_path),
+            mirror_fs: AsyncMirror::new(source_path),
             unimplemented: UnimplementedFuseHandler::new(),
             safe_defaults: StatelessHandler::new(),
         };
@@ -69,6 +84,11 @@ fn test_async_mirror_fs() {
         let content = fs::read_to_string(&mnt_file).unwrap();
         assert_eq!(content, "Async FUSE test");
     }
+    fs::write(&mnt_file, "async write through the preset").unwrap();
+    assert_eq!(
+        fs::read_to_string(&test_file).unwrap(),
+        "async write through the preset"
+    );
 
     // Unmount
     let mut unmounted = false;

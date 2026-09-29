@@ -176,6 +176,11 @@
 //! `lseek`, `read`, `release`, and `setlk`. It does not make the rest of your
 //! filesystem read-only; use a read-only mount option when needed.
 //!
+//! Async handlers can use `FileDescriptorHandlerAsync` or
+//! `FileDescriptorHandlerReadOnlyAsync` with `delegate_fs_async!`. These
+//! compatibility presets call the synchronous `unix_fs` functions directly;
+//! they do not offload blocking calls from the async runtime.
+//!
 //! ```rust,ignore
 //! file_io: FileDescriptorHandlerReadOnly<PathBuf>,
 //! delegate_fs! { file_io, [ flush, fsync, getlk, ioctl, lseek, read, release, setlk ] }
@@ -194,6 +199,10 @@
 //!
 //! `MirrorFsReadOnly` uses the same pattern with a `MirrorFsReadOnly` field.
 //! To reject writes across the entire filesystem, also mount it read-only.
+//!
+//! Async handlers can use `MirrorFsAsync` or `MirrorFsReadOnlyAsync` with
+//! `delegate_fs_async!`. They offer the same mirror operations as async
+//! methods, while still calling synchronous `unix_fs` operations directly.
 //!
 //! ```rust,ignore
 //! mirror: MirrorFsReadOnly,
@@ -223,8 +232,12 @@ pub use unimplemented_fuse_handler::UnimplementedFuseHandler;
 
 pub mod file_descriptor_handler;
 pub use file_descriptor_handler::{FileDescriptorHandler, FileDescriptorHandlerReadOnly};
+#[cfg(feature = "async")]
+pub use file_descriptor_handler::{FileDescriptorHandlerAsync, FileDescriptorHandlerReadOnlyAsync};
 
 pub mod mirror_fs;
+#[cfg(feature = "async")]
+pub use mirror_fs::{MirrorFsAsync, MirrorFsReadOnlyAsync};
 
 pub mod overlay_fs;
 pub use overlay_fs::OverlayFs;
