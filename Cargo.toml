@@ -17,8 +17,9 @@ libfuse = ["fuser/libfuse"]
 
 [dependencies]
 # Core dependencies
+
 easy_fuser_macro = { version = "^0.1.1", path = "easy_fuser_macro"}
-fuser = { version = "0.17.0" }
+fuser = { version = "^0.18.0" }
 log = "^0.4.34"
 libc = "^0.2.189"
 bitflags = "^2.13.2"

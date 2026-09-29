@@ -1,7 +1,7 @@
 use std::io;
 use std::path::Path;
 
-use fuser::{mount2, spawn_mount2, Config, MountOption};
+use fuser::{mount as fuser_mount, spawn_mount as fuser_spawn_mount, Config, MountOption};
 
 use crate::types::*;
 use crate::FuseSession;
@@ -48,7 +48,7 @@ where
     let mut config = Config::default();
     config.mount_options = options.to_vec();
     config.n_threads = num_threads;
-    mount2(driver, mountpoint, &config)
+    fuser_mount(driver, mountpoint, &config)
 }
 
 /// Spawns a FUSE filesystem in the background at the specified mountpoint.
@@ -101,6 +101,6 @@ where
     let mut config = Config::default();
     config.mount_options = options.to_vec();
     config.n_threads = num_threads;
-    let session = spawn_mount2(driver, mountpoint, &config)?;
+    let session = fuser_spawn_mount(driver, mountpoint, &config)?;
     Ok(FuseSession::new(session, resolver))
 }
