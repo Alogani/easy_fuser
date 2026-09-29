@@ -133,13 +133,17 @@ pub trait FuseHandler: 'static
 {
     type TId: FileIdType {% if mode == "async" %}+ Send{% endif %};
     /// The owned resource kept for one successful `open` or `create` call.
+    /// The driver assigns a separate opaque FUSE number to each live open and
+    /// maps it to this value, so equal `FileHandle` values from different opens
+    /// remain separate. The type does not need to contain a unique ID or be
+    /// `Clone` or `Sync`; it must be `'static`, and parallel and async modes
+    /// also require `Send`.
     ///
     /// Choose `()` when file operations are stateless. Choose `OwnedFd` when
     /// delegating descriptor operations to `FileDescriptorHandler`; the helper
     /// handles the descriptor callbacks, but still needs the resource type to
     /// be `OwnedFd`. For custom file operations, define a type for the per-open
-/// state and use it in the callback's `Option<&mut Self::FileHandle>`. The type must be `'static`;
-/// parallel and async modes also require `Send`. It does not need `Clone` or `Sync`.
+    /// state and use it in the callback's `Option<&mut Self::FileHandle>`.
     type FileHandle: 'static {% if mode != "serial" %}+ Send{% endif %};
 
     {% macro async_keyword() -%}{% if mode == "async" %}async{% endif %}{%- endmacro %}
