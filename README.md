@@ -7,9 +7,9 @@
 [![dependency status](https://deps.rs/repo/github/Alogani/easy_fuser/status.svg)](https://deps.rs/repo/github/Alogani/easy_fuser)
 
 > [!IMPORTANT]
-> The API is not stabilized, some breaking changes can still happen.
-> See CHANGELOG.md to see it.
-> This crate shall still be considered experimental and not production ready.
+> The API is entering a stabilization phase. Breaking changes are still possible, though they’re expected to become less frequent and more limited in scope. See [CHANGELOG.md](CHANGELOG.md) for API changes.
+>
+> The crate is maintained on a best-effort basis. The maintainer has limited capacity to provide user support or timely fixes.
 
 ## About
 
@@ -62,66 +62,172 @@ state, define a type and use `Option<&mut Self::FileHandle>` in file callbacks. 
 show a minimal example. The [ZIP example](examples/zip_fs/src/filesystem.rs) uses a
 `Cursor<Vec<u8>>` to read from the entry loaded by `open`.
 
+## Platform requirements and setup
+
+`easy_fuser` uses the host's FUSE implementation; installing the Rust crate does
+not install or enable FUSE in the operating system. Linux is the only platform
+on which this crate is well tested. The source also contains platform-specific
+implementations for macOS, FreeBSD, OpenBSD, and NetBSD, but treat those as
+best-effort. The upstream [`fuser` project](https://github.com/cberner/fuser)
+also describes its platform support and setup.
+
+### For end users: running a filesystem
+
+If you are running an already-built filesystem, you do not need Rust or Cargo.
+You need the host's FUSE runtime, permission to mount, and an existing mountpoint.
+Some containers and managed hosts disable FUSE access; installing packages alone
+cannot enable it.
+
+#### Linux
+
+Install the FUSE 3 runtime package using your distribution's package manager.
+For Debian or Ubuntu:
+
+```sh
+sudo apt install fuse3
+```
+
+Confirm that `/dev/fuse` is available and that your user is allowed to mount
+FUSE filesystems.
+
+#### FreeBSD and other BSD systems
+
+On FreeBSD, install the FUSE library package and load its kernel module:
+
+```sh
+sudo pkg install fusefs-libs
+sudo kldload fusefs
+```
+
+The second command loads the module for the current boot. FreeBSD's
+[Handbook](https://docs.freebsd.org/en/books/handbook/filesystems/) documents
+the module and how to load it at startup. Ensure your account and system policy
+allow the mount. The crate has code paths for FreeBSD, OpenBSD, and NetBSD, but
+FUSE setup and compatibility differ between them. The commands above are for
+FreeBSD only; OpenBSD and NetBSD have not been well tested with this crate.
+Consult the relevant system documentation before attempting a mount.
+
+#### macOS
+
+Install [macFUSE](https://macfuse.github.io/) using its current installer and
+complete any system approval or security prompts it presents. Ensure your user
+is permitted to mount a filesystem. macOS support in `easy_fuser` is best-effort
+and has not been well tested.
+
+#### Unmounting
+
+Unmount with the utility provided by the host system. On Linux this is commonly
+`fusermount3 -u <mountpoint>` (some systems provide `fusermount`); on BSD and
+macOS use `umount <mountpoint>`. If the mount is busy, close processes using it
+and retry. After a process crash, check whether the mount is still active before
+trying to mount over the same path again.
+
+### For developers: building and testing the crate
+
+Building from source requires a Rust toolchain and Cargo. To build or run tests
+that mount a filesystem, you also need the host runtime setup above. On Linux,
+the integration tests need access to `/dev/fuse` and permission to mount; a
+container or CI runner without that access cannot run mounted tests.
+
+On Debian or Ubuntu, these packages mirror the Linux CI build dependencies:
+
+```sh
+sudo apt install pkg-config libfuse-dev
+```
+
+The crate's default Rust backend does not require libfuse development headers.
+Install the matching libfuse development package and `pkg-config` only when
+building with the optional `libfuse` feature. For example, on Debian or Ubuntu:
+
+```sh
+sudo apt install libfuse3-dev pkg-config
+```
+
+To build and test an individual concurrency mode on Linux, use the same feature
+selection as CI:
+
+```sh
+cargo build --no-default-features --features parallel
+cargo test --no-default-features --features parallel
+```
+
+Replace `parallel` with `serial` or `async` to check those modes. Full tests may
+mount FUSE filesystems, so run them on a host where FUSE is enabled.
+
+The macOS CI job installs macFUSE and compiles the serial plus `libfuse` feature,
+but uses `cargo test --no-run` because its hosted runner cannot mount filesystems.
+That verifies compilation, not runtime behavior. There is no equivalent tested
+development recipe for OpenBSD or NetBSD; FreeBSD and macOS development should
+also be treated as best-effort.
+
 ## Usage
 
-To use `easy_fuser`, follow these steps:
+The following quickstart mounts an existing directory read-only. It uses the `parallel` feature;
+add these dependencies to your `Cargo.toml`:
 
-1. Import the appropriate prelude for your concurrency mode (e.g. `easy_fuser::fuse_parallel::prelude::*`).
-2. Implement the `FuseHandler` trait for your filesystem structure, specifying the `TId` type (e.g. `PathBuf`).
-3. (Optional) Add preset values as fields in your filesystem struct and delegate selected operations to them with `delegate_fs!`.
-4. Mount or spawn-mount your filesystem.
+```toml
+[dependencies]
+easy_fuser = { version = "0.7", features = ["parallel"] }
+easy_fuser_macro = "0.1"
+```
 
-Here's a basic example:
+The mount point must already exist and must be outside the source directory.
+
+Run it with a source directory and mount point, for example:
+
+```sh
+cargo run -- /path/to/source /mnt/myfs
+```
 
 ```rust,ignore
-#[cfg(feature = "serial")]
-use easy_fuser::fuse_serial::prelude::*;
-#[cfg(all(feature = "parallel", not(feature = "serial")))]
 use easy_fuser::fuse_parallel::prelude::*;
-#[cfg(all(feature = "async", not(feature = "parallel"), not(feature = "serial")))]
-use easy_fuser::fuse_async::prelude::*;
-
+use easy_fuser::fuse_presets::mirror_fs::{MirrorFsReadOnly, MirrorFsTrait};
 use easy_fuser::fuse_presets::{StatelessHandler, UnimplementedFuseHandler};
 use easy_fuser_macro::delegate_fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
-struct MyFS {
+struct ReadOnlyFs {
+    mirror: MirrorFsReadOnly,
     defaults: StatelessHandler<PathBuf>,
-    unimplemented: UnimplementedFuseHandler<PathBuf>,
+    unsupported: UnimplementedFuseHandler<PathBuf>,
 }
 
-impl FuseHandler for MyFS {
+impl FuseHandler for ReadOnlyFs {
     type TId = PathBuf;
-    type FileHandle = ();
+    type FileHandle = std::os::fd::OwnedFd;
 
-    // These operations need no directory state in this filesystem.
+    delegate_fs! { mirror, [
+        access, flush, fsync, getattr, getxattr, listxattr, lookup, lseek,
+        open, read, readdir, readlink, release
+    ] }
     delegate_fs! { defaults, [ forget, fsyncdir, opendir, releasedir ] }
-
-    // Return ENOSYS for operations this filesystem has not implemented.
-    delegate_fs! { unimplemented, [
-        access, bmap, copy_file_range, create, fallocate, flush, fsync,
-        getattr, getlk, getxattr, ioctl, link, listxattr, lookup, lseek, mkdir, mknod,
-        open, read, readdir, readlink, removexattr, rename,
-        rmdir, setattr, setlk, setxattr, statfs, symlink, unlink, write
-    ]}
+    delegate_fs! { unsupported, [
+        bmap, copy_file_range, create, fallocate, getlk, ioctl, link, mkdir,
+        mknod, removexattr, rename, rmdir, setattr, setlk,
+        setxattr, statfs, symlink, unlink, write
+    ] }
 }
 
 fn main() -> std::io::Result<()> {
-    let fs = MyFS {
+    let mut args = std::env::args_os().skip(1);
+    let source = PathBuf::from(args.next().expect("usage: app <SOURCE_DIR> <MOUNT_POINT>"));
+    let mountpoint = PathBuf::from(args.next().expect("usage: app <SOURCE_DIR> <MOUNT_POINT>"));
+
+    let fs = ReadOnlyFs {
+        mirror: MirrorFsReadOnly::new(source),
         defaults: StatelessHandler::new(),
-        unimplemented: UnimplementedFuseHandler::new(),
+        unsupported: UnimplementedFuseHandler::new(),
     };
-    
-    // Mount the filesystem, optionally configuring the number of threads.
-    // In parallel mode, Some(4) runs FUSE handlers on 4 worker threads.
-    // In serial mode, the thread count argument is ignored.
-    // In async mode, the thread count argument configures tokio threads.
-    // If you pass None, a default configuration is used.
-    mount(fs, Path::new("/mnt/myfs"), &[], Some(4))?;
-    
-    Ok(())
+
+    mount(fs, mountpoint, &[MountOption::RO], None)
 }
 ```
+
+This example serves files from the source directory through the mount. For a custom filesystem,
+implement the needed `FuseHandler` operations yourself and delegate only the remaining operations
+to presets. See the [hello filesystem](examples/hello_fs/README.md) for a small inode-based
+implementation and the [passthrough example](examples/passthrough_fs/README.md) for a fuller
+mirror filesystem.
 
 ## Presets / Templates
 
@@ -198,18 +304,24 @@ Successful filesystem requests are not logged, so normal reads and writes do not
 logging work. To include lookup misses while debugging, configure your logger to show `debug` for
 `easy_fuser`, for example with `RUST_LOG=easy_fuser=debug` when using `env_logger`.
 
-### Async Delegation
+### Async
+
+Linux filesystem calls used by the presets are generally blocking. The `async` mode is useful when your handler needs async method signatures or integrates with async-native I/O, but wrapping a blocking call does not make that call non-blocking. If the handler mainly performs blocking filesystem work, async mode offers no performance gain over the `parallel` mode; choose `parallel` when you want a worker pool for blocking callbacks.
+
+#### Choosing async handlers
+
+Use async-native handlers when operations can await genuinely asynchronous work, such as an async I/O backend. That lets the runtime run other tasks while an operation is waiting. `MirrorFsAsync` and `FileDescriptorHandlerAsync` provide async signatures, but their default filesystem operations still call the same blocking `unix_fs` functions as the synchronous presets. The experimental Linux-only `io_uring` feature makes some file operations truly asynchronous; current benchmarks show significant performance issues, so it is not recommended. See the feature list below for details.
+
+#### Async delegation
 
 When using the `async` concurrency model, the `FuseHandler` trait is decorated with `#[async_trait]`. Because outer attribute macros expand before inner macro invocations, a standard delegation macro like `delegate_fs!` cannot be desugared by `#[async_trait]`.
 
-To solve this, `easy_fuser` provides two specialized async delegation macros that perform **manual signature desugaring** matching the expected output format of `#[async_trait]`:
+`easy_fuser` provides two specialized async delegation macros that perform **manual signature desugaring** matching the expected output format of `#[async_trait]`:
 
 1. **`delegate_fs_async!`**: Use this when delegating to a field/target that itself exposes **asynchronous** methods (returning Futures).
-2. **`delegate_fs_sync_to_async!`**: Use this when delegating to a field/target that exposes **synchronous/blocking** methods. The macro automatically wraps the synchronous method call in a pinned async block.
+2. **`delegate_fs_sync_to_async!`**: Use this when delegating to a field/target that exposes **synchronous/blocking** methods. The macro wraps the synchronous method call in a pinned async block, but does not move it to a blocking pool. The call runs when the future is polled and blocks that async runtime worker until it returns. Use this for convenient integration with async handler signatures when blocking work is acceptable; it does not make blocking I/O scalable or improve its performance.
 
-For a preset with async method signatures, use `delegate_fs_async!` and its async-compatible type. By default, `MirrorFsAsync` and `FileDescriptorHandlerAsync` retain the sync-compatible behavior: most methods call the same synchronous `unix_fs` functions. **Experimental, Linux only:** enabling the optional `io_uring` feature makes their descriptor-backed `read`, `write`, `flush`, `fsync`, and `fallocate` operations await io_uring completions. Path and metadata operations remain synchronous, as do all operations on BSD/macOS. The initial implementation creates a ring per operation, so it targets runtime responsiveness and does not claim a throughput gain, initial benchmarks shows a significant slowdown by multiple factors. See the [io_uring module documentation](src/unix_fs/io_uring.rs) for supported calls and limitations.
-
-#### Example for Async Mode with synchronous preset
+#### Example with a synchronous preset
 
 ```rust,ignore
 use easy_fuser::fuse_async::prelude::*;
@@ -263,22 +375,19 @@ impl FuseHandler for MyAsyncFS {
 
 ## Feature Flags
 
-This crate provides three feature flags for different concurrency models:
+The default feature set enables `serial`, `parallel`, and `async`. These expose all three APIs; choose the matching `FuseHandler` prelude in your code. To build only one mode, disable default features and enable the mode you want.
 
-- `serial`: Enables single-threaded operation. Use this for simplicity and when concurrent
-  access is not required. The thread count argument (`Option<usize>`) is accepted for API consistency but ignored.
-
-- `parallel`: Enables multi-threaded operation using a thread pool. This is suitable for
-  scenarios where you want to handle multiple filesystem operations concurrently on separate
-  threads. It can improve performance on multi-core systems. Pass `Some(threads)` to specify the pool size, or `None` to automatically use a default based on the system's CPU count.
-
-- `async`: Enables asynchronous operation using tokio. This is ideal for high-concurrency scenarios and
-  when you want to integrate the filesystem with asynchronous Rust code. Pass `Some(threads)` to configure tokio's worker threads, or `None` to use the default multi-threaded runtime. When this feature is enabled, you use `easy_fuser::fuse_async::prelude::*` which decorates `FuseHandler` with `#[async_trait]`.
+- `serial`: Runs callbacks serially; the thread-count setting is ignored.
+- `parallel`: Runs callbacks on a worker thread pool. Use `mount_with_threads` to configure FUSE reader and handler worker counts independently.
+- `async`: Runs callbacks on a Tokio runtime. Async handlers use `easy_fuser::fuse_async::prelude::*` and `#[async_trait]`.
+- `deadlock_detection`: Development aid for parallel mode. It checks for deadlocks periodically and logs detected thread backtraces; enable it while debugging, not as a normal production setting.
+- `io_uring`: Experimental Linux-only option that also enables `async`. It is not recommended: current benchmarks show roughly 3–10× lower throughput than the async syscall implementation. It is disabled by default.
+- `libfuse`: Builds `fuser` with its libfuse backend instead of the default direct kernel interface; it requires the system libfuse development files.
 
 Example usage in Cargo.toml:
 ```toml
 [dependencies]
-easy_fuser = { version = "0.5.0", features = ["parallel"] }
+easy_fuser = { version = "0.7", default-features = false, features = ["parallel"] }
 ```
 
 By leveraging `easy_fuser`, you can focus more on your filesystem's logic and less on the

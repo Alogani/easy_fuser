@@ -219,13 +219,36 @@ pub struct FileAttribute {
     pub blksize: u32,
     /// File flags
     pub flags: u32,
-    /// Time-to-live for caching this attribute (None for default)
+    /// Metadata timeout for FUSE replies containing this attribute.
+    ///
+    /// `None` uses `FuseHandler::get_default_ttl()`. For `getattr` and
+    /// `setattr`, the timeout controls attribute caching. For entry replies
+    /// (`lookup`, `create`, `mkdir`, `mknod`, `symlink`, `link`, and
+    /// `readdirplus`), `easy_fuser` passes this same timeout for both attribute
+    /// validity and name-to-inode entry validity. Although fuser 0.18 provides
+    /// [`ReplyEntry::entry_with_ttls`](https://docs.rs/fuser/0.18.0/fuser/struct.ReplyEntry.html#method.entry_with_ttls)
+    /// for separate timeouts, this crate's handler API currently exposes only
+    /// one. This is separate from file-data caching.
+    ///
+    /// **Warning:** Keep the timeout policy predictable; do not randomize it
+    /// per reply, because that makes cache expiry and revalidation timing
+    /// unpredictable. FUSE accepts timeout values on individual replies, so
+    /// this is guidance for predictable behavior rather than a protocol rule.
+    /// See libfuse's [`attr_timeout`](https://libfuse.github.io/doxygen/struct_fuse_entry_param.html#attr_timeout)
+    /// and [`entry_timeout`](https://libfuse.github.io/doxygen/struct_fuse_entry_param.html#entry_timeout)
+    /// descriptions, and fuser's [`ReplyEntry::entry`](https://docs.rs/fuser/0.18.0/fuser/struct.ReplyEntry.html#method.entry).
     pub ttl: Option<Duration>,
-    // File generation number (None for random)
-    /// If set, it must follow these constraints:
-    /// - Must be non-zero (FUSE treats zero as an error)
-    /// - Should be unique over the file system's lifetime if exported over NFS
-    /// - Should be a new, previously unused number if an inode is reused after deletion
+    /// File generation number for this object, or `None` to use the crate's default (`0`).
+    /// Zero is accepted by fuser and is this crate's default when no generation
+    /// is supplied.
+    ///
+    /// Keep this value stable for the same object's lifetime. Do not generate
+    /// a new random value on each lookup: the kernel can interpret a changed
+    /// generation as a changed object during revalidation. If the filesystem
+    /// is exported over NFS, `(inode, generation)` pairs must be unique over
+    /// the filesystem's lifetime; if an inode number is reused, assign a new,
+    /// previously unused generation. See the [`fuser::Generation` contract](https://docs.rs/fuser/0.18.0/fuser/struct.Generation.html)
+    /// and the rationale in [PR #107](https://github.com/Alogani/easy_fuser/pull/107).
     pub generation: Option<u64>,
 }
 
