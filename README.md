@@ -162,6 +162,9 @@ also be treated as best-effort.
 
 ## Usage
 
+For callback-specific rules about inode lifetimes, metadata caching, and
+directory continuation, see the [FUSE callback contract guide](docs/fuse-handler-contracts.md).
+
 The following quickstart mounts an existing directory read-only. It uses the `parallel` feature;
 add these dependencies to your `Cargo.toml`:
 
@@ -304,18 +307,24 @@ Successful filesystem requests are not logged, so normal reads and writes do not
 logging work. To include lookup misses while debugging, configure your logger to show `debug` for
 `easy_fuser`, for example with `RUST_LOG=easy_fuser=debug` when using `env_logger`.
 
-### Async Delegation
+### Async
+
+Linux filesystem calls used by the presets are generally blocking. The `async` mode is useful when your handler needs async method signatures or integrates with async-native I/O, but wrapping a blocking call does not make that call non-blocking. If the handler mainly performs blocking filesystem work, async mode offers no performance gain over the `parallel` mode; choose `parallel` when you want a worker pool for blocking callbacks.
+
+#### Choosing async handlers
+
+Use async-native handlers when operations can await genuinely asynchronous work, such as an async I/O backend. That lets the runtime run other tasks while an operation is waiting. `MirrorFsAsync` and `FileDescriptorHandlerAsync` provide async signatures, but their default filesystem operations still call the same blocking `unix_fs` functions as the synchronous presets. The experimental Linux-only `io_uring` feature makes some file operations truly asynchronous; current benchmarks show significant performance issues, so it is not recommended. See the feature list below for details.
+
+#### Async delegation
 
 When using the `async` concurrency model, the `FuseHandler` trait is decorated with `#[async_trait]`. Because outer attribute macros expand before inner macro invocations, a standard delegation macro like `delegate_fs!` cannot be desugared by `#[async_trait]`.
 
-To solve this, `easy_fuser` provides two specialized async delegation macros that perform **manual signature desugaring** matching the expected output format of `#[async_trait]`:
+`easy_fuser` provides two specialized async delegation macros that perform **manual signature desugaring** matching the expected output format of `#[async_trait]`:
 
 1. **`delegate_fs_async!`**: Use this when delegating to a field/target that itself exposes **asynchronous** methods (returning Futures).
-2. **`delegate_fs_sync_to_async!`**: Use this when delegating to a field/target that exposes **synchronous/blocking** methods. The macro automatically wraps the synchronous method call in a pinned async block.
+2. **`delegate_fs_sync_to_async!`**: Use this when delegating to a field/target that exposes **synchronous/blocking** methods. The macro wraps the synchronous method call in a pinned async block, but does not move it to a blocking pool. The call runs when the future is polled and blocks that async runtime worker until it returns. Use this for convenient integration with async handler signatures when blocking work is acceptable; it does not make blocking I/O scalable or improve its performance.
 
-For a preset with async method signatures, use `delegate_fs_async!` and its async-compatible type. By default, `MirrorFsAsync` and `FileDescriptorHandlerAsync` retain the sync-compatible behavior: most methods call the same synchronous `unix_fs` functions. **Experimental, Linux only:** enabling the optional `io_uring` feature makes their descriptor-backed `read`, `write`, `flush`, `fsync`, and `fallocate` operations await io_uring completions. Path and metadata operations remain synchronous, as do all operations on BSD/macOS. The initial implementation creates a ring per operation, so it targets runtime responsiveness and does not claim a throughput gain, initial benchmarks shows a significant slowdown by multiple factors. See the [io_uring module documentation](src/unix_fs/io_uring.rs) for supported calls and limitations.
-
-#### Example for Async Mode with synchronous preset
+#### Example with a synchronous preset
 
 ```rust,ignore
 use easy_fuser::fuse_async::prelude::*;
@@ -369,22 +378,19 @@ impl FuseHandler for MyAsyncFS {
 
 ## Feature Flags
 
-This crate provides three feature flags for different concurrency models:
+The default feature set enables `serial`, `parallel`, and `async`. These expose all three APIs; choose the matching `FuseHandler` prelude in your code. To build only one mode, disable default features and enable the mode you want.
 
-- `serial`: Enables single-threaded operation. Use this for simplicity and when concurrent
-  access is not required. The thread count argument (`Option<usize>`) is accepted for API consistency but ignored.
-
-- `parallel`: Enables multi-threaded operation using a thread pool. This is suitable for
-  scenarios where you want to handle multiple filesystem operations concurrently on separate
-  threads. It can improve performance on multi-core systems. Pass `Some(threads)` to specify the pool size, or `None` to automatically use a default based on the system's CPU count.
-
-- `async`: Enables asynchronous operation using tokio. This is ideal for high-concurrency scenarios and
-  when you want to integrate the filesystem with asynchronous Rust code. Pass `Some(threads)` to configure tokio's worker threads, or `None` to use the default multi-threaded runtime. When this feature is enabled, you use `easy_fuser::fuse_async::prelude::*` which decorates `FuseHandler` with `#[async_trait]`.
+- `serial`: Runs callbacks serially; the thread-count setting is ignored.
+- `parallel`: Runs callbacks on a worker thread pool. Use `mount_with_threads` to configure FUSE reader and handler worker counts independently.
+- `async`: Runs callbacks on a Tokio runtime. Async handlers use `easy_fuser::fuse_async::prelude::*` and `#[async_trait]`.
+- `deadlock_detection`: Development aid for parallel mode. It checks for deadlocks periodically and logs detected thread backtraces; enable it while debugging, not as a normal production setting.
+- `io_uring`: Experimental Linux-only option that also enables `async`. It is not recommended: current benchmarks show roughly 3–10× lower throughput than the async syscall implementation. It is disabled by default.
+- `libfuse`: Builds `fuser` with its libfuse backend instead of the default direct kernel interface; it requires the system libfuse development files.
 
 Example usage in Cargo.toml:
 ```toml
 [dependencies]
-easy_fuser = { version = "0.5.0", features = ["parallel"] }
+easy_fuser = { version = "0.7", default-features = false, features = ["parallel"] }
 ```
 
 By leveraging `easy_fuser`, you can focus more on your filesystem's logic and less on the
