@@ -47,6 +47,31 @@ jobs:
     - name: Run tests
       run: cargo test --no-default-features --features ${{ matrix.feature }}
 
+  memory_sanitizer:
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    name: "Memory sanitizer"
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: Install FUSE
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y fuse3 llvm
+    - name: Setup Rust
+      uses: dtolnay/rust-toolchain@nightly
+      with:
+        components: llvm-tools-preview, rust-src
+    - uses: Swatinem/rust-cache@v2
+      with:
+        shared-key: ubuntu-memory-sanitizer
+    - name: Set up MemorySanitizer
+      run: |
+        echo "MSAN_SYMBOLIZER_PATH=$(find /usr/lib/llvm-*/bin -name llvm-symbolizer -type f | sort -V | tail -n 1)" >> "$GITHUB_ENV"
+    - name: Run mounted filesystem test with MemorySanitizer
+      env:
+        RUSTFLAGS: -Zsanitizer=memory
+      run: cargo +nightly -Zbuild-std test --target x86_64-unknown-linux-gnu --test hard_link_test -- --test-threads=1
+
   published_macro:
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     name: "Compile with published macro"
