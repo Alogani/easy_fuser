@@ -162,9 +162,6 @@ also be treated as best-effort.
 
 ## Usage
 
-For callback-specific rules about inode lifetimes, metadata caching, and
-directory continuation, see the [FUSE callback contract guide](docs/fuse-handler-contracts.md).
-
 The following quickstart mounts an existing directory read-only. It uses the `parallel` feature;
 add these dependencies to your `Cargo.toml`:
 
