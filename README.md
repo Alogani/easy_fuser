@@ -99,6 +99,8 @@ sudo pkg install fusefs-libs
 sudo kldload fusefs
 ```
 
+FreeBSD supports only one fuser reader thread for now.
+
 The second command loads the module for the current boot. FreeBSD's
 [Handbook](https://docs.freebsd.org/en/books/handbook/filesystems/) documents
 the module and how to load it at startup. Ensure your account and system policy

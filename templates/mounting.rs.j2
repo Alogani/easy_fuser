@@ -19,6 +19,8 @@ use super::fuse_driver::FuseDriver;
 /// two CPUs, and otherwise one reader per eight CPUs plus half the CPU count in
 /// workers. The CPU-based heuristic enables cloned FUSE descriptors when it
 /// selects multiple readers.
+/// On FreeBSD, fuser 0.18.0 does not yet support multiple request-reader
+/// threads.
 /// On Linux, [`MountThreads::with_fuser_fd_cloning`] can give each reader an
 /// independent `/dev/fuse` descriptor when multiple readers are used.
 pub fn mount<TId, FS, P>(
