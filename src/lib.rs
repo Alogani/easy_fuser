@@ -16,6 +16,7 @@ pub mod inode_mapper {
     pub use crate::inode_mapping::*;
 }
 pub mod session;
+pub mod storage;
 pub mod types;
 pub mod unix_fs;
 

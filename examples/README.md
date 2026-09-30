@@ -27,6 +27,9 @@ We welcome contributions to improve existing examples or add new ones. If you ha
 
 ## Exploring the Examples
 
+The [`catalog_fs`](catalog_fs/README.md) example demonstrates the read-only
+catalog preset and the `EntryStore` → `BlobStore` → `FileStore` composition.
+
 Each example is a separate crate that can be downloaded and used independently, in that case, replace `easy_fuser = { source = "../..", etc. }` by `easy_fuser = { version = X.Y.Z, etc. }`
 
 To get the most out of these examples:

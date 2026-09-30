@@ -133,6 +133,21 @@
 //!
 //! Each preset below is a small delegation target, not a complete filesystem.
 //! The snippets show the field and the operations commonly delegated to it.
+
+//! ## `CatalogFs`
+//!
+//! Combines an [`catalog_fs::EntryStore`] for namespace and metadata with a
+//! [`crate::storage::BlobStore`] for logical file content. It is initially
+//! read-only and supports `lookup`, `getattr`, `readdir`, `open`, and `read`.
+//! See the `catalog_fs` example for a complete in-memory composition of
+//! `EntryStore`, `BlobKeyEncoder`, `FileStore`, and `EncodedBlobStore`.
+//!
+//! ```rust,ignore
+//! catalog: CatalogFs<MyEntries, MyBlobs>,
+//! directories: StatelessHandler<Inode>,
+//! unsupported: UnimplementedFuseHandler<Inode>,
+//! delegate_fs! { catalog, [ getattr, lookup, open, read, readdir ] }
+//! ```
 //!
 //! ## `StatelessHandler`
 //!
@@ -228,6 +243,9 @@
 
 mod stateless_handler;
 pub use stateless_handler::StatelessHandler;
+
+pub mod catalog_fs;
+pub use catalog_fs::CatalogFs;
 
 mod unimplemented_fuse_handler;
 pub use unimplemented_fuse_handler::UnimplementedFuseHandler;

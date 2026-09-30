@@ -46,6 +46,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Added `FileStore`, `BlobKeyEncoder`, `BlobStore`, and `EncodedBlobStore`
+  storage abstractions, plus the read-only `CatalogFs` preset and in-memory
+  composition example.
 - Added `OverlayFs`, a preset with ordered lower layers, merged directories,
   copy-up for writes, and persistent whiteouts in the upper layer.
 - Added async-compatible `MirrorFs` and file-descriptor presets. On Linux, the
