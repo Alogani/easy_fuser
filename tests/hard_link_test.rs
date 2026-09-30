@@ -98,7 +98,7 @@ fn mounted_hard_links_share_one_inode() {
     let source = TempDir::new().unwrap();
     let mountpoint = TempDir::new().unwrap();
     fs::write(source.path().join("a"), b"shared").unwrap();
-    let session = spawn(
+    let session = spawn_mount(
         LinkedFs {
             source: source.path().to_path_buf(),
             defaults: UnimplementedFuseHandler::new(),

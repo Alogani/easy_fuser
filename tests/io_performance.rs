@@ -153,7 +153,7 @@ fn benchmark_direct_io() {
 
     let readers = env_usize("EASY_FUSER_BENCH_FUSER_THREADS", 1);
     let handler_workers = env_usize("EASY_FUSER_BENCH_HANDLER_THREADS", 2);
-    let session = spawn(
+    let session = spawn_mount(
         BenchmarkFs {
             mirror: benchmark_mirror(source.path().to_path_buf()),
             defaults: UnimplementedFuseHandler::new(),

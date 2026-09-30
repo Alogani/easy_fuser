@@ -195,7 +195,7 @@ fn benchmark_parallel_getattr() {
     let create_calls = Arc::new(AtomicUsize::new(0));
     let unlink_calls = Arc::new(AtomicUsize::new(0));
     let forget_calls = Arc::new(AtomicUsize::new(0));
-    let session = spawn(
+    let session = spawn_mount(
         MeasuredFs {
             mirror: MirrorFs::new(source.path().to_path_buf()),
             defaults: UnimplementedFuseHandler::new(),

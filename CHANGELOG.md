@@ -12,7 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Breaking changes
 
 - Renamed `mount_with_threads` to `mount` and `spawn_mount_with_threads` to
-  `spawn`. The former `mount` and `spawn_mount` signatures that accepted
+  `spawn_mount`. The former `mount` and `spawn_mount` signatures that accepted
   `Option<usize>` are removed; pass `Some(MountThreads::new(fuser_threads,
   handler_threads))` or `None` to use the CPU-based defaults.
 - `FuseHandler` now requires the associated type `FileHandle`. File operations

@@ -59,7 +59,7 @@ where
 /// Spawns a FUSE filesystem with independent request-reader and operation-worker counts.
 ///
 /// See [`mount`] for the meaning and defaults of each count.
-pub fn spawn<TId, FS, P>(
+pub fn spawn_mount<TId, FS, P>(
     filesystem: FS,
     mountpoint: P,
     options: &[MountOption],

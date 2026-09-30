@@ -411,7 +411,7 @@ To properly unmount the filesystem and stop the program (or to resolve a bad sta
   fusermount -u <mountpoint>
   ```
 
-This is the preferred method for both unmounting and resolving any issues with the mountpoint. You will find more information in the documentation of `mount` and `spawn`.
+This is the preferred method for both unmounting and resolving any issues with the mountpoint. You will find more information in the documentation of `mount` and `spawn_mount`.
 
 2. **Modifying the source directory while mounted**: This is not well-supported behavior and can result in unexpected outcomes.
 

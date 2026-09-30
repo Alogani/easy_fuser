@@ -6,7 +6,7 @@
 /// These counts are independent because increasing either can add scheduling
 /// and synchronization overhead.
 ///
-/// Passing `None` instead of a `MountThreads` value to `mount` or `spawn`
+/// Passing `None` instead of a `MountThreads` value to `mount` or `spawn_mount`
 /// selects this type's CPU-based default heuristic.
 ///
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

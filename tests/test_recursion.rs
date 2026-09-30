@@ -53,7 +53,7 @@ fn test_mirror_fs_recursion() {
     fs::create_dir_all(&source_path).unwrap();
     fs::create_dir_all(&mntpoint).unwrap();
 
-    // We won't use spawn because MirrorFs doesn't implement Send in serial mode
+    // We won't use spawn_mount because MirrorFs doesn't implement Send in serial mode
     let mntpoint_clone = mntpoint.clone();
     let source_path_clone = source_path.clone();
     let sentinel = source_path.join("sentinel.txt");

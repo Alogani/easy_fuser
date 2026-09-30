@@ -77,7 +77,7 @@ fn test_mirror_fs_operations() {
     let mntpoint = mount_dir.path().to_path_buf();
     let source_path = source_dir.path().to_path_buf();
 
-    // We won't use spawn because MirrorFs doesn't implement Send in serial mode
+    // We won't use spawn_mount because MirrorFs doesn't implement Send in serial mode
     let mntpoint_clone = mntpoint.clone();
     let source_path_clone = source_path.clone();
     let sentinel = source_path.join("sentinel.txt");
