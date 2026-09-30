@@ -8,6 +8,10 @@ on:
     types: [ opened, synchronize, reopened, ready_for_review ]
     branches: [ main, devel ]
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build_and_test:
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
@@ -15,13 +19,15 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        toolchain:
-          - stable
-          - nightly
-        feature:
-          - serial
-          - parallel
-          - async
+        include:
+          - toolchain: stable
+            feature: serial
+          - toolchain: stable
+            feature: parallel
+          - toolchain: stable
+            feature: async
+          - toolchain: nightly
+            feature: async
     
     steps:
     - uses: actions/checkout@v4
@@ -32,26 +38,55 @@ jobs:
     - name: Set PKG_CONFIG_PATH
       run: echo "PKG_CONFIG_PATH=/usr/lib/x86_64-linux-gnu/pkgconfig" >> $GITHUB_ENV
     - name: Setup Rust
-      run: rustup update ${{ matrix.toolchain }} && rustup default ${{ matrix.toolchain }}
-    - name: Build
-      run: cargo build --verbose --no-default-features --features ${{ matrix.feature }}
+      uses: dtolnay/rust-toolchain@master
+      with:
+        toolchain: ${{ matrix.toolchain }}
+    - uses: Swatinem/rust-cache@v2
+      with:
+        shared-key: ubuntu-${{ matrix.toolchain }}
     - name: Run tests
-      run: cargo test --verbose --no-default-features --features ${{ matrix.feature }}
+      run: cargo test --no-default-features --features ${{ matrix.feature }}
 
-  test_examples:
+  discover_examples:
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
-    name: "Examples crates"
+    name: Discover example crates
     runs-on: ubuntu-latest
+    outputs:
+      examples: ${{ steps.set-matrix.outputs.examples }}
     steps:
     - uses: actions/checkout@v4
+    - id: set-matrix
+      run: |
+        examples=$(find examples -mindepth 2 -maxdepth 2 -name Cargo.toml -printf '%h\n' \
+          | sed 's#^examples/##' \
+          | jq -R -s -c 'split("\n") | map(select(length > 0))')
+        echo "examples=$examples" >> "$GITHUB_OUTPUT"
+
+  test_examples:
+    needs: discover_examples
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    name: "Example ${{ matrix.example }}"
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        example: ${{ fromJSON(needs.discover_examples.outputs.examples) }}
+    steps:
+    - uses: actions/checkout@v4
+    - name: Setup Rust
+      uses: dtolnay/rust-toolchain@stable
+    - uses: Swatinem/rust-cache@v2
+      with:
+        workspaces: examples/${{ matrix.example }} -> target
+        shared-key: example-${{ matrix.example }}
     - name: Install libfuse-dev
       run: |
         sudo apt-get update
         sudo apt-get install -y libfuse-dev
     - name: Set PKG_CONFIG_PATH
       run: echo "PKG_CONFIG_PATH=/usr/lib/x86_64-linux-gnu/pkgconfig" >> $GITHUB_ENV
-    - name: Run tests of crates inside examples folder
-      run: ./tests/test_all_examples.sh
+    - name: Test ${{ matrix.example }}
+      working-directory: examples/${{ matrix.example }}
+      run: cargo test
 
   check_i686:
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
@@ -65,10 +100,12 @@ jobs:
         sudo apt-get update
         sudo apt-get install -y libfuse-dev:i386 gcc-multilib
     - name: Setup Rust
-      run: |
-        rustup update stable
-        rustup default stable
-        rustup target add i686-unknown-linux-gnu
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        targets: i686-unknown-linux-gnu
+    - uses: Swatinem/rust-cache@v2
+      with:
+        shared-key: ubuntu-i686-stable
     - name: Check
       env:
         PKG_CONFIG_ALLOW_CROSS: 1
@@ -86,9 +123,11 @@ jobs:
         sudo apt-get update
         sudo apt-get install -y musl-tools
     - name: Setup Rust
-      run: |
-        rustup update stable
-        rustup default stable
-        rustup target add x86_64-unknown-linux-musl
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        targets: x86_64-unknown-linux-musl
+    - uses: Swatinem/rust-cache@v2
+      with:
+        shared-key: ubuntu-musl-stable
     - name: Check
       run: cargo check --target=x86_64-unknown-linux-musl --features serial

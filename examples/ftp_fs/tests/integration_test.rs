@@ -70,6 +70,7 @@ fn test_ftp_fs_mount_and_read() {
     let mut contents = String::new();
     file.read_to_string(&mut contents).unwrap();
     assert_eq!(contents, "Hello World!\n");
+    drop(file);
 
     // Read the base directory and check the number of entries
     let entries = fs::read_dir(&mount_path).unwrap();

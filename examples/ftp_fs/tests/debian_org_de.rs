@@ -52,6 +52,7 @@ fn test_debian_ftp_mount_and_read() {
             .any(|window| window == expected_content),
         "The file does not contain the expected content"
     );
+    drop(file);
 
     eprintln!("File content verified successfully");
 
