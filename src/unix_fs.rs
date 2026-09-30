@@ -39,6 +39,8 @@ use crate::types::*;
 use libc::{c_char, c_void, timespec};
 
 // Modify to #[cfg_attr(windows, path = "windows/mod.rs")]
+#[cfg(all(target_os = "linux", feature = "io_uring"))]
+pub mod io_uring;
 #[cfg(target_os = "linux")]
 pub(crate) mod linux_fs;
 #[cfg(target_os = "linux")]
@@ -133,7 +135,7 @@ fn convert_stat_struct(statbuf: libc::stat) -> Option<FileAttribute> {
         mtime,
         ctime,
         crtime: mtime,
-        kind: stat_to_kind(statbuf)?,
+        kind: mode_to_kind(statbuf.st_mode as u32)?,
         perm,
         nlink: statbuf.st_nlink as u32,
         uid: statbuf.st_uid,
@@ -146,16 +148,15 @@ fn convert_stat_struct(statbuf: libc::stat) -> Option<FileAttribute> {
     })
 }
 
-fn stat_to_kind(statbuf: libc::stat) -> Option<FileKind> {
-    use libc::*;
-    Some(match statbuf.st_mode & S_IFMT {
-        S_IFREG => FileKind::RegularFile,
-        S_IFDIR => FileKind::Directory,
-        S_IFCHR => FileKind::CharDevice,
-        S_IFBLK => FileKind::BlockDevice,
-        S_IFIFO => FileKind::NamedPipe,
-        S_IFLNK => FileKind::Symlink,
-        S_IFSOCK => FileKind::Socket,
+pub(crate) fn mode_to_kind(mode: u32) -> Option<FileKind> {
+    Some(match mode & libc::S_IFMT as u32 {
+        x if x == libc::S_IFREG as u32 => FileKind::RegularFile,
+        x if x == libc::S_IFDIR as u32 => FileKind::Directory,
+        x if x == libc::S_IFCHR as u32 => FileKind::CharDevice,
+        x if x == libc::S_IFBLK as u32 => FileKind::BlockDevice,
+        x if x == libc::S_IFIFO as u32 => FileKind::NamedPipe,
+        x if x == libc::S_IFLNK as u32 => FileKind::Symlink,
+        x if x == libc::S_IFSOCK as u32 => FileKind::Socket,
         _ => return None, // Unsupported or unknown file type
     })
 }
@@ -490,6 +491,125 @@ pub fn open(path: &Path, flags: OpenFlags) -> Result<OwnedFd, PosixError> {
     Ok(unsafe { OwnedFd::from_raw_fd(fd) })
 }
 
+/// Maps a filesystem block to its physical block number where supported.
+pub fn bmap(path: &Path, _blocksize: u32, index: u64) -> Result<u64, PosixError> {
+    #[cfg(target_os = "linux")]
+    {
+        use std::os::fd::AsRawFd;
+        let fd = open(path, OpenFlags(libc::O_RDONLY))?;
+        let mut block: libc::c_int = index.try_into().map_err(|_| {
+            PosixError::new(
+                ErrorKind::InvalidArgument,
+                "block index exceeds FIBMAP range",
+            )
+        })?;
+        // FIBMAP is _IO(0, 1) on Linux. It may require CAP_SYS_RAWIO.
+        let result = unsafe { libc::ioctl(fd.as_raw_fd(), 1, &mut block) };
+        if result == -1 {
+            return Err(PosixError::last_error("FIBMAP ioctl failed"));
+        }
+        return Ok(block as u64);
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        let _ = (path, index);
+        Err(PosixError::new(
+            ErrorKind::FunctionNotImplemented,
+            "block mapping is not supported on this platform",
+        ))
+    }
+}
+
+/// Performs an ioctl using a file descriptor and returns its output buffer.
+pub fn ioctl(
+    fd: std::os::fd::BorrowedFd<'_>,
+    command: u32,
+    input: Vec<u8>,
+    output_size: u32,
+) -> Result<(i32, Vec<u8>), PosixError> {
+    use std::os::fd::AsRawFd;
+    let output_size = output_size as usize;
+    let mut data = input;
+    data.resize(data.len().max(output_size), 0);
+    let result = unsafe { libc::ioctl(fd.as_raw_fd(), command as _, data.as_mut_ptr()) };
+    if result == -1 {
+        return Err(PosixError::last_error("ioctl failed"));
+    }
+    data.truncate(output_size.min(data.len()));
+    Ok((result, data))
+}
+
+/// Queries the current POSIX record lock for a file descriptor.
+pub fn getlk(
+    fd: std::os::fd::BorrowedFd<'_>,
+    _lock_owner: u64,
+    lock_info: LockInfo,
+) -> Result<LockInfo, PosixError> {
+    use std::os::fd::AsRawFd;
+    let mut lock = lock_info_to_flock(lock_info)?;
+    if unsafe { libc::fcntl(fd.as_raw_fd(), libc::F_GETLK, &mut lock) } == -1 {
+        return Err(PosixError::last_error("F_GETLK failed"));
+    }
+    Ok(flock_to_lock_info(lock))
+}
+
+/// Sets or releases a POSIX record lock for a file descriptor.
+pub fn setlk(
+    fd: std::os::fd::BorrowedFd<'_>,
+    _lock_owner: u64,
+    lock_info: LockInfo,
+    sleep: bool,
+) -> Result<(), PosixError> {
+    use std::os::fd::AsRawFd;
+    let lock = lock_info_to_flock(lock_info)?;
+    let command = if sleep { libc::F_SETLKW } else { libc::F_SETLK };
+    if unsafe { libc::fcntl(fd.as_raw_fd(), command, &lock) } == -1 {
+        return Err(PosixError::last_error("setting file lock failed"));
+    }
+    Ok(())
+}
+
+fn lock_info_to_flock(info: LockInfo) -> Result<libc::flock, PosixError> {
+    let start: libc::off_t = info.start.try_into().map_err(|_| {
+        PosixError::new(ErrorKind::InvalidArgument, "lock start exceeds off_t range")
+    })?;
+    let len: libc::off_t = if info.end == 0 {
+        0
+    } else {
+        info.end
+            .checked_sub(info.start)
+            .ok_or_else(|| PosixError::new(ErrorKind::InvalidArgument, "invalid lock range"))?
+            .try_into()
+            .map_err(|_| {
+                PosixError::new(ErrorKind::InvalidArgument, "lock range exceeds off_t range")
+            })?
+    };
+    Ok(libc::flock {
+        l_type: info.lock_type.bits() as libc::c_short,
+        l_whence: libc::SEEK_SET as libc::c_short,
+        l_start: start,
+        l_len: len,
+        l_pid: info.pid as libc::pid_t,
+        #[cfg(target_os = "freebsd")]
+        l_sysid: 0,
+    })
+}
+
+fn flock_to_lock_info(lock: libc::flock) -> LockInfo {
+    let start = lock.l_start.max(0) as u64;
+    let end = if lock.l_len <= 0 {
+        0
+    } else {
+        start.saturating_add(lock.l_len as u64)
+    };
+    LockInfo {
+        start,
+        end,
+        lock_type: LockType::from_bits_retain(lock.l_type as i32),
+        pid: lock.l_pid as u32,
+    }
+}
+
 /// Reads data from a file descriptor at a specified offset.
 ///
 /// This function is equivalent to the FUSE `read` operation.
@@ -499,8 +619,7 @@ pub fn open(path: &Path, flags: OpenFlags) -> Result<OwnedFd, PosixError> {
 /// For `SeekFrom::Current` or `SeekFrom::End`, it first updates the file's current position,
 /// then reads from there. In all cases, the file's position after the read operation
 /// remains where it was before the read, regardless of how much data was read.
-pub fn read(fd: BorrowedFd, seek: SeekFrom, size: usize) -> Result<Vec<u8>, PosixError> {
-    let mut buffer = vec![0; size as usize];
+pub(crate) fn resolve_io_offset(fd: BorrowedFd, seek: SeekFrom) -> Result<i64, PosixError> {
     let offset: i64 = match seek {
         SeekFrom::Start(offset) => i64::try_from(offset).map_err(|_| {
             PosixError::new(
@@ -527,6 +646,12 @@ pub fn read(fd: BorrowedFd, seek: SeekFrom, size: usize) -> Result<Vec<u8>, Posi
             })?
         }
     };
+    Ok(offset)
+}
+
+pub fn read(fd: BorrowedFd, seek: SeekFrom, size: usize) -> Result<Vec<u8>, PosixError> {
+    let mut buffer = vec![0; size];
+    let offset = resolve_io_offset(fd, seek)?;
     let bytes_read = unsafe {
         unix_impl::pread(
             fd.as_raw_fd(),
@@ -552,33 +677,8 @@ pub fn read(fd: BorrowedFd, seek: SeekFrom, size: usize) -> Result<Vec<u8>, Posi
 /// then reads from there. In all cases, the file's position after the read operation
 /// remains where it was before the read, regardless of how much data was read.
 pub fn write(fd: BorrowedFd, seek: SeekFrom, data: &[u8]) -> Result<usize, PosixError> {
-    let bytes_to_write = data.len() as usize;
-    let offset: i64 = match seek {
-        SeekFrom::Start(offset) => i64::try_from(offset).map_err(|_| {
-            PosixError::new(
-                ErrorKind::InvalidArgument,
-                "Offset too large for i64".to_string(),
-            )
-        })?,
-        SeekFrom::Current(offset) => {
-            let current = lseek(fd, SeekFrom::Current(0))?;
-            current.checked_add(offset).ok_or_else(|| {
-                PosixError::new(
-                    ErrorKind::InvalidArgument,
-                    "Resulting offset too large for off_t".to_string(),
-                )
-            })?
-        }
-        SeekFrom::End(offset) => {
-            let end = lseek(fd, SeekFrom::End(0))?;
-            end.checked_add(offset).ok_or_else(|| {
-                PosixError::new(
-                    ErrorKind::InvalidArgument,
-                    "Resulting offset too large for off_t".to_string(),
-                )
-            })?
-        }
-    };
+    let bytes_to_write = data.len();
+    let offset = resolve_io_offset(fd, seek)?;
     let bytes_written = unsafe {
         unix_impl::pwrite(
             fd.as_raw_fd(),
@@ -1034,6 +1134,19 @@ mod tests {
     use std::fs::{self, File};
     use std::path::{Path, PathBuf};
     use std::time::SystemTime;
+
+    #[test]
+    fn mode_to_kind_uses_file_type_bits() {
+        assert_eq!(
+            mode_to_kind(libc::S_IFCHR as u32 | 0o600),
+            Some(FileKind::CharDevice)
+        );
+        assert_eq!(
+            mode_to_kind(libc::S_IFIFO as u32 | 0o644),
+            Some(FileKind::NamedPipe)
+        );
+        assert_eq!(mode_to_kind(0o644), None);
+    }
 
     #[test]
     fn test_convert_filetype() {

@@ -1,106 +1,97 @@
 use std::io;
 use std::path::Path;
 
-use fuser::{mount2, spawn_mount2, Config, MountOption};
+use fuser::{mount as fuser_mount, spawn_mount as fuser_spawn_mount, Config, MountOption};
+use log::{error, info};
 
 use crate::types::*;
 use crate::FuseSession;
 use super::FuseHandler;
 use super::fuse_driver::FuseDriver;
 
-/// Mounts a FUSE filesystem at the specified mountpoint.
-/// 
-/// # Parameters
-/// 
-/// * `filesystem`: The filesystem implementation.
-/// * `mountpoint`: The path where the filesystem should be mounted.
-/// * `options`: Mount options for the filesystem.
-/// * `num_threads` (not available in serial mode): Number of threads for handling filesystem operations concurrently.
-/// 
-/// # Type Parameters
-/// 
-/// * `T`: Implements `FileIdType` for file identifier conversion.
-/// * `FS`: Implements `FuseHandler<T>` for filesystem operations.
-/// 
-/// # Unmounting
-/// The FUSE filesystem can only be unmounted using the `fusermount -u` command, executed externally from the program. However, the `fusermount` command will fail if the filesystem is busy.
-/// 
-/// If the program crashes, the mount point may be left in an inconsistent state. To resolve this, you will need to run `fusermount -u` to restore the mount point to a proper state.
-/// 
-/// # Returns
-/// 
-/// `io::Result<()>` indicating success or failure of the mount operation.
+/// Mounts a FUSE filesystem with independent request-reader and operation-worker counts.
+///
+/// `fuser_threads` controls the threads that read requests from the kernel;
+/// serial mode always uses one reader.
+/// `handler_threads` controls easy_fuser's callback pool in parallel mode or
+/// Tokio's worker pool in async mode. Passing `None` uses a CPU-based starting
+/// point: one reader and one worker for one CPU, one reader and two workers for
+/// two CPUs, and otherwise one reader per eight CPUs plus half the CPU count in
+/// workers. The CPU-based heuristic enables cloned FUSE descriptors when it
+/// selects multiple readers.
+/// On FreeBSD, fuser 0.18.0 does not yet support multiple request-reader
+/// threads.
+/// On Linux, [`MountThreads::with_fuser_fd_cloning`] can give each reader an
+/// independent `/dev/fuse` descriptor when multiple readers are used.
 pub fn mount<TId, FS, P>(
     filesystem: FS,
     mountpoint: P,
     options: &[MountOption],
-    num_threads: Option<usize>,
+    threads: Option<MountThreads>,
 ) -> io::Result<()>
 where
     TId: FileIdType,
     FS: FuseHandler<TId = TId>,
     P: AsRef<Path>,
 {
-    let driver = FuseDriver::new(
-        filesystem,
-        num_threads,
-        );
+    let threads = threads.unwrap_or_default();
+    let driver = FuseDriver::new(filesystem, Some(threads.handler_threads));
+    let mountpoint = mountpoint.as_ref();
     let mut config = Config::default();
     config.mount_options = options.to_vec();
-    config.n_threads = num_threads;
-    mount2(driver, mountpoint, &config)
+    config.n_threads = {% if mode == "serial" %}Some(1){% else %}Some(threads.fuser_threads){% endif %};
+    config.clone_fd = threads.clone_fuser_fd;
+    info!("Mounting FUSE filesystem at {}", mountpoint.display());
+    match fuser_mount(driver, mountpoint, &config) {
+        Ok(()) => {
+            info!("FUSE filesystem at {} stopped", mountpoint.display());
+            Ok(())
+        }
+        Err(err) => {
+            error!(
+                "Failed to mount FUSE filesystem at {}: {}",
+                mountpoint.display(),
+                err
+            );
+            Err(err)
+        }
+    }
 }
 
-/// Spawns a FUSE filesystem in the background at the specified mountpoint.
-/// 
-/// This function mounts a FUSE filesystem and returns a `BackgroundSession` that can be used
-/// to manage the mounted filesystem.
-/// 
-/// # Parameters
-/// 
-/// * `filesystem`: The filesystem implementation that handles FUSE operations.
-/// * `mountpoint`: The path where the filesystem should be mounted.
-/// * `options`: A slice of mount options for configuring the filesystem mount.
-/// * `num_threads` (non serial argument): Number of threads for handling filesystem operations concurrently.
-/// 
-/// # Type Parameters
-/// 
-/// * `T`: Implements `FileIdType` for file identifier conversion.
-/// * `FS`: Implements `FuseHandler<T>` for filesystem operations.
-///   FS must implement the `Send`, which is not the case by defualt in serial mode.
-///   In that case, it is advised to create the filesystem in the same dedicated thread and use mount function.
-/// 
-/// # Unmounting
-/// Using spawn_mount, the FUSE filesystem can be unmounted using two methods:  
-/// 1. **Programmatically**: By calling the `join` method on the `BackgroundSession` returned during mounting. This will stop the filesystem and unmount it.  
-/// 2. **Manually**: Using the `fusermount -u` command, executed externally. Note that `fusermount` will fail if the filesystem is busy.
-/// 
-/// If the program crashes, the mount point may be left in an inconsistent state. To resolve this, you must manually unmount the filesystem using `fusermount -u`.
-/// 
-/// # Returns
-/// 
-/// Returns `io::Result<BackgroundSession>`, which is:
-/// * `Ok(BackgroundSession)` on successful mount, providing a handle to manage the mounted filesystem.
-/// * `Err(io::Error)` if the mount operation fails.
+/// Spawns a FUSE filesystem with independent request-reader and operation-worker counts.
+///
+/// See [`mount`] for the meaning and defaults of each count.
 pub fn spawn_mount<TId, FS, P>(
     filesystem: FS,
     mountpoint: P,
     options: &[MountOption],
-    num_threads: Option<usize>,
+    threads: Option<MountThreads>,
 ) -> io::Result<FuseSession<TId>>
 where
     TId: FileIdType,
     FS: FuseHandler<TId = TId> + Send,
     P: AsRef<Path>,
 {
-    let driver = FuseDriver::new(
-        filesystem,
-        num_threads,
-        );
+    let threads = threads.unwrap_or_default();
+    let driver = FuseDriver::new(filesystem, Some(threads.handler_threads));
     let resolver = driver.resolver.clone();
+    let mountpoint = mountpoint.as_ref();
     let mut config = Config::default();
     config.mount_options = options.to_vec();
-    config.n_threads = num_threads;
-    let session = spawn_mount2(driver, mountpoint, &config)?;
+    config.n_threads = {% if mode == "serial" %}Some(1){% else %}Some(threads.fuser_threads){% endif %};
+    config.clone_fd = threads.clone_fuser_fd;
+    info!("Mounting FUSE filesystem at {} in the background", mountpoint.display());
+    let session = match fuser_spawn_mount(driver, mountpoint, &config) {
+        Ok(session) => session,
+        Err(err) => {
+            error!(
+                "Failed to mount FUSE filesystem at {}: {}",
+                mountpoint.display(),
+                err
+            );
+            return Err(err);
+        }
+    };
+    info!("FUSE filesystem mounted at {}", mountpoint.display());
     Ok(FuseSession::new(session, resolver))
 }

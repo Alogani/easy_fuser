@@ -3,7 +3,7 @@
 //!
 //! # Key Types
 //!
-//! - [`DeviceType`]: Represents POSIX device types based on the `rdev` value.
+//! - [`DeviceType`]: Represents POSIX file kinds and device numbers.
 //! - [`StatFs`]: Represents file system statistics, similar to the POSIX `statvfs` structure.
 //! - [`RequestInfo`]: Encapsulates essential information about a FUSE request.
 //! - [`FileAttribute`]: Represents file attributes for FUSE operations with optional caching parameters.
@@ -20,9 +20,7 @@ use std::time::{Duration, SystemTime};
 use fuser::FileAttr as FuseFileAttr;
 pub use fuser::RequestId;
 use fuser::{FileType, Request, TimeOrNow, INodeNo, BsdFileFlags};
-use libc::mode_t;
 
-use super::BorrowedFileHandle;
 use super::LockType;
 
 pub use std::io::SeekFrom;
@@ -45,7 +43,7 @@ pub fn seek_from_raw(whence: Option<i32>, offset: i64) -> SeekFrom {
     }
 }
 
-/// Represents POSIX device types based on the `rdev` value.
+/// Represents POSIX file kinds and, for devices, their major and minor numbers.
 ///
 /// This enum encapsulates various file system object types, including:
 /// - Regular files and directories
@@ -64,42 +62,56 @@ pub enum DeviceType {
 }
 
 impl DeviceType {
-    pub fn from_rdev(rdev: mode_t) -> Self {
-        use libc::*;
-        // Extract major and minor device numbers (assuming the device number format).
-        let major: u32 = (rdev >> 8) as u32; // Major is the upper part of the 32-bit value (16 bit on macos)
-        let minor: u32 = (rdev & 0xFF) as u32; // Minor is the lower 8 bits
-        match rdev {
-            x if x & S_IFREG != 0 => DeviceType::RegularFile,
-            x if x & S_IFDIR != 0 => DeviceType::Directory,
-            x if x & S_IFCHR != 0 => DeviceType::CharacterDevice { major, minor },
-            x if x & S_IFBLK != 0 => DeviceType::BlockDevice { major, minor },
-            x if x & S_IFIFO != 0 => DeviceType::NamedPipe,
-            x if x & S_IFSOCK != 0 => DeviceType::Socket,
-            x if x & S_IFLNK != 0 => DeviceType::Symlink,
-            _ => DeviceType::Unknown,
+    pub fn from_file_type_and_rdev(file_type: FileType, rdev: libc::dev_t) -> Self {
+        let major = libc::major(rdev) as u32;
+        let minor = libc::minor(rdev) as u32;
+
+        match file_type {
+            FileType::RegularFile => DeviceType::RegularFile,
+            FileType::Directory => DeviceType::Directory,
+            FileType::CharDevice => DeviceType::CharacterDevice { major, minor },
+            FileType::BlockDevice => DeviceType::BlockDevice { major, minor },
+            FileType::NamedPipe => DeviceType::NamedPipe,
+            FileType::Socket => DeviceType::Socket,
+            FileType::Symlink => DeviceType::Symlink,
         }
     }
 
-    pub fn to_rdev(&self) -> mode_t {
-        use libc::*;
-
+    pub fn to_rdev(&self) -> libc::dev_t {
         match self {
-            DeviceType::RegularFile => S_IFREG,
-            DeviceType::Directory => S_IFDIR,
-            DeviceType::CharacterDevice { major, minor } => {
-                let device = ((major & 0xFF) << 8) | (minor & 0xFF);
-                (device as mode_t) | S_IFCHR
-            }
-            DeviceType::BlockDevice { major, minor } => {
-                let device = ((major & 0xFF) << 8) | (minor & 0xFF);
-                (device as mode_t) | S_IFBLK
-            }
-            DeviceType::NamedPipe => S_IFIFO,
-            DeviceType::Socket => S_IFSOCK,
-            DeviceType::Symlink => S_IFLNK,
+            DeviceType::RegularFile => 0,
+            DeviceType::Directory => 0,
+            DeviceType::CharacterDevice { major, minor } => libc::makedev(*major as _, *minor as _),
+            DeviceType::BlockDevice { major, minor } => libc::makedev(*major as _, *minor as _),
+            DeviceType::NamedPipe => 0,
+            DeviceType::Socket => 0,
+            DeviceType::Symlink => 0,
             DeviceType::Unknown => 0, // Represents an unknown device
         }
+    }
+}
+
+#[cfg(test)]
+mod device_type_tests {
+    use super::*;
+
+    #[test]
+    fn device_numbers_round_trip() {
+        let rdev = libc::makedev(0x12, 0x3456);
+        let character = DeviceType::from_file_type_and_rdev(FileType::CharDevice, rdev);
+        assert!(matches!(character, DeviceType::CharacterDevice { major: 0x12, minor: 0x3456 }));
+        assert_eq!(character.to_rdev(), rdev);
+
+        let block = DeviceType::from_file_type_and_rdev(FileType::BlockDevice, rdev);
+        assert!(matches!(block, DeviceType::BlockDevice { major: 0x12, minor: 0x3456 }));
+        assert_eq!(block.to_rdev(), rdev);
+    }
+
+    #[test]
+    fn non_device_uses_file_kind_and_has_no_rdev() {
+        let kind = DeviceType::from_file_type_and_rdev(FileType::NamedPipe, 0);
+        assert!(matches!(kind, DeviceType::NamedPipe));
+        assert_eq!(kind.to_rdev(), 0);
     }
 }
 
@@ -207,19 +219,42 @@ pub struct FileAttribute {
     pub blksize: u32,
     /// File flags
     pub flags: u32,
-    /// Time-to-live for caching this attribute (None for default)
+    /// Metadata timeout for FUSE replies containing this attribute.
+    ///
+    /// `None` uses `FuseHandler::get_default_ttl()`. For `getattr` and
+    /// `setattr`, the timeout controls attribute caching. For entry replies
+    /// (`lookup`, `create`, `mkdir`, `mknod`, `symlink`, `link`, and
+    /// `readdirplus`), `easy_fuser` passes this same timeout for both attribute
+    /// validity and name-to-inode entry validity. Although fuser 0.18 provides
+    /// [`ReplyEntry::entry_with_ttls`](https://docs.rs/fuser/0.18.0/fuser/struct.ReplyEntry.html#method.entry_with_ttls)
+    /// for separate timeouts, this crate's handler API currently exposes only
+    /// one. This is separate from file-data caching.
+    ///
+    /// **Warning:** Keep the timeout policy predictable; do not randomize it
+    /// per reply, because that makes cache expiry and revalidation timing
+    /// unpredictable. FUSE accepts timeout values on individual replies, so
+    /// this is guidance for predictable behavior rather than a protocol rule.
+    /// See libfuse's [`attr_timeout`](https://libfuse.github.io/doxygen/struct_fuse_entry_param.html#attr_timeout)
+    /// and [`entry_timeout`](https://libfuse.github.io/doxygen/struct_fuse_entry_param.html#entry_timeout)
+    /// descriptions, and fuser's [`ReplyEntry::entry`](https://docs.rs/fuser/0.18.0/fuser/struct.ReplyEntry.html#method.entry).
     pub ttl: Option<Duration>,
-    // File generation number (None for random)
-    /// If set, it must follow these constraints:
-    /// - Must be non-zero (FUSE treats zero as an error)
-    /// - Should be unique over the file system's lifetime if exported over NFS
-    /// - Should be a new, previously unused number if an inode is reused after deletion
+    /// File generation number for this object, or `None` to use the crate's default (`0`).
+    /// Zero is accepted by fuser and is this crate's default when no generation
+    /// is supplied.
+    ///
+    /// Keep this value stable for the same object's lifetime. Do not generate
+    /// a new random value on each lookup: the kernel can interpret a changed
+    /// generation as a changed object during revalidation. If the filesystem
+    /// is exported over NFS, `(inode, generation)` pairs must be unique over
+    /// the filesystem's lifetime; if an inode number is reused, assign a new,
+    /// previously unused generation. See the [`fuser::Generation` contract](https://docs.rs/fuser/0.18.0/fuser/struct.Generation.html)
+    /// and the rationale in [PR #107](https://github.com/Alogani/easy_fuser/pull/107).
     pub generation: Option<u64>,
 }
 
 /// `FuseFileAttr`, `Option<ttl>`, `Option<generation>`
 impl FileAttribute {
-    pub(crate) fn to_fuse(self, ino: INodeNo) -> (FuseFileAttr, Option<Duration>, Option<u64>) {
+    pub(crate) fn to_fuse(&self, ino: INodeNo) -> (FuseFileAttr, Option<Duration>, Option<u64>) {
         (
             FuseFileAttr {
                 ino,
@@ -249,7 +284,7 @@ impl FileAttribute {
 /// This struct uses the builder pattern to construct a request with optional fields.
 /// Each field corresponds to a file attribute that can be modified.
 #[derive(Debug)]
-pub struct SetAttrRequest<'a> {
+pub struct SetAttrRequest {
     /// File mode (permissions)
     pub mode: Option<u32>,
     /// User ID of the file owner
@@ -272,17 +307,15 @@ pub struct SetAttrRequest<'a> {
     pub bkuptime: Option<SystemTime>,
     /// File flags (unused in FUSE)
     pub flags: Option<BsdFileFlags>,
-    /// File handle for the file being modified
-    pub file_handle: Option<BorrowedFileHandle<'a>>,
 }
 
-impl<'a> Default for SetAttrRequest<'a> {
+impl Default for SetAttrRequest {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl<'a> SetAttrRequest<'a> {
+impl SetAttrRequest {
     pub fn new() -> Self {
         Self {
             mode: None,
@@ -296,7 +329,6 @@ impl<'a> SetAttrRequest<'a> {
             chgtime: None,
             bkuptime: None,
             flags: None,
-            file_handle: None,
         }
     }
 
@@ -353,11 +385,6 @@ impl<'a> SetAttrRequest<'a> {
     /// Unused by FUSE
     pub fn flags(mut self, flags: BsdFileFlags) -> Self {
         self.flags = Some(flags);
-        self
-    }
-
-    pub fn file_handle(mut self, file_handle: BorrowedFileHandle<'a>) -> Self {
-        self.file_handle = Some(file_handle);
         self
     }
 }

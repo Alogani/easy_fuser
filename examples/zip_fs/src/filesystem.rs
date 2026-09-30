@@ -1,12 +1,12 @@
 use zip::ZipArchive;
 
-use easy_fuser::inode_mapper::*;
+use easy_fuser::fuse_presets::{StatelessHandler, UnimplementedFuseHandler};
 use easy_fuser::fuse_serial::prelude::*;
-use easy_fuser::fuse_presets::DefaultFuseHandler;
+use easy_fuser::inode_mapping::*;
 
 use std::ffi::{OsStr, OsString};
 use std::fs::File;
-use std::io::{Read, Seek};
+use std::io::{Cursor, Read, Seek};
 use std::path::Path;
 use std::sync::{Mutex, RwLock};
 
@@ -19,7 +19,8 @@ pub struct ZipFs {
     archive: Mutex<ZipArchive<File>>,
     // index and is_dir are stored in a tuple
     mapper: RwLock<InodeMapper<(usize, bool)>>,
-    inner_fs: DefaultFuseHandler<Inode>,
+    unimplemented: UnimplementedFuseHandler<Inode>,
+    safe_defaults: StatelessHandler<Inode>,
 }
 
 impl ZipFs {
@@ -74,31 +75,31 @@ impl ZipFs {
         Ok(Self {
             archive: Mutex::new(archive),
             mapper: RwLock::new(mapper),
-            inner_fs: DefaultFuseHandler::new(),
+            unimplemented: UnimplementedFuseHandler::new(),
+            safe_defaults: StatelessHandler::new(),
         })
     }
 }
 
 impl FuseHandler for ZipFs {
     type TId = Inode;
+    type FileHandle = Cursor<Vec<u8>>;
 
-    easy_fuser::delegate_fs! { inner_fs, [
-        access, bmap, copy_file_range, create, fallocate, flush, fsync, fsyncdir, getlk, getxattr, ioctl, link, listxattr, lseek, mkdir, mknod, open, opendir, readlink, release, releasedir, removexattr, rename, rmdir, setattr, setlk, setxattr, statfs, symlink, write, unlink
-    ] }
+    easy_fuser::delegate_fs! { safe_defaults, [ fsyncdir, opendir, releasedir ] }
+    easy_fuser::delegate_fs! { unimplemented, [ access, bmap, copy_file_range, create, fallocate, flush, fsync, getlk, getxattr, ioctl, link, listxattr, lseek, mkdir, mknod, readlink, removexattr, rename, rmdir, setattr, setlk, setxattr, statfs, symlink, write, unlink ] }
 
     fn getattr(
         &self,
         _req: &RequestInfo,
         file_id: Inode,
-        _file_handle: Option<BorrowedFileHandle>,
+        _file_handle: Option<&mut Self::FileHandle>,
     ) -> FuseResult<FileAttribute> {
         if file_id.is_filesystem_root() {
             return Ok(get_root_attribute());
         }
         let InodeInfo {
-            parent: _,
-            name: _,
             data: &(idx, is_dir),
+            ..
         } = self
             .mapper
             .read()
@@ -108,6 +109,34 @@ impl FuseHandler for ZipFs {
         let mut archive = self.archive.lock().unwrap();
         let file_attr = create_file_attribute(&archive.by_index(idx)?, is_dir);
         Ok(file_attr)
+    }
+
+    fn open(
+        &self,
+        _req: &RequestInfo,
+        file_id: Inode,
+        _flags: OpenFlags,
+    ) -> FuseResult<(Self::FileHandle, FopenFlags)> {
+        let index = {
+            let mapper = self.mapper.read().unwrap();
+            let InodeInfo {
+                data: &(index, is_dir),
+                ..
+            } = mapper
+                .get(&file_id)
+                .ok_or_else(|| ErrorKind::FileNotFound.to_error("inode not found"))?;
+            if is_dir {
+                return Err(
+                    ErrorKind::InvalidArgument.to_error("cannot open a directory as a file")
+                );
+            }
+            index
+        };
+        let mut archive = self.archive.lock().unwrap();
+        let mut entry = archive.by_index(index)?;
+        let mut data = Vec::new();
+        entry.read_to_end(&mut data)?;
+        Ok((Cursor::new(data), FopenFlags::empty()))
     }
 
     fn lookup(
@@ -133,28 +162,18 @@ impl FuseHandler for ZipFs {
     fn read(
         &self,
         _req: &RequestInfo,
-        file_id: Inode,
-        _file_handle: BorrowedFileHandle,
+        _file_id: Inode,
+        file_handle: Option<&mut Self::FileHandle>,
         seek: SeekFrom,
         size: u32,
         _flags: OpenFlags,
         _lock_owner: Option<u64>,
     ) -> FuseResult<Vec<u8>> {
-        let InodeInfo {
-            parent: _,
-            name: _,
-            data: &(idx, _),
-        } = self
-            .mapper
-            .read()
-            .unwrap()
-            .get(&file_id)
-            .expect("inode not found");
-        let mut archive = self.archive.lock().unwrap();
-        let mut zip_file = archive.by_index_seek(idx)?;
+        let file = file_handle
+            .ok_or_else(|| ErrorKind::BadFileDescriptor.to_error("missing file handle"))?;
         let mut buffer = vec![0; size as usize];
-        zip_file.seek(seek)?;
-        let bytes_read = zip_file.read(&mut buffer)?;
+        file.seek(seek)?;
+        let bytes_read = file.read(&mut buffer)?;
         buffer.truncate(bytes_read);
         Ok(buffer)
     }
@@ -169,11 +188,9 @@ impl FuseHandler for ZipFs {
         let entries = mapper
             .get_children(&file_id)
             .into_iter()
-            .map(|(_, inode)| {
+            .map(|(name, inode)| {
                 let InodeInfo {
-                    parent: _,
-                    name,
-                    data: &(_, is_dir),
+                    data: &(_, is_dir), ..
                 } = mapper.get(inode).unwrap();
                 (
                     (**name).clone(),
@@ -189,5 +206,65 @@ impl FuseHandler for ZipFs {
             })
             .collect();
         Ok(entries)
+    }
+}
+
+#[cfg(test)]
+mod typed_open_resource_tests {
+    use super::*;
+    use std::io::Write;
+    use zip::write::{SimpleFileOptions, ZipWriter};
+
+    #[test]
+    fn reads_from_the_resource_created_by_open() {
+        let archive_file = tempfile::NamedTempFile::new().unwrap();
+        let mut writer = ZipWriter::new(File::create(archive_file.path()).unwrap());
+        writer
+            .start_file("first.txt", SimpleFileOptions::default())
+            .unwrap();
+        writer.write_all(b"wrong entry").unwrap();
+        writer
+            .start_file("second.txt", SimpleFileOptions::default())
+            .unwrap();
+        writer.write_all(b"opened entry").unwrap();
+        writer.finish().unwrap();
+
+        let fs = ZipFs::new(archive_file.path()).unwrap();
+        let (first_id, second_id) = {
+            let mapper = fs.mapper.read().unwrap();
+            let root = mapper.get_root_inode();
+            (
+                mapper
+                    .lookup(&root, OsStr::new("first.txt"))
+                    .unwrap()
+                    .inode
+                    .clone(),
+                mapper
+                    .lookup(&root, OsStr::new("second.txt"))
+                    .unwrap()
+                    .inode
+                    .clone(),
+            )
+        };
+        let request = RequestInfo {
+            id: RequestId(0),
+            uid: 0,
+            gid: 0,
+            pid: 0,
+        };
+        let (mut file, _) = fs.open(&request, second_id, OpenFlags(0)).unwrap();
+
+        let data = fs
+            .read(
+                &request,
+                first_id,
+                Some(&mut file),
+                SeekFrom::Start(0),
+                32,
+                OpenFlags(0),
+                None,
+            )
+            .unwrap();
+        assert_eq!(data, b"opened entry");
     }
 }

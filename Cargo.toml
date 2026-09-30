@@ -1,6 +1,6 @@
 [package]
 name = "easy_fuser"
-version = "0.6.0"
+version = "0.7.0"
 edition = "2024"
 description = "A flexible and idiomatic Fuse implementation for Rust"
 license = "MIT"
@@ -12,34 +12,38 @@ default = ["serial", "parallel", "async"]
 serial = []
 parallel = ["dep:threadpool"]
 async = ["dep:async-trait", "dep:tokio"]
+io_uring = ["async", "dep:io-uring"]
 deadlock_detection = ["parallel", "dep:parking_lot"]
 libfuse = ["fuser/libfuse"]
 
 [dependencies]
 # Core dependencies
-easy_fuser_macro = { version = "0.1.1", path = "easy_fuser_macro"}
-fuser = { version = "0.17.0" }
-log = "0.4"
-libc = "0.2"
-bitflags = "2.13"
+
+easy_fuser_macro = { version = "^0.1.1", path = "easy_fuser_macro"}
+fuser = { version = "^0.18.0" }
+log = "^0.4.34"
+libc = "^0.2.189"
+bitflags = "^2.13.2"
 
 # Parallel dependencies
-threadpool = { version = "1.8", optional = true }
+threadpool = { version = "^1.8.1", optional = true }
 # Parking lot is only used for deadlock_detection if feature set
-parking_lot = { version = "0.12", features = ["deadlock_detection"], optional = true }
+parking_lot = { version = "^0.12.5", features = ["deadlock_detection"], optional = true }
 
 # Async dependencies
 # easy_fuser_async_macro = { path = "./easy_fuser_async_macro", optional = true }
-tokio = { version = "1.52", features = ["full"], optional = true }
-async-trait = { version = "0.1.89", optional = true }
-bimap = { version = "0.6.3", features = ["std"] }
+tokio = { version = "^1.53.1", features = ["full"], optional = true }
+async-trait = { version = "^0.1.92", optional = true }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+io-uring = { version = "^0.7.15", optional = true }
 
 [dev-dependencies]
-tempfile = "3.27"
-env_logger = "0.11"
+tempfile = "^3.27.0"
+env_logger = "^0.11.11"
 
 [build-dependencies]
-askama = { version = "0.16.0", features = ["derive"] }
+askama = { version = "^0.16.1", features = ["derive"] }
 
 [package.metadata.docs.rs]
 features = ["parallel"]

@@ -121,6 +121,7 @@ impl Parse for DelegateFsInput {
 ///
 /// impl FuseHandler for MyFs {
 ///     type TId = PathBuf;
+///     type FileHandle = std::os::fd::OwnedFd;
 ///
 ///     delegate_fs! { mirror_fs, [ read, write, getattr ] }
 /// }
@@ -151,6 +152,7 @@ pub fn delegate_fs(input: TokenStream) -> TokenStream {
 /// #[async_trait]
 /// impl FuseHandler for MyAsyncFs {
 ///     type TId = PathBuf;
+///     type FileHandle = std::os::fd::OwnedFd;
 ///
 ///     delegate_fs_async! { async_mirror_fs, [ read, write ] }
 /// }
@@ -181,6 +183,7 @@ pub fn delegate_fs_async(input: TokenStream) -> TokenStream {
 /// #[async_trait]
 /// impl FuseHandler for MyAsyncFs {
 ///     type TId = PathBuf;
+///     type FileHandle = std::os::fd::OwnedFd;
 ///
 ///     delegate_fs_sync_to_async! { sync_mirror_fs, [ getattr, readlink ] }
 /// }
@@ -270,7 +273,7 @@ fn desugar_signature(sig: &syn::Signature) -> (syn::Signature, Vec<syn::Lifetime
     for input in &mut new_sig.inputs {
         match input {
             syn::FnArg::Receiver(receiver) => {
-                if let Some((_, ref mut lifetime)) = receiver.reference {
+                if let syn::ReceiverKind::Reference(_, lifetime, _) = &mut receiver.kind {
                     *lifetime = Some(next_life());
                 }
             }

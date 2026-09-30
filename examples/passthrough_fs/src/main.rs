@@ -4,7 +4,7 @@ use clap::Parser;
 use ctrlc;
 use easy_fuser::fuse_parallel::prelude::*;
 use easy_fuser::fuse_presets::mirror_fs::*;
-use easy_fuser::fuse_presets::DefaultFuseHandler;
+use easy_fuser::fuse_presets::{StatelessHandler, UnimplementedFuseHandler};
 use std::path::PathBuf;
 use std::process::exit;
 use std::process::Command;
@@ -38,14 +38,16 @@ struct Args {
 
 struct MyMirrorFs {
     mirror_fs: MirrorFs,
-    default_fs: DefaultFuseHandler<PathBuf>,
+    unimplemented: UnimplementedFuseHandler<PathBuf>,
+    safe_defaults: StatelessHandler<PathBuf>,
 }
 
 impl MyMirrorFs {
     fn new(source_path: PathBuf) -> Self {
         Self {
             mirror_fs: MirrorFs::new(source_path),
-            default_fs: DefaultFuseHandler::new(),
+            unimplemented: UnimplementedFuseHandler::new(),
+            safe_defaults: StatelessHandler::new(),
         }
     }
 
@@ -56,6 +58,7 @@ impl MyMirrorFs {
 
 impl FuseHandler for MyMirrorFs {
     type TId = PathBuf;
+    type FileHandle = std::os::fd::OwnedFd;
 
     easy_fuser::delegate_fs! { mirror_fs, [
         flush, fsync, lseek, read, release,
@@ -64,19 +67,22 @@ impl FuseHandler for MyMirrorFs {
         create, mkdir, mknod, removexattr, rename, rmdir, setattr, setxattr, symlink, unlink
     ]}
 
-    easy_fuser::delegate_fs! { default_fs, [ bmap, forget, fsyncdir, getlk, ioctl, link, opendir, releasedir, setlk, statfs ] }
+    easy_fuser::delegate_fs! { safe_defaults, [ forget, fsyncdir, opendir, releasedir ] }
+    easy_fuser::delegate_fs! { unimplemented, [ bmap, getlk, ioctl, link, setlk, statfs ] }
 }
 
 struct MyMirrorFsReadOnly {
     mirror_fs: MirrorFsReadOnly,
-    default_fs: DefaultFuseHandler<PathBuf>,
+    unimplemented: UnimplementedFuseHandler<PathBuf>,
+    safe_defaults: StatelessHandler<PathBuf>,
 }
 
 impl MyMirrorFsReadOnly {
     fn new(source_path: PathBuf) -> Self {
         Self {
             mirror_fs: MirrorFsReadOnly::new(source_path),
-            default_fs: DefaultFuseHandler::new(),
+            unimplemented: UnimplementedFuseHandler::new(),
+            safe_defaults: StatelessHandler::new(),
         }
     }
 
@@ -87,17 +93,15 @@ impl MyMirrorFsReadOnly {
 
 impl FuseHandler for MyMirrorFsReadOnly {
     type TId = PathBuf;
+    type FileHandle = std::os::fd::OwnedFd;
 
     easy_fuser::delegate_fs! { mirror_fs, [
         flush, fsync, lseek, read, release,
         access, getattr, getxattr, listxattr, lookup, open, readdir, readlink
     ]}
 
-    easy_fuser::delegate_fs! { default_fs, [
-        copy_file_range, fallocate, write,
-        create, mkdir, mknod, removexattr, rename, rmdir, setattr, setxattr, symlink, unlink,
-        bmap, forget, fsyncdir, getlk, ioctl, link, opendir, releasedir, setlk, statfs
-    ]}
+    easy_fuser::delegate_fs! { safe_defaults, [ forget, fsyncdir, opendir, releasedir ] }
+    easy_fuser::delegate_fs! { unimplemented, [ copy_file_range, fallocate, write, create, mkdir, mknod, removexattr, rename, rmdir, setattr, setxattr, symlink, unlink, bmap, getlk, ioctl, link, setlk, statfs ] }
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -173,13 +177,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("Mounting mirror filesystem in READ-ONLY mode...");
         println!("Mount point: {:?}", &mntpoint);
         println!("Source directory: {:?}", fs.source_dir());
-        mount(fs, &mntpoint, &[], Some(1))?;
+        mount(fs, &mntpoint, &[], Some(MountThreads::same(1)))?;
     } else {
         let fs = MyMirrorFs::new(source_dir);
         println!("Mounting mirror filesystem in READ-WRITE mode...");
         println!("Mount point: {:?}", &mntpoint);
         println!("Source directory: {:?}", fs.source_dir());
-        mount(fs, &mntpoint, &[], Some(1))?;
+        mount(fs, &mntpoint, &[], Some(MountThreads::same(1)))?;
     }
 
     // If we reach here, the filesystem has been unmounted normally

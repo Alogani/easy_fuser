@@ -2,10 +2,12 @@
 // Async mode is covered by tests/async_test.rs instead.
 #![cfg(any(feature = "serial", feature = "parallel"))]
 
+mod common;
+
 #[cfg(all(feature = "parallel", not(feature = "serial")))]
 use easy_fuser::fuse_parallel::prelude::*;
-use easy_fuser::fuse_presets::DefaultFuseHandler;
 use easy_fuser::fuse_presets::mirror_fs::*;
+use easy_fuser::fuse_presets::{StatelessHandler, UnimplementedFuseHandler};
 #[cfg(feature = "serial")]
 use easy_fuser::fuse_serial::prelude::*;
 
@@ -21,11 +23,13 @@ use tempfile::TempDir;
 
 struct MyFs {
     mirror_fs: MirrorFs,
-    default_fs: DefaultFuseHandler<PathBuf>,
+    unimplemented: UnimplementedFuseHandler<PathBuf>,
+    safe_defaults: StatelessHandler<PathBuf>,
 }
 
 impl FuseHandler for MyFs {
     type TId = PathBuf;
+    type FileHandle = std::os::fd::OwnedFd;
 
     delegate_fs! { mirror_fs, [ // readonly functions
         flush, fsync, lseek, read, release,
@@ -38,27 +42,27 @@ impl FuseHandler for MyFs {
         ]
     }
 
-    delegate_fs! {default_fs, [ bmap, forget, fsyncdir, getlk, ioctl, link, opendir, releasedir, setlk, statfs ]}
+    delegate_fs! { safe_defaults, [ forget, fsyncdir, opendir, releasedir ] }
+    delegate_fs! { unimplemented, [ bmap, getlk, ioctl, link, setlk, statfs ] }
 }
 
 struct MyFsReadOnly {
     mirror_fs: MirrorFsReadOnly,
-    default_fs: DefaultFuseHandler<PathBuf>,
+    unimplemented: UnimplementedFuseHandler<PathBuf>,
+    safe_defaults: StatelessHandler<PathBuf>,
 }
 
 impl FuseHandler for MyFsReadOnly {
     type TId = PathBuf;
+    type FileHandle = std::os::fd::OwnedFd;
 
     delegate_fs! { mirror_fs, [
         flush, fsync, lseek, read, release,
         access, getattr, getxattr, listxattr, lookup, open, readdir, readlink
     ]}
 
-    delegate_fs! { default_fs, [
-        copy_file_range, fallocate, write,
-        create, mkdir, mknod, removexattr, rename, rmdir, setattr, setxattr, symlink, unlink,
-        bmap, forget, fsyncdir, getlk, ioctl, link, opendir, releasedir, setlk, statfs
-    ]}
+    delegate_fs! { safe_defaults, [ forget, fsyncdir, opendir, releasedir ] }
+    delegate_fs! { unimplemented, [ copy_file_range, fallocate, write, create, mkdir, mknod, removexattr, rename, rmdir, setattr, setxattr, symlink, unlink, bmap, getlk, ioctl, link, setlk, statfs ] }
 }
 
 static MOUNT_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
@@ -73,7 +77,7 @@ fn test_mirror_fs_operations() {
     let mntpoint = mount_dir.path().to_path_buf();
     let source_path = source_dir.path().to_path_buf();
 
-    // We won't use spawn_mount because it MirrorFs doesn't implement Send in serial mode
+    // We won't use spawn_mount because MirrorFs doesn't implement Send in serial mode
     let mntpoint_clone = mntpoint.clone();
     let source_path_clone = source_path.clone();
     let sentinel = source_path.join("sentinel.txt");
@@ -82,9 +86,10 @@ fn test_mirror_fs_operations() {
     let handle = std::thread::spawn(move || {
         let fs = MyFs {
             mirror_fs: MirrorFs::new(source_path_clone),
-            default_fs: DefaultFuseHandler::new(),
+            unimplemented: UnimplementedFuseHandler::new(),
+            safe_defaults: StatelessHandler::new(),
         };
-        mount(fs, &mntpoint_clone, &[], Some(4)).unwrap();
+        mount(fs, &mntpoint_clone, &[], Some(common::MOUNT_THREADS)).unwrap();
     });
 
     let mnt_sentinel = mntpoint.join("sentinel.txt");
@@ -221,9 +226,10 @@ fn test_mirror_fs_readonly_operations() {
     let handle = std::thread::spawn(move || {
         let fs = MyFsReadOnly {
             mirror_fs: MirrorFsReadOnly::new(source_path_clone),
-            default_fs: DefaultFuseHandler::new(),
+            unimplemented: UnimplementedFuseHandler::new(),
+            safe_defaults: StatelessHandler::new(),
         };
-        mount(fs, &mntpoint_clone, &[], Some(4)).unwrap();
+        mount(fs, &mntpoint_clone, &[], Some(common::MOUNT_THREADS)).unwrap();
     });
 
     let mnt_file = mntpoint.join(test_file_name);

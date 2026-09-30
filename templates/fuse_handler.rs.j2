@@ -16,18 +16,24 @@ use async_trait::async_trait;
 ///
 /// # Type Parameter
 ///
-/// - `T`: A type that implements `FileIdType`. This represents the unique identifier for files and directories in your filesystem.
+/// - `TId`: A type that implements `FileIdType`, identifying a filesystem object.
+/// - `FileHandle`: An owned resource for one particular open instance, such as an
+///   `OwnedFd`, a cursor, or a backend-specific reader. The driver stores it and
+///   resolves FUSE's opaque numeric handle before calling file operations.
 ///
 /// # Usage
 ///
-/// To create a custom filesystem, implement this trait for your struct. You can choose to implement all methods
-/// or rely on default implementations provided by one of the provided templates (like `MirrorFs` or `DefaultFuseHandler`).
+/// Implement this trait for your filesystem. Presets such as `MirrorFs` provide
+/// selected operations that you can delegate to with `delegate_fs!`; they do
+/// not implement this trait for you. Use `StatelessHandler` only for its
+/// simple directory methods, and `UnimplementedFuseHandler` for unsupported
+/// operations that should return `ENOSYS`.
 ///
 /// ## Example: Custom Filesystem with MirrorFs as base
 ///
 /// ```rust,ignore
 /// use easy_fuser::fuse_presets::mirror_fs::*;
-/// use easy_fuser::fuse_presets::DefaultFuseHandler;
+/// use easy_fuser::fuse_presets::{StatelessHandler, UnimplementedFuseHandler};
 /// use easy_fuser::fuse_parallel::prelude::*; // or fuse_serial::prelude::* or fuse_async::prelude::*
 /// use easy_fuser_macro::delegate_fs; // or delegate_fs_sync_to_async for async mode
 /// use std::path::PathBuf;
@@ -35,11 +41,13 @@ use async_trait::async_trait;
 ///
 /// struct MyCustomFs {
 ///     mirror_fs: MirrorFs,
-///     default_fs: DefaultFuseHandler<PathBuf>,
+///     defaults: StatelessHandler<PathBuf>,
+///     unimplemented: UnimplementedFuseHandler<PathBuf>,
 /// }
 ///
 /// impl FuseHandler for MyCustomFs {
 ///     type TId = PathBuf;
+///     type FileHandle = std::os::fd::OwnedFd;
 ///
 ///     // Custom implementation for lookup:
 ///     fn lookup(&self, req: &RequestInfo, parent_id: PathBuf, name: &OsStr) -> FuseResult<FileAttribute> {
@@ -48,11 +56,35 @@ use async_trait::async_trait;
 ///         self.mirror_fs.lookup(req, parent_id, name)
 ///     }
 ///
-///     // Delegate other methods:
+///     // Simple directory operations that need no extra state:
+///     delegate_fs! { defaults, [ forget, fsyncdir, opendir, releasedir ] }
+///
+///     // Unsupported operations return ENOSYS:
+///     delegate_fs! { unimplemented, [ statfs, link ] }
+///
+///     // Delegate file operations to MirrorFs:
 ///     delegate_fs! { mirror_fs, [ read, write, getattr ] }
-///     delegate_fs! { default_fs, [ statfs, link ] }
 /// }
 /// ```
+///
+/// # Per-open file state
+///
+/// `FileHandle` is the type returned by successful `open` and `create` calls. The driver keeps
+/// each value in its private handle table and passes it back to later file callbacks. It allocates
+/// a separate opaque FUSE number for each live open, independently of the value of your type, so
+/// equal `FileHandle` values still belong to separate opens. Most callbacks receive
+/// `Option<&mut Self::FileHandle>` so state such as a cursor can be updated. `None` means there is
+/// no resource for that request, which stateless handlers can ignore. `copy_file_range` receives
+/// shared optional references for both opens because it may refer to the same open handle.
+/// `release` consumes the optional owned value; its default implementation drops the resource.
+/// The driver serializes callbacks that use the same open resource. Different opens have separate
+/// locks; if their values share mutable backend state, your handler must synchronize that state.
+///
+/// Choose `()` if your callbacks do not need per-open state. If you delegate descriptor operations
+/// to `FileDescriptorHandler`, use `std::os::fd::OwnedFd`: you do not have to implement its FD
+/// callbacks, but the helper needs the owned descriptor. If you implement file callbacks yourself,
+/// define a type for the state you want to keep; [the typed handle example](crate::types::file_handle)
+/// demonstrates a cursor-backed handle.
 ///
 /// # Important Methods
 ///
@@ -68,8 +100,9 @@ use async_trait::async_trait;
 ///
 /// # Default Implementations
 ///
-/// Many methods in this trait have default implementations that delegate to the inner handler returned by `get_inner()`.
-/// This allows for easy extension and customization of existing filesystem implementations by chaining/overriding their behaviors.
+/// `FuseHandler` has default bodies for selected callbacks. Presets are separate
+/// structs: they provide only the operations documented for them, and you must
+/// explicitly delegate those operations or implement them in your handler.
 ///
 /// # Multithreading, Safety, Traits & Lifetime
 ///
@@ -99,13 +132,45 @@ pub trait FuseHandler: 'static
     {% endif %}
 {
     type TId: FileIdType {% if mode == "async" %}+ Send{% endif %};
+    /// The owned resource kept for one successful `open` or `create` call.
+    /// The driver assigns a separate opaque FUSE number to each live open and
+    /// maps it to this value, so equal `FileHandle` values from different opens
+    /// remain separate. The type does not need to contain a unique ID or be
+    /// `Clone` or `Sync`; it must be `'static`, and parallel and async modes
+    /// also require `Send`.
+    ///
+    /// Choose `()` when file operations are stateless. Choose `OwnedFd` when
+    /// delegating descriptor operations to `FileDescriptorHandler`; the helper
+    /// handles the descriptor callbacks, but still needs the resource type to
+    /// be `OwnedFd`. For custom file operations, define a type for the per-open
+    /// state and use it in the callback's `Option<&mut Self::FileHandle>`.
+    type FileHandle: 'static {% if mode != "serial" %}+ Send{% endif %};
 
     {% macro async_keyword() -%}{% if mode == "async" %}async{% endif %}{%- endmacro %}
     {% macro await_keyword() -%}{% if mode == "async" %}.await{% endif %}{%- endmacro %}
 
-    /// Provide a default Time-To-Live for file metadata
+    /// Provide the fallback metadata timeout used in FUSE replies.
     ///
-    /// Can be overriden for each FileAttributes returned.
+    /// Defaults to one second. A `FileAttribute` with `ttl: Some(duration)`
+    /// uses that duration instead for its reply. This timeout applies to
+    /// attribute replies, including `getattr`, `setattr`, `lookup`,
+    /// entry-creating callbacks, and `readdirplus`. For replies that return an entry
+    /// (`lookup`, `create`, `mkdir`, `mknod`, `symlink`, `link`, and
+    /// `readdirplus`), this crate passes the same timeout for both the
+    /// attribute and name-to-inode entry cache. For `getattr` and `setattr`,
+    /// it is the attribute-cache timeout. fuser 0.18 offers
+    /// `ReplyEntry::entry_with_ttls` for separate values, but `easy_fuser` does
+    /// not currently expose separate entry and attribute timeouts. This is
+    /// separate from file-data caching.
+    ///
+    /// **Warning:** Do not choose this timeout randomly per callback. It is a
+    /// cache-validity interval, so random values make revalidation timing
+    /// unpredictable. FUSE accepts a timeout on each reply; using a stable
+    /// timeout is guidance for predictable behavior, not a protocol rule.
+    /// See libfuse's [`attr_timeout`](https://libfuse.github.io/doxygen/struct_fuse_entry_param.html#attr_timeout)
+    /// and [`entry_timeout`](https://libfuse.github.io/doxygen/struct_fuse_entry_param.html#entry_timeout)
+    /// descriptions, plus fuser's [`ReplyEntry::entry`](https://docs.rs/fuser/0.18.0/fuser/struct.ReplyEntry.html#method.entry)
+    /// and [`ReplyEntry::entry_with_ttls`](https://docs.rs/fuser/0.18.0/fuser/struct.ReplyEntry.html#method.entry_with_ttls).
     fn get_default_ttl(&self) -> Duration {
         Duration::from_secs(1)
     }
@@ -144,21 +209,29 @@ pub trait FuseHandler: 'static
         &self,
         req: &RequestInfo,
         file_in: Self::TId,
-        file_handle_in: BorrowedFileHandle<'_>,
+        file_handle_in: Option<&Self::FileHandle>,
         offset_in: u64,
         file_out: Self::TId,
-        file_handle_out: BorrowedFileHandle<'_>,
+        file_handle_out: Option<&Self::FileHandle>,
         offset_out: u64,
         len: u64,
         flags: CopyFileRangeFlags,
     ) -> FuseResult<u32>;
 
-    /// Create and open a file
+    /// Create and open a regular file.
     ///
-    /// If the file does not exist, first create it with the specified mode, and then
-    /// open it. Open flags (with the exception of O_NOCTTY) are available in flags.
-    /// If this method is not implemented or under Linux kernel versions earlier than
-    /// 2.6.15, the mknod() and open() methods will be called instead.
+    /// On success, return its per-open handle, metadata, and response flags.
+    /// The driver stores the handle, registers the new name and lookup
+    /// reference, and sends a create reply containing the open handle. The
+    /// handle is passed to later file callbacks and consumed by `release`; do
+    /// not construct an opaque FUSE handle yourself. Return `()` as the handle
+    /// type when file operations need no per-open state.
+    ///
+    /// `flags` contains the open flags supplied for creation (the upstream
+    /// `fuser` API documents `O_NOCTTY` as the exception). On applicable
+    /// protocol/kernel versions, FUSE may use `mknod` followed by `open` when
+    /// `create` is unavailable. See the [upstream `fuser` create contract](https://docs.rs/fuser/0.18.0/fuser/trait.Filesystem.html#method.create)
+    /// for its protocol/kernel details.
     {{ async_keyword() }} fn create(
         &self,
         req: &RequestInfo,
@@ -167,14 +240,14 @@ pub trait FuseHandler: 'static
         mode: u32,
         umask: u32,
         flags: OpenFlags,
-    ) -> FuseResult<(OwnedFileHandle, <Self::TId as FileIdType>::Metadata, FopenFlags)>;
+    ) -> FuseResult<(Self::FileHandle, <Self::TId as FileIdType>::Metadata, FopenFlags)>;
 
     /// Preallocate or deallocate space to a file
     {{ async_keyword() }} fn fallocate(
         &self,
         req: &RequestInfo,
         file_id: Self::TId,
-        file_handle: BorrowedFileHandle<'_>,
+        file_handle: Option<&mut Self::FileHandle>,
         offset: i64,
         length: i64,
         mode: FallocateFlags,
@@ -188,14 +261,25 @@ pub trait FuseHandler: 'static
         &self,
         req: &RequestInfo,
         file_id: Self::TId,
-        file_handle: BorrowedFileHandle<'_>,
+        file_handle: Option<&mut Self::FileHandle>,
         lock_owner: u64,
     ) -> FuseResult<()>;
 
     #[allow(unused_variables)]
-    /// Release references to an inode, if the nlookup count reaches zero (to substract from the number of lookups).
-    /// 
-    /// A default implementation is provided that does nothing. It is advised to implement in case of manual Inode handling to release memory
+    /// Release filesystem-owned state for lookup references the kernel drops.
+    ///
+    /// The kernel uses this notification when it drops inode lookup references;
+    /// `nlookup` is the number to release and may be greater than one. There is
+    /// no reply, and FUSE does not guarantee a final `forget` for every inode
+    /// at unmount.
+    ///
+    /// The default does nothing. For `Inode`, use this callback to retire your
+    /// own lookup-owned state when appropriate, while accounting for open
+    /// handles separately. For `PathBuf` and `MappedInode`, the driver updates
+    /// its lookup accounting after this callback; do not decrement that
+    /// internal count yourself. The callback may still release other
+    /// filesystem-owned state. An inode can remain usable after its last name
+    /// is unlinked while lookups or open handles still refer to it.
     {{ async_keyword() }} fn forget(&self, req: &RequestInfo, file_id: Self::TId, nlookup: u64) {}
 
     /// Synchronize file contents
@@ -205,7 +289,7 @@ pub trait FuseHandler: 'static
         &self,
         req: &RequestInfo,
         file_id: Self::TId,
-        file_handle: BorrowedFileHandle<'_>,
+        file_handle: Option<&mut Self::FileHandle>,
         datasync: bool,
     ) -> FuseResult<()>;
 
@@ -223,12 +307,18 @@ pub trait FuseHandler: 'static
         datasync: bool,
     ) -> FuseResult<()>;
 
-    /// Modify file attributes
+    /// Return the current attributes for a file or directory.
+    ///
+    /// The kernel may serve cached attributes until the timeout attached to a
+    /// previous metadata reply expires. `FileAttribute::ttl` overrides
+    /// `get_default_ttl()` for this reply; `None` uses the default. If a handle
+    /// is available, it is passed as `Some`, which can be needed to access an
+    /// open object after its last directory name has been removed.
     {{ async_keyword() }} fn getattr(
         &self,
         req: &RequestInfo,
         file_id: Self::TId,
-        file_handle: Option<BorrowedFileHandle<'_>>,
+        file_handle: Option<&mut Self::FileHandle>,
     ) -> FuseResult<FileAttribute>;
 
     /// Test for a POSIX file lock.
@@ -236,7 +326,7 @@ pub trait FuseHandler: 'static
         &self,
         req: &RequestInfo,
         file_id: Self::TId,
-        file_handle: BorrowedFileHandle<'_>,
+        file_handle: Option<&mut Self::FileHandle>,
         lock_owner: u64,
         lock_info: LockInfo,
     ) -> FuseResult<LockInfo>;
@@ -255,14 +345,22 @@ pub trait FuseHandler: 'static
         &self,
         req: &RequestInfo,
         file_id: Self::TId,
-        file_handle: BorrowedFileHandle<'_>,
+        file_handle: Option<&mut Self::FileHandle>,
         flags: IoctlFlags,
         cmd: u32,
         in_data: Vec<u8>,
         out_size: u32,
     ) -> FuseResult<(i32, Vec<u8>)>;
 
-    /// Create a hard link.
+    /// Create a hard link and return metadata for the linked object.
+    ///
+    /// Perform the backing operation before returning success, and return
+    /// metadata reflecting the resulting object, including its link count. The
+    /// driver registers the added name after success. With `MappedInode`, the
+    /// new path is then available through `paths()` and `parts_paths()`; with
+    /// `Inode`, return the same inode identity for every hard link. `PathBuf`
+    /// keeps path-based identities and does not represent hard links as one
+    /// shared identity.
     {{ async_keyword() }} fn link(
         &self,
         req: &RequestInfo,
@@ -274,7 +372,19 @@ pub trait FuseHandler: 'static
     /// List extended attribute names
     {{ async_keyword() }} fn listxattr(&self, req: &RequestInfo, file_id: Self::TId, size: u32) -> FuseResult<Vec<u8>>;
 
-    /// Retrieve file attributes for a directory entry by name and increment the lookup count associated with the inode.
+    /// Retrieve attributes for a directory entry by name.
+    ///
+    /// On success, return the target's metadata. The driver replies with those
+    /// attributes and, for `PathBuf` and `MappedInode`, records the
+    /// `(parent, name)` association and kernel lookup reference internally. For
+    /// `Inode`, the returned inode number is passed through and your filesystem
+    /// supplies and manages that identity. Do not increment an `easy_fuser`
+    /// lookup count yourself.
+    ///
+    /// The kernel can continue to request an inode after its final name has
+    /// been unlinked. Keep it addressable while it has outstanding lookup
+    /// references or open handles. The matching `forget` callback releases
+    /// lookup references, but may not be called for every inode at unmount.
     {{ async_keyword() }} fn lookup(&self, req: &RequestInfo, parent_id: Self::TId, name: &OsStr) -> FuseResult<<Self::TId as FileIdType>::Metadata>;
 
     /// Reposition read/write file offset
@@ -282,11 +392,18 @@ pub trait FuseHandler: 'static
         &self,
         req: &RequestInfo,
         file_id: Self::TId,
-        file_handle: BorrowedFileHandle<'_>,
+        file_handle: Option<&mut Self::FileHandle>,
         seek: SeekFrom,
     ) -> FuseResult<i64>;
 
-    /// Create a new directory
+    /// Create a directory and return its metadata.
+    ///
+    /// After success, the driver registers the new directory name and lookup
+    /// reference and replies with the metadata. `FileAttribute::ttl` on that
+    /// metadata overrides `get_default_ttl()` for the reply. For `Inode`,
+    /// provide the inode identity; for `PathBuf` and `MappedInode`, the driver
+    /// assigns it. The handler remains responsible for creating the backing
+    /// directory.
     {{ async_keyword() }} fn mkdir(
         &self,
         req: &RequestInfo,
@@ -296,7 +413,13 @@ pub trait FuseHandler: 'static
         umask: u32,
     ) -> FuseResult<<Self::TId as FileIdType>::Metadata>;
 
-    /// Create a new file node (regular file, device, FIFO, socket, etc)
+    /// Create a filesystem node and return its metadata.
+    ///
+    /// `mode`, `umask`, and `rdev` describe the requested node; `rdev` is
+    /// represented by [`DeviceType`]. After success, the driver registers the
+    /// name and lookup reference and replies with the returned metadata. The
+    /// handler performs the backing operation and supplies the inode identity
+    /// when `TId = Inode`.
     {{ async_keyword() }} fn mknod(
         &self,
         req: &RequestInfo,
@@ -309,13 +432,16 @@ pub trait FuseHandler: 'static
 
     /// Open a file and return a file handle.
     ///
-    /// Open flags (with the exception of O_CREAT, O_EXCL, O_NOCTTY and O_TRUNC) are available in flags. You may store an arbitrary file handle (pointer, index, etc) in file_handle response, and use this in other all other file operations (read, write, flush, release, fsync). Filesystem may also implement stateless file I/O and not store anything in fh. There are also some flags (direct_io, keep_cache) which the filesystem may set, to change the way the file is opened. See fuse_file_info structure in <fuse_common.h> for more details.
+    /// The returned resource belongs to this particular open instance. `FuseDriver`
+    /// stores it and gives FUSE an opaque numeric handle. Return an owned resource
+    /// with a `'static` lifetime; the driver passes it back to subsequent file
+    /// operations. Stateless implementations may ignore a missing resource.
     {{ async_keyword() }} fn open(
         &self,
         req: &RequestInfo,
         file_id: Self::TId,
         flags: OpenFlags,
-    ) -> FuseResult<(OwnedFileHandle, FopenFlags)>;
+    ) -> FuseResult<(Self::FileHandle, FopenFlags)>;
 
     /// Open a directory
     ///
@@ -336,19 +462,32 @@ pub trait FuseHandler: 'static
         &self,
         req: &RequestInfo,
         file_id: Self::TId,
-        file_handle: BorrowedFileHandle<'_>,
+        file_handle: Option<&mut Self::FileHandle>,
         seek: SeekFrom,
         size: u32,
         flags: OpenFlags,
         lock_owner: Option<u64>,
     ) -> FuseResult<Vec<u8>>;
 
-    /// Read directory contents
+    /// Return directory entries as names and minimal metadata.
     ///
-    /// Returns a list of directory entries with minimal metadata.
+    /// Each `OsString` is one name, not a path, and must not contain `/`. For
+    /// `Inode`, minimal metadata is `(Inode, FileKind)`; for `PathBuf` and
+    /// `MappedInode`, it is `FileKind` and the driver assigns the inode number.
     ///
-    /// Important: The returned file names (OsString) must not contain any slashes ('/').
-    /// Including slashes in the file names will result in undefined behavior.
+    /// This method does not receive a FUSE offset. On an offset-zero request,
+    /// the driver obtains this listing, assigns opaque continuation offsets to
+    /// the entries, and retains entries that did not fit in a reply buffer for
+    /// later requests. Do not encode offsets in the returned metadata. When
+    /// FUSE starts again at offset zero, the handler is called for a fresh
+    /// listing; the driver does not keep a snapshot for the whole directory
+    /// open lifetime. The `opendir` handle, if any, is passed here as a
+    /// borrowed handle.
+    ///
+    /// Ordinary `readdir` does not add kernel lookup references for its
+    /// entries. Use `readdirplus` when full attributes are needed in the
+    /// directory reply and the associated lookup references should be
+    /// registered.
     {{ async_keyword() }} fn readdir(
         &self,
         req: &RequestInfo,
@@ -356,12 +495,16 @@ pub trait FuseHandler: 'static
         file_handle: BorrowedFileHandle<'_>,
     ) -> FuseResult<Vec<(OsString, <Self::TId as FileIdType>::MinimalMetadata)>>;
 
-    /// Read directory contents with full file attributes
+    /// Return directory entries with full metadata.
     ///
-    /// Default implementation combines readdir and lookup operations.
-    ///
-    /// Important: The returned file names (OsString) must not contain any slashes ('/').
-    /// Including slashes in the file names will result in undefined behavior.
+    /// Names are single entry names and must not contain `/`. The default
+    /// implementation calls `readdir` and then `lookup` for each returned
+    /// name. The driver registers a lookup reference for each entry in the
+    /// `readdirplus` reply. Override this method when full metadata can be
+    /// obtained more efficiently or when a combined listing/lookup operation
+    /// better matches the backing filesystem. Like `readdir`, this callback
+    /// does not receive a directory offset; the driver assigns continuation
+    /// offsets and buffers entries across a split reply.
     {{ async_keyword() }} fn readdirplus(
         &self,
         req: &RequestInfo,
@@ -390,11 +533,14 @@ pub trait FuseHandler: 'static
         &self,
         req: &RequestInfo,
         file_id: Self::TId,
-        file_handle: OwnedFileHandle,
+        file_handle: Option<Self::FileHandle>,
         flags: OpenFlags,
         lock_owner: Option<u64>,
         flush: bool,
-    ) -> FuseResult<()>;
+    ) -> FuseResult<()> {
+        let _ = (req, file_id, file_handle, flags, lock_owner, flush);
+        Ok(())
+    }
 
     /// Release an open directory
     ///
@@ -412,7 +558,16 @@ pub trait FuseHandler: 'static
     /// Remove an extended attribute.
     {{ async_keyword() }} fn removexattr(&self, req: &RequestInfo, file_id: Self::TId, name: &OsStr) -> FuseResult<()>;
 
-    /// Rename a file or directory
+    /// Rename a directory entry.
+    ///
+    /// Perform the backing rename, including the requested `RenameFlags`
+    /// semantics, before returning success. If a flag is unsupported by the
+    /// backing filesystem, return an appropriate error rather than silently
+    /// ignoring it. After success, the driver updates its path resolver for
+    /// `PathBuf` and `MappedInode`; on Linux it swaps the two cached names for
+    /// `RENAME_EXCHANGE`. For manually managed `Inode` values, update your own
+    /// namespace index as part of the successful operation. Keep open handles
+    /// and object identity valid across a rename.
     {{ async_keyword() }} fn rename(
         &self,
         req: &RequestInfo,
@@ -423,14 +578,21 @@ pub trait FuseHandler: 'static
         flags: RenameFlags,
     ) -> FuseResult<()>;
 
-    /// Remove a directory
+    /// Remove a directory name from its parent.
+    ///
+    /// The handler performs the backing operation. After success, the driver
+    /// removes the cached path mapping for `PathBuf` and `MappedInode`; with
+    /// manually managed `Inode`, update your own namespace index. A removed
+    /// name does not by itself release open handles or outstanding kernel
+    /// lookup references, so keep the object usable for those references.
     {{ async_keyword() }} fn rmdir(&self, req: &RequestInfo, parent_id: Self::TId, name: &OsStr) -> FuseResult<()>;
 
     {{ async_keyword() }} fn setattr(
         &self,
         req: &RequestInfo,
         file_id: Self::TId,
-        attrs: SetAttrRequest<'_>,
+        attrs: SetAttrRequest,
+        file_handle: Option<&mut Self::FileHandle>,
     ) -> FuseResult<FileAttribute>;
 
     /// Acquire, modify or release a POSIX file lock
@@ -443,7 +605,7 @@ pub trait FuseHandler: 'static
         &self,
         req: &RequestInfo,
         file_id: Self::TId,
-        file_handle: BorrowedFileHandle<'_>,
+        file_handle: Option<&mut Self::FileHandle>,
         lock_owner: u64,
         lock_info: LockInfo,
         sleep: bool,
@@ -463,7 +625,12 @@ pub trait FuseHandler: 'static
     /// Get file system statistics
     {{ async_keyword() }} fn statfs(&self, req: &RequestInfo, file_id: Self::TId) -> FuseResult<StatFs>;
 
-    /// Create a symbolic link.
+    /// Create a symbolic link and return metadata for the link itself.
+    ///
+    /// `link_name` is the new entry name and `target` is the link target. After
+    /// success, the driver registers the new name and lookup reference and
+    /// replies with the metadata. The handler performs the backing operation
+    /// and supplies the inode identity when `TId = Inode`.
     {{ async_keyword() }} fn symlink(
         &self,
         req: &RequestInfo,
@@ -481,7 +648,7 @@ pub trait FuseHandler: 'static
         &self,
         req: &RequestInfo,
         file_id: Self::TId,
-        file_handle: BorrowedFileHandle<'_>,
+        file_handle: Option<&mut Self::FileHandle>,
         seek: SeekFrom,
         data: Vec<u8>,
         write_flags: WriteFlags,
@@ -489,6 +656,19 @@ pub trait FuseHandler: 'static
         lock_owner: Option<u64>,
     ) -> FuseResult<u32>;
 
-    /// Remove a file
+    /// Remove a non-directory name from its parent directory.
+    ///
+    /// The handler performs the backing operation. After success, the driver
+    /// removes the cached path mapping for `PathBuf` and `MappedInode`; with
+    /// manually managed `Inode`, update your own namespace index. A removed
+    /// name does not by itself release open handles or outstanding kernel
+    /// lookup references, so keep the object usable for those references.
+    ///
+    /// A `PathBuf` may still resolve to the last remembered path while FUSE
+    /// refers to the inode after unlink. That path might later name a different
+    /// object. Use the open file handle for an already-open file when possible.
+    /// For `MappedInode`, `paths()` is empty after its last known name is
+    /// removed; the inode and an open handle can still be used while the object
+    /// remains alive.
     {{ async_keyword() }} fn unlink(&self, req: &RequestInfo, parent_id: Self::TId, name: &OsStr) -> FuseResult<()>;
 }

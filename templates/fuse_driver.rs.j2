@@ -2,8 +2,7 @@
 
 use std::{
     sync::Arc,
-    collections::{HashMap, VecDeque},
-    ffi::{OsStr, OsString},
+    ffi::OsStr,
     path::Path,
     time::SystemTime,
 };
@@ -17,13 +16,16 @@ use fuser::{
     ReplyStatfs, ReplyWrite, ReplyXattr, Request, TimeOrNow,
 };
 
+use crate::unix_fs;
 use crate::types::*;
 use crate::core::helpers::*;
-use crate::core::FileIdResolver;
+use crate::core::{DirMapIter, FileIdResolver};
+{% if send_sync %}
+use crate::core::RequestResolver;
+{% endif %}
 
 use super::fuse_handler::FuseHandler;
 
-type DirIter<TAttr> = HashMap<(INodeNo, u64), VecDeque<(OsString, INodeNo, TAttr)>>;
 {% macro borrow_mut() -%}
     {% if mode == "serial" %}
         borrow_mut()
@@ -31,6 +33,22 @@ type DirIter<TAttr> = HashMap<(INodeNo, u64), VecDeque<(OsString, INodeNo, TAttr
         lock_unwrap()
     {% elif mode == "async" %}
         lock().await
+    {% endif %}
+{%- endmacro %}
+
+{% macro borrow_resource(cell) -%}
+    let mut resource_guard = match &{{ cell }} {
+        Some(cell) => Some(cell.lock_resource(){% if mode == "async" %}.await{% endif %}),
+        None => None,
+    };
+    let file_handle = resource_guard.as_deref_mut().and_then(Option::as_mut);
+{%- endmacro %}
+
+{% macro own_for_spawn(value) -%}
+    {% if mode == "serial" %}
+        {{ value }}
+    {% else %}
+        {{ value }}.to_owned()
     {% endif %}
 {%- endmacro %}
 
@@ -73,26 +91,31 @@ type DirIter<TAttr> = HashMap<(INodeNo, u64), VecDeque<(OsString, INodeNo, TAttr
     use tokio::sync::Mutex;
 {% endif %}
 
+mod file_handle_table {
+    include!(concat!(env!("OUT_DIR"), "/{{ mode }}/file_handle_table.rs"));
+}
+use file_handle_table::FileHandleTable;
+
 pub(crate) struct FuseDriver<TId, THandler>
 where
     TId: FileIdType,
     THandler: FuseHandler<TId = TId>,
 {
     pub resolver: Arc<TId::Resolver>,
+    file_handles: FileHandleTable<THandler::FileHandle>,
 
     {% if !send_sync %}
         handler: THandler,
-        dirmap_iter: RefCell<DirIter<FileKind>>,
-        dirmapplus_iter: RefCell<DirIter<FileAttribute>>,
+        dirmap_iter: RefCell<DirMapIter<FileKind>>,
+        dirmapplus_iter: RefCell<DirMapIter<FileAttribute>>,
     {% else %}
         handler: Arc<THandler>,
-        dirmap_iter: Arc<Mutex<DirIter<FileKind>>>,
-        dirmapplus_iter: Arc<Mutex<DirIter<FileAttribute>>>,
+        dirmap_iter: Arc<Mutex<DirMapIter<FileKind>>>,
+        dirmapplus_iter: Arc<Mutex<DirMapIter<FileAttribute>>>,
     {% endif %}
 
     {% if mode == "parallel" %}
         pub threadpool: ThreadPool,
-        pub reply_threadpool: ThreadPool,
     {% elif mode == "async" %}
         pub runtime: Arc<Runtime>,
     {% endif %}
@@ -106,7 +129,6 @@ where
     {
         fn drop(&mut self) {
             self.threadpool.join();
-            self.reply_threadpool.join();
         }
     }
 {% endif %}
@@ -118,9 +140,9 @@ where
 {
     pub fn new(
         handler: THandler,
-        num_threads: Option<usize>,
+        handler_threads: Option<usize>,
     ) -> FuseDriver<TId, THandler> {
-        let _ = num_threads;
+        let _ = handler_threads;
         {% if mode == "parallel" %}
             #[cfg(feature = "deadlock_detection")]
             spawn_deadlock_checker();
@@ -128,25 +150,20 @@ where
 
         FuseDriver {
             resolver: Arc::new(TId::create_resolver()),
+            file_handles: FileHandleTable::default(),
             {% if mode == "serial" %}
                 handler,
-                dirmap_iter: RefCell::new(HashMap::new()),
-                dirmapplus_iter: RefCell::new(HashMap::new()),
+                dirmap_iter: RefCell::new(DirMapIter::default()),
+                dirmapplus_iter: RefCell::new(DirMapIter::default()),
             {% else %}
                 handler: Arc::new(handler),
-                dirmap_iter: Arc::new(Mutex::new(HashMap::new())),
-                dirmapplus_iter: Arc::new(Mutex::new(HashMap::new())),
+                dirmap_iter: Arc::new(Mutex::new(DirMapIter::default())),
+                dirmapplus_iter: Arc::new(Mutex::new(DirMapIter::default())),
             {% endif %}
 
             {% if mode == "parallel" %}
                 threadpool: {
-                    let threads = num_threads.or_else(|| {
-                        std::thread::available_parallelism().map(|n| n.get()).ok()
-                    }).unwrap_or(4);
-                    ThreadPool::new(threads)
-                },
-                reply_threadpool: {
-                    let threads = num_threads.or_else(|| {
+                    let threads = handler_threads.or_else(|| {
                         std::thread::available_parallelism().map(|n| n.get()).ok()
                     }).unwrap_or(4);
                     ThreadPool::new(threads)
@@ -155,7 +172,7 @@ where
                 runtime: Arc::new({
                     let mut builder = tokio::runtime::Builder::new_multi_thread();
                     builder.enable_all();
-                    if let Some(threads) = num_threads {
+                    if let Some(threads) = handler_threads {
                         builder.worker_threads(threads);
                     }
                     builder.build().unwrap()
@@ -165,27 +182,35 @@ where
     }
 
     {% if !send_sync %}
+        pub fn get_resolver(&self) -> &TId::Resolver {
+            &self.resolver
+        }
+
         pub fn get_handler(&self) -> &THandler {
             &self.handler
         }
 
-        pub fn get_dirmap_iter(&self) -> &RefCell<DirIter<FileKind>> {
+        pub fn get_dirmap_iter(&self) -> &RefCell<DirMapIter<FileKind>> {
             &self.dirmap_iter
         }
 
-        pub fn get_dirmapplus_iter(&self) -> &RefCell<DirIter<FileAttribute>> {
+        pub fn get_dirmapplus_iter(&self) -> &RefCell<DirMapIter<FileAttribute>> {
             &self.dirmapplus_iter
         }
     {% else %}
+        pub fn get_resolver(&self) -> RequestResolver<TId::Resolver> {
+            RequestResolver::new(self.resolver.clone())
+        }
+
         pub fn get_handler(&self) -> Arc<THandler> {
             self.handler.clone()
         }
 
-        pub fn get_dirmap_iter(&self) -> Arc<Mutex<DirIter<FileKind>>> {
+        pub fn get_dirmap_iter(&self) -> Arc<Mutex<DirMapIter<FileKind>>> {
             self.dirmap_iter.clone()
         }
 
-        pub fn get_dirmapplus_iter(&self) -> Arc<Mutex<DirIter<FileAttribute>>> {
+        pub fn get_dirmapplus_iter(&self) -> Arc<Mutex<DirMapIter<FileAttribute>>> {
             self.dirmapplus_iter.clone()
         }
     {% endif %}
@@ -214,7 +239,6 @@ where
 {
     {% macro spawn() -%}
         {% if mode == "parallel" %}
-            let reply_threadpool = self.reply_threadpool.clone();
             self.threadpool.execute(move || {
         {% elif mode == "async" %}
             let runtime = self.runtime.clone();
@@ -229,15 +253,13 @@ where
     {%- endmacro %}
 
     {% macro spawn_reply() -%}
-        {% if mode == "parallel" %}
-            reply_threadpool.execute(move || {
-        {% elif mode == "async" %}
+        {% if mode == "async" %}
             runtime.spawn(async move {
         {% endif %}
         
         {{ caller() }}
         
-        {% if mode == "parallel" || mode == "async" %}
+        {% if mode == "async" %}
             });
         {% endif %}
     {%- endmacro %}
@@ -278,7 +300,10 @@ where
     fn init(&mut self, req: &Request, config: &mut KernelConfig) -> Result<(), std::io::Error> {
         let req = RequestInfo::from(req);
         match self.get_handler().init(&req, config) {
-            Ok(()) => Ok(()),
+            Ok(()) => {
+                info!("FUSE handler initialized");
+                Ok(())
+            }
             Err(e) => {
                 warn!("[{}] init {:?}", e, req);
                 Err(e.io_error())
@@ -287,13 +312,15 @@ where
     }
 
     fn destroy(&mut self) {
+        info!("FUSE handler shutting down");
         self.get_handler().destroy();
+        info!("FUSE handler shut down");
     }
 
     fn access(&self, req: &Request, ino: INodeNo, mask: AccessFlags, reply: ReplyEmpty) {
         let req = RequestInfo::from(req);
         let handler = self.get_handler();
-        let resolver = self.resolver.clone();
+        let resolver = self.get_resolver();
         {% call spawn() %}
             match handler.access(
                 &req,
@@ -313,7 +340,7 @@ where
     fn bmap(&self, req: &Request, ino: INodeNo, blocksize: u32, idx: u64, reply: ReplyBmap) {
         let req = RequestInfo::from(req);
         let handler = self.get_handler();
-        let resolver = self.resolver.clone();
+        let resolver = self.get_resolver();
         {% call spawn() %}
             match handler.bmap(
                 &req,
@@ -345,19 +372,61 @@ where
     ) {
         let req = RequestInfo::from(req);
         let handler = self.get_handler();
-        let resolver = self.resolver.clone();
+        let resolver = self.get_resolver();
+        let cell_in = self.file_handles.get(fh_in.0);
+        let cell_out = self.file_handles.get(fh_out.0);
         {% call spawn() %}
-            match handler.copy_file_range(
-                &req,
-                resolver.resolve_id(ino_in),
-                unsafe { BorrowedFileHandle::from_raw(fh_in.0) },
-                offset_in,
-                resolver.resolve_id(ino_out),
-                unsafe { BorrowedFileHandle::from_raw(fh_out.0) },
-                offset_out,
-                len,
-                flags,
-            ){% if mode == "async" %}.await{% endif %} {
+            let result = if fh_in.0 == fh_out.0 {
+                let resource_guard = match &cell_in {
+                    Some(cell) => Some(cell.lock_resource(){% if mode == "async" %}.await{% endif %}),
+                    None => None,
+                };
+                let file_handle = resource_guard.as_deref().and_then(Option::as_ref);
+                handler.copy_file_range(
+                    &req,
+                    resolver.resolve_id(ino_in),
+                    file_handle,
+                    offset_in,
+                    resolver.resolve_id(ino_out),
+                    file_handle,
+                    offset_out,
+                    len,
+                    flags,
+                ){% if mode == "async" %}.await{% endif %}
+            } else {
+                let (first_cell, second_cell, input_is_first) = if fh_in.0 < fh_out.0 {
+                    (cell_in, cell_out, true)
+                } else {
+                    (cell_out, cell_in, false)
+                };
+                let first_guard = match &first_cell {
+                    Some(cell) => Some(cell.lock_resource(){% if mode == "async" %}.await{% endif %}),
+                    None => None,
+                };
+                let second_guard = match &second_cell {
+                    Some(cell) => Some(cell.lock_resource(){% if mode == "async" %}.await{% endif %}),
+                    None => None,
+                };
+                let first_handle = first_guard.as_deref().and_then(Option::as_ref);
+                let second_handle = second_guard.as_deref().and_then(Option::as_ref);
+                let (file_handle_in, file_handle_out) = if input_is_first {
+                    (first_handle, second_handle)
+                } else {
+                    (second_handle, first_handle)
+                };
+                handler.copy_file_range(
+                    &req,
+                    resolver.resolve_id(ino_in),
+                    file_handle_in,
+                    offset_in,
+                    resolver.resolve_id(ino_out),
+                    file_handle_out,
+                    offset_out,
+                    len,
+                    flags,
+                ){% if mode == "async" %}.await{% endif %}
+            };
+            match result {
                 Ok(bytes_written) => { {% call spawn_reply() %} reply.written(bytes_written);{% endcall %} }
                 Err(e) => {
                     warn!("copy_file_range: ino {:x?}, [{}], {:?}", ino_in, e, req);
@@ -379,8 +448,9 @@ where
     ) {
         let req = RequestInfo::from(req);
         let handler = self.get_handler();
-        let resolver = self.resolver.clone();
-        let name = name.to_owned();
+        let resolver = self.get_resolver();
+        let file_handles = self.file_handles.clone();
+        let name = {{ own_for_spawn("name") }};
         {% call spawn() %}
             match handler.create(
                 &req,
@@ -395,12 +465,13 @@ where
                     let (id, file_attr) = TId::extract_metadata(metadata);
                     let ino = resolver.lookup(parent, &name, id, true);
                     let (fuse_attr, ttl, generation) = file_attr.to_fuse(ino);
+                    let fh = file_handles.insert(file_handle);
                     {% call spawn_reply() %}
                         reply.created(
                             &ttl.unwrap_or(default_ttl),
                             &fuse_attr,
                             fuser::Generation(generation.unwrap_or(get_default_generation())),
-                            fuser::FileHandle(file_handle.as_raw()),
+                            fuser::FileHandle(fh),
                             response_flags,
                         );
                     {% endcall %}
@@ -425,12 +496,14 @@ where
     ) {
         let req = RequestInfo::from(req);
         let handler = self.get_handler();
-        let resolver = self.resolver.clone();
+        let resolver = self.get_resolver();
+        let resource = self.file_handles.get(fh.0);
         {% call spawn() %}
+            {% call borrow_resource("resource") %}{% endcall %}
             match handler.fallocate(
                 &req,
                 resolver.resolve_id(ino),
-                unsafe { BorrowedFileHandle::from_raw(fh.0) },
+                file_handle,
                 offset as i64,
                 length as i64,
                 FallocateFlags::from_bits_retain(mode),
@@ -447,12 +520,14 @@ where
     fn flush(&self, req: &Request, ino: INodeNo, fh: FileHandle, lock_owner: LockOwner, reply: ReplyEmpty) {
         let req = RequestInfo::from(req);
         let handler = self.get_handler();
-        let resolver = self.resolver.clone();
+        let resolver = self.get_resolver();
+        let resource = self.file_handles.get(fh.0);
         {% call spawn() %}
+            {% call borrow_resource("resource") %}{% endcall %}
             match handler.flush(
                 &req,
                 resolver.resolve_id(ino),
-                unsafe { BorrowedFileHandle::from_raw(fh.0) },
+                file_handle,
                 lock_owner.0,
             ){% if mode == "async" %}.await{% endif %} {
                 Ok(()) => { {% call spawn_reply() %} reply.ok(); {% endcall %} }
@@ -467,7 +542,7 @@ where
     fn forget(&self, req: &Request, ino: INodeNo, nlookup: u64) {
         let req = RequestInfo::from(req);
         let handler = self.get_handler();
-        let resolver = self.resolver.clone();
+        let resolver = self.get_resolver();
         #[allow(unused_variables)] // No need for replies
         {% call spawn() %}
             handler.forget(&req, resolver.resolve_id(ino), nlookup)
@@ -479,12 +554,14 @@ where
     fn fsync(&self, req: &Request, ino: INodeNo, fh: FileHandle, datasync: bool, reply: ReplyEmpty) {
         let req = RequestInfo::from(req);
         let handler = self.get_handler();
-        let resolver = self.resolver.clone();
+        let resolver = self.get_resolver();
+        let resource = self.file_handles.get(fh.0);
         {% call spawn() %}
+            {% call borrow_resource("resource") %}{% endcall %}
             match handler.fsync(
                 &req,
                 resolver.resolve_id(ino),
-                unsafe { BorrowedFileHandle::from_raw(fh.0) },
+                file_handle,
                 datasync,
             ){% if mode == "async" %}.await{% endif %} {
                 Ok(()) => { {% call spawn_reply() %} reply.ok(); {% endcall %} }
@@ -499,7 +576,7 @@ where
     fn fsyncdir(&self, req: &Request, ino: INodeNo, fh: FileHandle, datasync: bool, reply: ReplyEmpty) {
         let req = RequestInfo::from(req);
         let handler = self.get_handler();
-        let resolver = self.resolver.clone();
+        let resolver = self.get_resolver();
         {% call spawn() %}
             match handler.fsyncdir(
                 &req,
@@ -519,12 +596,14 @@ where
     fn getattr(&self, req: &Request, ino: INodeNo, fh: Option<FileHandle>, reply: ReplyAttr) {
         let req = RequestInfo::from(req);
         let handler = self.get_handler();
-        let resolver = self.resolver.clone();
+        let resolver = self.get_resolver();
+        let resource = fh.and_then(|fh| self.file_handles.get(fh.0));
         {% call spawn() %}
+            {% call borrow_resource("resource") %}{% endcall %}
             match handler.getattr(
                 &req,
                 resolver.resolve_id(ino),
-                fh.map(|fh| unsafe { BorrowedFileHandle::from_raw(fh.0) })
+                file_handle
             ){% if mode == "async" %}.await{% endif %} {
                 {{ reply_attr() }}
                 Err(e) => {
@@ -549,8 +628,10 @@ where
     ) {
         let req = RequestInfo::from(req);
         let handler = self.get_handler();
-        let resolver = self.resolver.clone();
+        let resolver = self.get_resolver();
+        let resource = self.file_handles.get(fh.0);
         {% call spawn() %}
+            {% call borrow_resource("resource") %}{% endcall %}
             let lock_info = LockInfo {
                 start,
                 end,
@@ -560,7 +641,7 @@ where
             match handler.getlk(
                 &req,
                 resolver.resolve_id(ino),
-                unsafe { BorrowedFileHandle::from_raw(fh.0) },
+                file_handle,
                 lock_owner.0,
                 lock_info,
             ){% if mode == "async" %}.await{% endif %} {
@@ -583,8 +664,8 @@ where
     fn getxattr(&self, req: &Request, ino: INodeNo, name: &OsStr, size: u32, reply: ReplyXattr) {
         let req = RequestInfo::from(req);
         let handler = self.get_handler();
-        let resolver = self.resolver.clone();
-        let name = name.to_owned();
+        let resolver = self.get_resolver();
+        let name = {{ own_for_spawn("name") }};
         {% call spawn() %}
             match handler.getxattr(
                 &req,
@@ -621,13 +702,15 @@ where
     ) {
         let req = RequestInfo::from(req);
         let handler = self.get_handler();
-        let resolver = self.resolver.clone();
+        let resolver = self.get_resolver();
         let in_data = in_data.to_owned();
+        let resource = self.file_handles.get(fh.0);
         {% call spawn() %}
+            {% call borrow_resource("resource") %}{% endcall %}
             match handler.ioctl(
                 &req,
                 resolver.resolve_id(ino),
-                unsafe { BorrowedFileHandle::from_raw(fh.0) },
+                file_handle,
                 flags,
                 cmd,
                 in_data,
@@ -652,8 +735,8 @@ where
     ) {
         let req = RequestInfo::from(req);
         let handler = self.get_handler();
-        let resolver = self.resolver.clone();
-        let newname = newname.to_owned();
+        let resolver = self.get_resolver();
+        let newname = {{ own_for_spawn("newname") }};
         {% call spawn() %}
             match handler.link(
                 &req,
@@ -661,7 +744,23 @@ where
                 resolver.resolve_id(newparent),
                 &newname
             ){% if mode == "async" %}.await{% endif %} {
-                {% call reply_entry("newparent", "newname") %}{% endcall %}
+                Ok(metadata) => {
+                    let default_ttl = handler.get_default_ttl();
+                    let (id, file_attr) = TId::extract_metadata(metadata);
+                    let linked_ino = if resolver.link(ino, newparent, &newname) {
+                        ino
+                    } else {
+                        resolver.lookup(newparent, &newname, id, true)
+                    };
+                    let (fuse_attr, ttl, generation) = file_attr.to_fuse(linked_ino);
+                    {% call spawn_reply() %}
+                        reply.entry(
+                            &ttl.unwrap_or(default_ttl),
+                            &fuse_attr,
+                            fuser::Generation(generation.unwrap_or(get_default_generation())),
+                        );
+                    {% endcall %}
+                }
                 Err(e) => {
                     warn!("link: parent_ino {:x?}, [{}], {:?}", ino, e, req);
                     {{ reply_error() }}
@@ -673,7 +772,7 @@ where
     fn listxattr(&self, req: &Request, ino: INodeNo, size: u32, reply: ReplyXattr) {
         let req = RequestInfo::from(req);
         let handler = self.get_handler();
-        let resolver = self.resolver.clone();
+        let resolver = self.get_resolver();
         {% call spawn() %}
             match handler.listxattr(
                 &req,
@@ -700,8 +799,8 @@ where
     fn lookup(&self, req: &Request, parent: INodeNo, name: &OsStr, reply: ReplyEntry) {
         let req = RequestInfo::from(req);
         let handler = self.get_handler();
-        let resolver = self.resolver.clone();
-        let name = name.to_owned();
+        let resolver = self.get_resolver();
+        let name = {{ own_for_spawn("name") }};
         {% call spawn() %}
             match handler.lookup(
                 &req,
@@ -710,8 +809,11 @@ where
             ){% if mode == "async" %}.await{% endif %} {
                 {% call reply_entry("parent", "name") %}{% endcall %}
                 Err(e) => {
-                    // Failure is expected if user try to lookup a nonexistent file, it should not emit a warning
-                    info!("lookup: parent_ino {:x?}, [{}], {:?}", parent, e, req);
+                    // A missing entry is a normal lookup result, so keep it below warning level.
+                    log::debug!(
+                        "lookup: name {:?} in parent inode {:x?} failed: [{}], {:?}",
+                        name, parent, e, req
+                    );
                     {{ reply_error() }}
                 }
             }
@@ -729,12 +831,14 @@ where
     ) {
         let req = RequestInfo::from(req);
         let handler = self.get_handler();
-        let resolver = self.resolver.clone();
+        let resolver = self.get_resolver();
+        let resource = self.file_handles.get(fh.0);
         {% call spawn() %}
+            {% call borrow_resource("resource") %}{% endcall %}
             match handler.lseek(
                 &req,
                 resolver.resolve_id(ino),
-                unsafe { BorrowedFileHandle::from_raw(fh.0) },
+                file_handle,
                 seek_from_raw(Some(whence), offset),
             ){% if mode == "async" %}.await{% endif %} {
                 Ok(new_offset) => { {% call spawn_reply() %} reply.offset(new_offset); {% endcall %} }
@@ -757,8 +861,8 @@ where
     ) {
         let req = RequestInfo::from(req);
         let handler = self.get_handler();
-        let resolver = self.resolver.clone();
-        let name = name.to_owned();
+        let resolver = self.get_resolver();
+        let name = {{ own_for_spawn("name") }};
         {% call spawn() %}
             match handler.mkdir(
                 &req,
@@ -788,16 +892,25 @@ where
     ) {
         let req = RequestInfo::from(req);
         let handler = self.get_handler();
-        let resolver = self.resolver.clone();
-        let name = name.to_owned();
+        let resolver = self.get_resolver();
+        let name = {{ own_for_spawn("name") }};
         {% call spawn() %}
+            let file_kind = match unix_fs::mode_to_kind(mode) {
+                Some(file_kind) => file_kind,
+                None => {
+                    {% call spawn_reply() %}
+                        reply.error(ErrorKind::InvalidArgument.into());
+                    {% endcall %}
+                    return;
+                }
+            };
             match handler.mknod(
                 &req,
                 resolver.resolve_id(parent),
                 &name,
                 mode,
                 umask,
-                DeviceType::from_rdev(rdev.try_into().unwrap())
+                DeviceType::from_file_type_and_rdev(file_kind, rdev as libc::dev_t)
             ){% if mode == "async" %}.await{% endif %} {
                 {% call reply_entry("parent", "name") %}{% endcall %}
                 Err(e) => {
@@ -811,15 +924,18 @@ where
     fn open(&self, req: &Request, ino: INodeNo, _flags: OpenFlags, reply: ReplyOpen) {
         let req = RequestInfo::from(req);
         let handler = self.get_handler();
-        let resolver = self.resolver.clone();
+        let resolver = self.get_resolver();
+        let file_handles = self.file_handles.clone();
         {% call spawn() %}
             match handler.open(
                 &req,
                 resolver.resolve_id(ino),
                 _flags,
             ){% if mode == "async" %}.await{% endif %} {
-                Ok((file_handle, response_flags)) => { {% call spawn_reply() %}
-                    reply.opened(fuser::FileHandle(file_handle.as_raw()), response_flags)
+                Ok((file_handle, response_flags)) => {
+                    let fh = file_handles.insert(file_handle);
+                    {% call spawn_reply() %}
+                    reply.opened(fuser::FileHandle(fh), response_flags)
                 {% endcall %} }
                 Err(e) => {
                     warn!("open: ino {:x?}, [{}], {:?}", ino, e, req);
@@ -832,7 +948,7 @@ where
     fn opendir(&self, req: &Request, ino: INodeNo, _flags: OpenFlags, reply: ReplyOpen) {
         let req = RequestInfo::from(req);
         let handler = self.get_handler();
-        let resolver = self.resolver.clone();
+        let resolver = self.get_resolver();
         {% call spawn() %}
             match handler.opendir(
                 &req,
@@ -863,12 +979,14 @@ where
     ) {
         let req = RequestInfo::from(req);
         let handler = self.get_handler();
-        let resolver = self.resolver.clone();
+        let resolver = self.get_resolver();
+        let resource = self.file_handles.get(fh.0);
         {% call spawn() %}
+            {% call borrow_resource("resource") %}{% endcall %}
             match handler.read(
                 &req,
                 resolver.resolve_id(ino),
-                unsafe { BorrowedFileHandle::from_raw(fh.0) },
+                file_handle,
                 std::io::SeekFrom::Start(offset),
                 size,
                 flags,
@@ -886,7 +1004,7 @@ where
     {% macro readdir_impl(is_extended_readdir) -%}
         let req_info = RequestInfo::from(req);
         let handler = self.get_handler();
-        let resolver = self.resolver.clone();
+        let resolver = self.get_resolver();
         let dirmap_iter = {% if is_extended_readdir %}
             self.get_dirmapplus_iter(){% else %}
             self.get_dirmap_iter(){% endif %};
@@ -917,7 +1035,7 @@ where
                             .unzip();
 
                         // Add children to resolver and create iterator
-                        resolver
+                        let entries = resolver
                             .add_children(
                                 ino,
                                 child_list,
@@ -931,7 +1049,9 @@ where
                             .map(|((file_name, file_ino), file_attr)| {
                                 (file_name, file_ino, file_attr)
                             })
-                            .collect()
+                            .collect::<Vec<_>>();
+
+                        DirMapIter::start(ino, entries)
                     }
                     Err(e) => {
                         warn!("readdir {:?}: {:?}", req_info, e);
@@ -940,8 +1060,8 @@ where
                     }
                 },
                 // Subsequent reads: retrieve saved iterator
-                _ => match { dirmap_iter.{{ borrow_mut() }}.remove(&(ino, offset)) } {
-                    Some(dirmap_iter) => dirmap_iter,
+                _ => match { dirmap_iter.{{ borrow_mut() }}.resume(ino, offset) } {
+                    Some(dir_iter) => dir_iter,
                     None => {
                         // Case when fuse tries to read again after the final item
                         {% call spawn_reply() %} reply.ok(); {% endcall %}
@@ -950,47 +1070,35 @@ where
                 },
             };
 
-            let mut new_offset = offset;
-
             // ### Process directory entries
             {% call spawn_reply() %}
                 {% if is_extended_readdir %}
                     // readdirplus: Add entries with extended attributes
                     let default_ttl = handler.get_default_ttl();
-                    while let Some((name, ino, file_attr)) = dir_iter.pop_front() {
-                        let (fuse_attr, ttl, generation) = file_attr.clone().to_fuse(ino);
+                    while let Some((entry_offset, (name, ino, file_attr))) = dir_iter.next() {
+                        let (fuse_attr, ttl, generation) = file_attr.to_fuse(ino);
                         if reply.add(
                             ino,
-                            new_offset,
+                            entry_offset,
                             &name,
                             &ttl.unwrap_or(default_ttl),
                             &fuse_attr,
                             fuser::Generation(generation.unwrap_or(get_default_generation())),
                         ) {
-                            dir_iter.push_front((name, ino, file_attr.clone()));
-                            if new_offset > 0 {
-                                dirmap_iter
-                                    .{{ borrow_mut() }}
-                                    .insert((ino, new_offset - 1), dir_iter);
-                            }
+                            dir_iter.retry((name, ino, file_attr));
+                            dirmap_iter.{{ borrow_mut() }}.save(dir_iter);
                             break;
                         }
-                        new_offset += 1;
                     }
                     reply.ok();
                 {% else %}
                     // readdir: Add entries until buffer is full
-                    while let Some((name, ino, kind)) = dir_iter.pop_front() {
-                        if reply.add(ino, new_offset, kind, &name) {
-                            dir_iter.push_front((name, ino, kind));
-                            if new_offset > 0 {
-                                dirmap_iter
-                                    .{{ borrow_mut() }}
-                                    .insert((ino, new_offset - 1), dir_iter);
-                            }
+                    while let Some((entry_offset, (name, ino, kind))) = dir_iter.next() {
+                        if reply.add(ino, entry_offset, kind, &name) {
+                            dir_iter.retry((name, ino, kind));
+                            dirmap_iter.{{ borrow_mut() }}.save(dir_iter);
                             break;
                         }
-                        new_offset += 1;
                     }
                     reply.ok();
                 {% endif %}
@@ -1023,7 +1131,7 @@ where
     fn readlink(&self, req: &Request, ino: INodeNo, reply: ReplyData) {
         let req = RequestInfo::from(req);
         let handler = self.get_handler();
-        let resolver = self.resolver.clone();
+        let resolver = self.get_resolver();
         {% call spawn() %}
             match handler.readlink(
                 &req,
@@ -1050,12 +1158,19 @@ where
     ) {
         let req = RequestInfo::from(req);
         let handler = self.get_handler();
-        let resolver = self.resolver.clone();
+        let resolver = self.get_resolver();
+        let resource = self.file_handles.remove(fh.0);
         {% call spawn() %}
+            let mut resource_guard = match &resource {
+                Some(cell) => Some(cell.lock_resource(){% if mode == "async" %}.await{% endif %}),
+                None => None,
+            };
+            let file_handle = resource_guard.as_deref_mut().and_then(Option::take);
+            drop(resource_guard);
             match handler.release(
                 &req,
                 resolver.resolve_id(ino),
-                unsafe { OwnedFileHandle::from_raw(fh.0) },
+                file_handle,
                 _flags,
                 _lock_owner.map(|lo| lo.0),
                 _flush,
@@ -1072,7 +1187,7 @@ where
     fn releasedir(&self, req: &Request, ino: INodeNo, fh: FileHandle, flags: OpenFlags, reply: ReplyEmpty) {
         let req = RequestInfo::from(req);
         let handler = self.get_handler();
-        let resolver = self.resolver.clone();
+        let resolver = self.get_resolver();
         {% call spawn() %}
             match handler.releasedir(
                 &req,
@@ -1092,8 +1207,8 @@ where
     fn removexattr(&self, req: &Request, ino: INodeNo, name: &OsStr, reply: ReplyEmpty) {
         let req = RequestInfo::from(req);
         let handler = self.get_handler();
-        let resolver = self.resolver.clone();
-        let name = name.to_owned();
+        let resolver = self.get_resolver();
+        let name = {{ own_for_spawn("name") }};
         {% call spawn() %}
             match handler.removexattr(
                 &req,
@@ -1121,9 +1236,9 @@ where
     ) {
         let req = RequestInfo::from(req);
         let handler = self.get_handler();
-        let resolver = self.resolver.clone();
-        let name = name.to_owned();
-        let newname = newname.to_owned();
+        let resolver = self.get_resolver();
+        let name = {{ own_for_spawn("name") }};
+        let newname = {{ own_for_spawn("newname") }};
         {% call spawn() %}
             match handler.rename(
                 &req,
@@ -1134,6 +1249,13 @@ where
                 flags,
             ){% if mode == "async" %}.await{% endif %} {
                 Ok(()) => {
+                    #[cfg(target_os = "linux")]
+                    if flags.contains(RenameFlags::RENAME_EXCHANGE) {
+                        resolver.exchange(parent, &name, newparent, &newname);
+                    } else {
+                        resolver.rename(parent, &name, newparent, &newname);
+                    }
+                    #[cfg(not(target_os = "linux"))]
                     resolver.rename(parent, &name, newparent, &newname);
                     {% call spawn_reply() %} reply.ok(); {% endcall %} }
                 Err(e) => {
@@ -1147,15 +1269,18 @@ where
     fn rmdir(&self, req: &Request, parent: INodeNo, name: &OsStr, reply: ReplyEmpty) {
         let req = RequestInfo::from(req);
         let handler = self.get_handler();
-        let resolver = self.resolver.clone();
-        let name = name.to_owned();
+        let resolver = self.get_resolver();
+        let name = {{ own_for_spawn("name") }};
         {% call spawn() %}
             match handler.rmdir(
                 &req,
                 resolver.resolve_id(parent),
                 &name
             ){% if mode == "async" %}.await{% endif %} {
-                Ok(()) => { {% call spawn_reply() %} reply.ok(); {% endcall %} }
+                Ok(()) => {
+                    resolver.unlink(parent, &name);
+                    {% call spawn_reply() %} reply.ok(); {% endcall %}
+                }
                 Err(e) => {
                     warn!("[{}] rmdir: parent_ino: {:x?}, {:?}", parent, e, req);
                     {{ reply_error() }}
@@ -1184,7 +1309,8 @@ where
     ) {
         let req = RequestInfo::from(req);
         let handler = self.get_handler();
-        let resolver = self.resolver.clone();
+        let resolver = self.get_resolver();
+        let resource = fh.and_then(|fh| self.file_handles.get(fh.0));
         let attrs = SetAttrRequest {
             mode,
             uid,
@@ -1197,13 +1323,14 @@ where
             chgtime,
             bkuptime,
             flags,
-            file_handle: fh.map(|fh| unsafe { BorrowedFileHandle::from_raw(fh.0) }),
         };
         {% call spawn() %}
+            {% call borrow_resource("resource") %}{% endcall %}
             match handler.setattr(
                 &req,
                 resolver.resolve_id(ino),
-                attrs
+                attrs,
+                file_handle
             ){% if mode == "async" %}.await{% endif %} {
                 {{ reply_attr() }}
                 Err(e) => {
@@ -1229,8 +1356,10 @@ where
     ) {
         let req = RequestInfo::from(req);
         let handler = self.get_handler();
-        let resolver = self.resolver.clone();
+        let resolver = self.get_resolver();
+        let resource = self.file_handles.get(fh.0);
         {% call spawn() %}
+            {% call borrow_resource("resource") %}{% endcall %}
             let lock_info = LockInfo {
                 start,
                 end,
@@ -1240,7 +1369,7 @@ where
             match handler.setlk(
                 &req,
                 resolver.resolve_id(ino),
-                unsafe { BorrowedFileHandle::from_raw(fh.0) },
+                file_handle,
                 lock_owner.0,
                 lock_info,
                 sleep,
@@ -1266,8 +1395,8 @@ where
     ) {
         let req = RequestInfo::from(req);
         let handler = self.get_handler();
-        let resolver = self.resolver.clone();
-        let name = name.to_owned();
+        let resolver = self.get_resolver();
+        let name = {{ own_for_spawn("name") }};
         let value = value.to_owned();
         {% call spawn() %}
             match handler.setxattr(
@@ -1290,7 +1419,7 @@ where
     fn statfs(&self, req: &Request, ino: INodeNo, reply: ReplyStatfs) {
         let req = RequestInfo::from(req);
         let handler = self.get_handler();
-        let resolver = self.resolver.clone();
+        let resolver = self.get_resolver();
         {% call spawn() %}
             match handler.statfs(
                 &req,
@@ -1326,9 +1455,9 @@ where
     ) {
         let req = RequestInfo::from(req);
         let handler = self.get_handler();
-        let resolver = self.resolver.clone();
-        let link_name = link_name.to_owned();
-        let target = target.to_owned();
+        let resolver = self.get_resolver();
+        let link_name = {{ own_for_spawn("link_name") }};
+        let target = {{ own_for_spawn("target") }};
         {% call spawn() %}
             match handler.symlink(
                 &req,
@@ -1359,13 +1488,15 @@ where
     ) {
         let req = RequestInfo::from(req);
         let handler = self.get_handler();
-        let resolver = self.resolver.clone();
+        let resolver = self.get_resolver();
         let data = data.to_owned();
+        let resource = self.file_handles.get(fh.0);
         {% call spawn() %}
+            {% call borrow_resource("resource") %}{% endcall %}
             match handler.write(
                 &req,
                 resolver.resolve_id(ino),
-                unsafe { BorrowedFileHandle::from_raw(fh.0) },
+                file_handle,
                 std::io::SeekFrom::Start(offset),
                 data,
                 write_flags,
@@ -1384,15 +1515,18 @@ where
     fn unlink(&self, req: &Request, parent: INodeNo, name: &OsStr, reply: ReplyEmpty) {
         let req = RequestInfo::from(req);
         let handler = self.get_handler();
-        let resolver = self.resolver.clone();
-        let name = name.to_owned();
+        let resolver = self.get_resolver();
+        let name = {{ own_for_spawn("name") }};
         {% call spawn() %}
             match handler.unlink(
                 &req,
                 resolver.resolve_id(parent),
                 &name
             ){% if mode == "async" %}.await{% endif %} {
-                Ok(()) => { {% call spawn_reply() %} reply.ok(); {% endcall %} }
+                Ok(()) => {
+                    resolver.unlink(parent, &name);
+                    {% call spawn_reply() %} reply.ok(); {% endcall %}
+                }
                 Err(e) => {
                     warn!("[{}] unlink: parent_ino: {:x?}, {:?}", parent, e, req);
                     {{ reply_error() }}

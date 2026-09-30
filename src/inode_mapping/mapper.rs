@@ -4,45 +4,48 @@ use std::ffi::{OsStr, OsString};
 use std::hash::Hash;
 use std::sync::Arc;
 
-use crate::types::{Inode, ROOT_INODE, InodeExt};
+use crate::types::{Inode, InodeExt, ROOT_INODE};
 use std::sync::atomic::{AtomicU64, Ordering};
 
-/// Helper structure for managing inodes and their relationships.
+/// Assigns inode numbers and remembers which directory entries name each inode.
 ///
-/// `InodeMapper<T>` efficiently stores and manages inodes, their associated data,
-/// and parent-child relationships. It uses `InodeData<T>` for internal storage,
-/// with `InodeValue<T>` representing individual inode entries.
+/// A normal insert creates one inode for one `(parent, name)` pair. After the
+/// backing filesystem creates a hard link, call [`Self::link`] to attach its
+/// second name to the same inode. `Data` remains the caller's own data and is
+/// not used to detect links.
 ///
-/// Use this structure if you want to handle inodes in a finer grained way.
-/// Most users will prefer to use `FuseHandler<PathBuf>` or `FuseHandler<Vec<OsString>>`
-/// to avoid managing inodes manually.
+/// ```
+/// use easy_fuser::inode_mapping::InodeMapper;
+/// use easy_fuser::types::ROOT_INODE;
+/// use std::ffi::OsStr;
 ///
-/// # Note
-/// - T is the type of data associated with each inode.
-/// - Maintains a next_inode counter for generating unique inode values.
+/// let mut mapper = InodeMapper::new(());
+/// let inode = mapper.insert_child(&ROOT_INODE, "a.txt".into(), |_| ()).unwrap();
+/// mapper.link(&inode, &ROOT_INODE, "b.txt".into()).unwrap();
+/// assert_eq!(mapper.lookup(&ROOT_INODE, OsStr::new("b.txt")).unwrap().inode, &inode);
+/// assert_eq!(mapper.resolve(&inode).unwrap().len(), 2);
+/// ```
+///
+/// Handlers using `MappedInode` get this behavior automatically when their
+/// `link` operation succeeds.
 pub struct InodeMapper<Data> {
     data: InodeData<Data>,
-    root_inode: Inode,
     next_inode: Inode,
 }
 
 struct InodeData<T> {
-    /// A map of inodes' internal data
-    inodes: HashMap<Inode, InodeValue<T>>,
-    /// A map of inodes' child nodes.
+    /// Caller data for each inode. Names live in the separate link indices.
+    inodes: HashMap<Inode, T>,
+    /// Forward index: (parent, name) -> inode.
     children: HashMap<Inode, HashMap<OsStringWrapper, Inode>>,
+    /// Reverse index: inode -> all (parent, name) entries.
+    /// Both indices share each name's Arc rather than copying its text.
+    links: HashMap<Inode, HashMap<Inode, HashSet<OsStringWrapper>>>,
 }
 
 pub trait HasLookupCount {
     fn lookup_count(&self) -> &AtomicU64;
     fn lookup_count_mut(&mut self) -> &mut AtomicU64;
-}
-
-#[derive(Debug)]
-struct InodeValue<T> {
-    parent: Inode,
-    name: OsStringWrapper,
-    data: T,
 }
 
 pub struct ValueCreatorParams<'a, T> {
@@ -59,15 +62,10 @@ pub struct LookupResult<'a, T> {
 }
 
 pub struct InodeInfo<'a, T> {
-    pub parent: &'a Inode,
-    pub name: &'a Arc<OsString>,
+    /// All names currently registered for this inode, collected by `get()`.
+    /// Empty after its last unlink.
+    pub links: Vec<(&'a Inode, &'a Arc<OsString>)>,
     pub data: &'a T,
-}
-
-pub struct InodeInfoMut<'a, T> {
-    pub parent: &'a Inode,
-    pub name: &'a mut Arc<OsString>,
-    pub data: &'a mut T,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -82,6 +80,13 @@ pub enum RenameError {
     NewParentNotFound,
 }
 
+#[derive(Debug, PartialEq, Eq)]
+pub enum LinkError {
+    InodeNotFound,
+    ParentNotFound,
+    NameExists,
+}
+
 /// A wrapper around `Arc<OsString>` for efficient storage and comparison in hash maps.
 #[derive(Debug, PartialEq, Eq, Hash, Clone)]
 struct OsStringWrapper(Arc<OsString>);
@@ -89,12 +94,6 @@ struct OsStringWrapper(Arc<OsString>);
 impl AsRef<Arc<OsString>> for OsStringWrapper {
     fn as_ref(&self) -> &Arc<OsString> {
         &self.0
-    }
-}
-
-impl AsMut<Arc<OsString>> for OsStringWrapper {
-    fn as_mut(&mut self) -> &mut Arc<OsString> {
-        &mut self.0
     }
 }
 
@@ -108,29 +107,22 @@ impl<Data: Send + Sync + 'static> InodeMapper<Data> {
     /// Creates a new `InodeMapper` instance with the root inode initialized.
     ///
     /// This function initializes the `InodeMapper` with an empty structure and sets up the root inode
-    /// with the provided data. The root inode is assigned an empty name and its parent is set to itself.
+    /// with the provided data. The root inode is represented by an empty path.
     pub fn new(data: Data) -> Self {
         let mut result = InodeMapper {
             data: InodeData {
                 inodes: HashMap::new(),
                 children: HashMap::new(),
+                links: HashMap::new(),
             },
-            root_inode: ROOT_INODE.clone(),
             next_inode: ROOT_INODE.add_one(),
         };
-        result.data.inodes.insert(
-            ROOT_INODE.clone(),
-            InodeValue {
-                parent: ROOT_INODE.clone(),
-                name: OsStringWrapper(Arc::new(OsString::from(""))),
-                data,
-            },
-        );
+        result.data.inodes.insert(ROOT_INODE, data);
         result
     }
 
     pub fn get_root_inode(&self) -> Inode {
-        self.root_inode.clone()
+        ROOT_INODE
     }
 
     /// A private method that inserts a child inode into the InodeMapper, even if the parent doesn't exist.
@@ -154,45 +146,43 @@ impl<Data: Send + Sync + 'static> InodeMapper<Data> {
     where
         F: Fn(ValueCreatorParams<Data>) -> Data,
     {
-        // Wrap `child` in `OsStringWrapper` for efficient storage and comparison
-        let child = OsStringWrapper(Arc::new(child));
-
-        let mut is_new = false;
-        let inode = self
+        if let Some(inode) = self
             .data
             .children
-            .entry(parent.clone())
+            .get(parent)
+            .and_then(|children| children.get(child.as_os_str()))
+            .copied()
+        {
+            let inode_value = self.data.inodes.get_mut(&inode).unwrap();
+            *inode_value = value_creator(ValueCreatorParams {
+                parent,
+                new_inode: &inode,
+                child_name: child.as_os_str(),
+                existing_data: Some(inode_value),
+            });
+            return inode;
+        }
+
+        let inode = self.next_inode;
+        self.next_inode = inode.add_one();
+        let child = OsStringWrapper(Arc::new(child));
+        self.data
+            .children
+            .entry(*parent)
             .or_default()
-            .entry(child.clone())
-            .or_insert_with(|| {
-                is_new = true;
-                self.next_inode.clone()
-            })
-            .clone();
-        if is_new {
-            self.next_inode = inode.add_one();
-            self.data.inodes.insert(
-                inode.clone(),
-                InodeValue {
-                    parent: parent.clone(),
-                    name: child.clone(),
-                    data: value_creator(ValueCreatorParams {
-                        parent,
-                        new_inode: &inode,
-                        child_name: child.as_ref(),
-                        existing_data: None,
-                    }),
-                },
-            );
-        } else {
-            let inode_value = &mut self.data.inodes.get_mut(&inode).unwrap();
-            inode_value.data = value_creator(ValueCreatorParams {
+            .insert(child.clone(), inode);
+        self.data.inodes.insert(
+            inode,
+            value_creator(ValueCreatorParams {
                 parent,
                 new_inode: &inode,
                 child_name: child.as_ref(),
-                existing_data: Some(&inode_value.data),
-            });
-        }
+                existing_data: None,
+            }),
+        );
+        self.data
+            .links
+            .insert(inode, HashMap::from([(*parent, HashSet::from([child]))]));
         inode
     }
 
@@ -358,45 +348,104 @@ impl<Data: Send + Sync + 'static> InodeMapper<Data> {
         current_inode
     }
 
-    /// Resolves an inode to its full path components.
+    /// Resolves one remembered path to an inode for single-path handlers.
     ///
-    /// This method traverses from the given inode up to the root, collecting all parent names along the way.
-    /// The resulting path is in reverse order (from leaf to root).
-    ///
-    /// # Notes
-    /// - Returns `None` if any inode in the path is not found, indicating an incomplete or invalid path.
-    /// - The root inode is identified when its parent is equal to itself and is never returned
-    pub fn resolve(&self, inode: &Inode) -> Option<Vec<InodeInfo<'_, Data>>> {
-        let mut result: Vec<InodeInfo<Data>> = Vec::new();
-        let mut current_info = self.get(inode)?;
-        let mut current_inode = inode.clone();
-
-        while *current_info.parent != current_inode {
-            current_inode = current_info.parent.clone();
-            result.push(current_info);
-            current_info = self.get(&current_inode)?;
+    /// Stops after finding one path. The result is in leaf-to-root order for
+    /// the legacy component resolver. An inode with no path returns an empty vector.
+    pub fn resolve_first(&self, inode: &Inode) -> Option<Vec<OsString>> {
+        if !self.data.inodes.contains_key(inode) {
+            return None;
         }
+        let mut path = self
+            .resolve_first_inner(inode, &mut HashSet::new())
+            .unwrap_or_default();
+        path.reverse();
+        Some(path)
+    }
 
-        Some(result)
+    fn resolve_first_inner(
+        &self,
+        inode: &Inode,
+        visiting: &mut HashSet<Inode>,
+    ) -> Option<Vec<OsString>> {
+        if *inode == ROOT_INODE {
+            return Some(Vec::new());
+        }
+        if !visiting.insert(*inode) {
+            return None;
+        }
+        let path = self.data.links.get(inode).and_then(|links| {
+            links.iter().find_map(|(parent, names)| {
+                let name = names.iter().next()?;
+                let mut path = self.resolve_first_inner(parent, visiting)?;
+                path.push((**name.as_ref()).clone());
+                Some(path)
+            })
+        });
+        visiting.remove(inode);
+        path
     }
 
     pub fn get(&self, inode: &Inode) -> Option<InodeInfo<'_, Data>> {
         self.data.inodes.get(inode).map(|inode_value| InodeInfo {
-            parent: &inode_value.parent,
-            name: inode_value.name.as_ref(),
-            data: &inode_value.data,
+            links: self
+                .data
+                .links
+                .get(inode)
+                .into_iter()
+                .flat_map(|links| links.iter())
+                .flat_map(|(parent, names)| names.iter().map(move |name| (parent, name.as_ref())))
+                .collect(),
+            data: inode_value,
         })
     }
 
-    pub fn get_mut(&mut self, inode: &Inode) -> Option<InodeInfoMut<'_, Data>> {
-        self.data
-            .inodes
-            .get_mut(inode)
-            .map(|inode_value| InodeInfoMut {
-                parent: &inode_value.parent,
-                name: inode_value.name.as_mut(),
-                data: &mut inode_value.data,
-            })
+    /// Returns every known path to an inode, with components in root-to-leaf order.
+    /// An existing inode with no directory entries returns an empty vector.
+    pub fn resolve(&self, inode: &Inode) -> Option<Vec<Vec<OsString>>> {
+        if !self.data.inodes.contains_key(inode) {
+            return None;
+        }
+        if *inode == ROOT_INODE {
+            return Some(vec![Vec::new()]);
+        }
+        self.resolve_all_inner(inode, &mut HashSet::new())
+    }
+
+    fn resolve_all_inner(
+        &self,
+        inode: &Inode,
+        visiting: &mut HashSet<Inode>,
+    ) -> Option<Vec<Vec<OsString>>> {
+        if *inode == ROOT_INODE {
+            return Some(vec![Vec::new()]);
+        }
+        if !visiting.insert(*inode) {
+            return Some(Vec::new());
+        }
+        if !self.data.inodes.contains_key(inode) {
+            visiting.remove(inode);
+            return None;
+        }
+        let mut paths = Vec::new();
+        for (parent, names) in self.data.links.get(inode).into_iter().flatten() {
+            if let Some(parent_paths) = self.resolve_all_inner(parent, visiting) {
+                for parent_path in parent_paths {
+                    for name in names {
+                        let mut path = parent_path.clone();
+                        path.push((**name.as_ref()).clone());
+                        paths.push(path);
+                    }
+                }
+            }
+        }
+        visiting.remove(inode);
+        Some(paths)
+    }
+
+    /// Returns mutable access to the data stored for an inode.
+    pub fn get_data_mut(&mut self, inode: &Inode) -> Option<&mut Data> {
+        self.data.inodes.get_mut(inode)
     }
 
     // Retrieves all children of a given parent inode.
@@ -422,15 +471,76 @@ impl<Data: Send + Sync + 'static> InodeMapper<Data> {
         self.data
             .children
             .get(parent)
-            .and_then(|children| children.get(name))
-            .map(|child_inode| {
+            .and_then(|children| children.get_key_value(name))
+            .map(|(name, child_inode)| {
                 let inode_value = self.data.inodes.get(child_inode).unwrap();
                 LookupResult {
                     inode: child_inode,
-                    name: inode_value.name.as_ref(),
-                    data: &inode_value.data,
+                    name: name.as_ref(),
+                    data: inode_value,
                 }
             })
+    }
+
+    /// Registers a new hard-link name for an existing inode. Call this only
+    /// after the backing filesystem has successfully created the link.
+    pub fn link(&mut self, inode: &Inode, parent: &Inode, name: OsString) -> Result<(), LinkError> {
+        if !self.data.inodes.contains_key(inode) {
+            return Err(LinkError::InodeNotFound);
+        }
+        if !self.data.inodes.contains_key(parent) {
+            return Err(LinkError::ParentNotFound);
+        }
+        if self
+            .data
+            .children
+            .get(parent)
+            .is_some_and(|children| children.contains_key(name.as_os_str()))
+        {
+            return Err(LinkError::NameExists);
+        }
+        let name = OsStringWrapper(Arc::new(name));
+        self.data
+            .children
+            .entry(*parent)
+            .or_default()
+            .insert(name.clone(), *inode);
+        self.data
+            .links
+            .entry(*inode)
+            .or_default()
+            .entry(*parent)
+            .or_default()
+            .insert(name);
+        Ok(())
+    }
+
+    /// Removes one name while keeping the inode alive for remaining links and
+    /// outstanding FUSE references. Returns the inode that lost the name.
+    pub fn unlink(&mut self, parent: &Inode, name: &OsStr) -> Option<Inode> {
+        let children = self.data.children.get_mut(parent)?;
+        let inode = children.remove(name)?;
+        if children.is_empty() {
+            self.data.children.remove(parent);
+        }
+        let links = self.data.links.get_mut(&inode)?;
+        if let Some(names) = links.get_mut(parent) {
+            names.remove(name);
+            if names.is_empty() {
+                links.remove(parent);
+            }
+        }
+        if links.is_empty() {
+            self.data.links.remove(&inode);
+        }
+        Some(inode)
+    }
+
+    pub fn has_links(&self, inode: &Inode) -> bool {
+        self.data
+            .links
+            .get(inode)
+            .is_some_and(|links| !links.is_empty())
     }
 
     /// Renames a child inode from one parent to another
@@ -441,69 +551,91 @@ impl<Data: Send + Sync + 'static> InodeMapper<Data> {
         newparent: &Inode,
         newname: OsString,
     ) -> Result<Option<(Inode, Data)>, RenameError> {
-        let newname = OsStringWrapper(Arc::new(newname));
-
-        // Check if the new parent exists
         if !self.data.inodes.contains_key(parent) {
             return Err(RenameError::ParentNotFound);
         }
         if !self.data.inodes.contains_key(newparent) {
             return Err(RenameError::NewParentNotFound);
         }
-
-        // Remove the child from the old parent
-        let mut is_parent_empty = false;
         let child_inode = self
             .data
             .children
-            .get_mut(parent)
+            .get(parent)
             .ok_or(RenameError::NotFound)
-            .and_then(|parent_children| {
-                let child_inode = parent_children
-                    .remove(oldname)
-                    .ok_or(RenameError::NotFound)?;
-                if parent_children.is_empty() {
-                    is_parent_empty = true;
-                }
-                Ok(child_inode)
-            })?;
-
-        // Remove the old parent if it's now empty
-        if is_parent_empty {
-            self.data.children.remove(parent);
+            .and_then(|children| children.get(oldname).copied().ok_or(RenameError::NotFound))?;
+        if *parent == *newparent && oldname == newname.as_os_str() {
+            return Ok(None);
         }
-
-        // Update the inode value with the new parent and name
-        self.data.inodes.get_mut(&child_inode).map(|inode_value| {
-            inode_value.parent = newparent.clone();
-            inode_value.name = newname.clone();
-        });
-
-        // Insert the child into the new parent's children map
+        // Renaming one hard link over another name of the same inode is a no-op.
         if self
             .data
             .children
-            .entry(newparent.clone())
-            .or_default()
-            .insert(newname, child_inode).is_some()
+            .get(newparent)
+            .and_then(|c| c.get(newname.as_os_str()))
+            == Some(&child_inode)
         {
-            // The FUSE file system owns the old inode until it issues enough forget calls
-            // to reduce the inode's reference count to 0. Therefore, inodes may not be removed from
-            // this list outside of the remove() abstraction, which is only called when refcount
-            // is 0. This corresponds to behavior where files continue to write to an old inode even
-            // if the inode has already been unlinked by either rename, unlink, or rmdir syscalls.
-            // TODO: Implement a more reliable way to handle an immediate forget without breaking
-            //
-            // let InodeValue {
-            //     parent: _,
-            //     name: _,
-            //     data,
-            // } = self.data.inodes.remove(&old_inode).unwrap();
-            // Ok(Some((old_inode, data)))
-            Ok(None)
-        } else {
-            Ok(None)
+            return Ok(None);
         }
+        self.unlink(parent, oldname)
+            .expect("source name was checked");
+        self.unlink(newparent, newname.as_os_str());
+        let newname = OsStringWrapper(Arc::new(newname));
+        self.data
+            .children
+            .entry(*newparent)
+            .or_default()
+            .insert(newname.clone(), child_inode);
+        self.data
+            .links
+            .entry(child_inode)
+            .or_default()
+            .entry(*newparent)
+            .or_default()
+            .insert(newname);
+        Ok(None)
+    }
+
+    /// Swaps two existing directory entries after an exchange rename succeeds.
+    pub fn exchange(
+        &mut self,
+        parent: &Inode,
+        name: &OsStr,
+        newparent: &Inode,
+        newname: &OsStr,
+    ) -> Result<(), RenameError> {
+        let left = self
+            .lookup(parent, name)
+            .ok_or(RenameError::NotFound)?
+            .inode
+            .to_owned();
+        let right = self
+            .lookup(newparent, newname)
+            .ok_or(RenameError::NotFound)?
+            .inode
+            .to_owned();
+        if *parent == *newparent && name == newname {
+            return Ok(());
+        }
+        self.unlink(parent, name);
+        self.unlink(newparent, newname);
+        for (inode, target_parent, target_name) in
+            [(left, *newparent, newname), (right, *parent, name)]
+        {
+            let target_name = OsStringWrapper(Arc::new(target_name.to_os_string()));
+            self.data
+                .children
+                .entry(target_parent)
+                .or_default()
+                .insert(target_name.clone(), inode);
+            self.data
+                .links
+                .entry(inode)
+                .or_default()
+                .entry(target_parent)
+                .or_default()
+                .insert(target_name);
+        }
+        Ok(())
     }
 
     /// Removes an inode and its associated data from the `InodeMapper`.
@@ -525,23 +657,32 @@ impl<Data: Send + Sync + 'static> InodeMapper<Data> {
             panic!("Cannot remove ROOT");
         }
         if let Some(inode_value) = self.data.inodes.remove(inode) {
-            // Remove this inode from its parent's children
-            if let Some(parent_children) = self.data.children.get_mut(&inode_value.parent) {
-                parent_children.remove(&inode_value.name);
-
-                // If the parent's children map is now empty, remove it from the children HashMap
-                if parent_children.is_empty() {
-                    self.data.children.remove(&inode_value.parent);
+            for (parent, names) in self.data.links.remove(inode).unwrap_or_default() {
+                if let Some(parent_children) = self.data.children.get_mut(&parent) {
+                    for name in &names {
+                        parent_children.remove(name);
+                    }
+                    if parent_children.is_empty() {
+                        self.data.children.remove(&parent);
+                    }
                 }
             }
-
-            // Cascade remove all children
             if let Some(children) = self.data.children.remove(inode) {
-                for child_inode in children.values() {
-                    self.remove(child_inode);
+                for (name, child_inode) in children {
+                    if let Some(links) = self.data.links.get_mut(&child_inode) {
+                        if let Some(names) = links.get_mut(inode) {
+                            names.remove(&name);
+                            if names.is_empty() {
+                                links.remove(inode);
+                            }
+                        }
+                    }
+                    if !self.has_links(&child_inode) {
+                        self.remove(&child_inode);
+                    }
                 }
             }
-            Some(inode_value.data)
+            Some(inode_value)
         } else {
             None
         }
@@ -553,31 +694,29 @@ where
     Data: HasLookupCount + Send + Sync + 'static,
 {
     pub fn prune(&mut self, keep: &HashSet<Vec<OsString>>) {
-        let mut to_remove = Vec::new();
-
-        for (inode, value) in &self.data.inodes {
-            if *inode == ROOT_INODE {
-                continue;
-            }
-            if value.data.lookup_count().load(Ordering::SeqCst) == 0 {
-                // Check if path is in keep list
-                if let Some(path_info) = self.resolve(inode) {
-                    // path_info is [leaf, parent...]
-                    // We need [parent, leaf]
-                    let path_vec: Vec<OsString> = path_info
-                        .iter()
-                        .rev()
-                        .map(|info| (**info.name).clone())
-                        .collect();
-                    if !keep.contains(&path_vec) {
-                        to_remove.push(inode.clone());
+        loop {
+            let to_remove: Vec<_> = self
+                .data
+                .inodes
+                .iter()
+                .filter_map(|(inode, value)| {
+                    if *inode == ROOT_INODE
+                        || value.lookup_count().load(Ordering::SeqCst) != 0
+                        || !self.get_children(inode).is_empty()
+                    {
+                        return None;
                     }
-                }
+                    let path = self.resolve_first(inode)?;
+                    let path: Vec<_> = path.into_iter().rev().collect();
+                    (!keep.contains(&path)).then_some(*inode)
+                })
+                .collect();
+            if to_remove.is_empty() {
+                break;
             }
-        }
-
-        for inode in to_remove {
-            self.remove(&inode);
+            for inode in to_remove {
+                self.remove(&inode);
+            }
         }
     }
 }
@@ -731,15 +870,15 @@ mod tests {
             .unwrap();
 
         // Resolve the file inode
-        let path = mapper.resolve(&file_inode).unwrap();
+        let path = mapper.resolve_first(&file_inode).unwrap();
 
         // Check the resolved path (it should be in reverse order)
         assert_eq!(path.len(), 2);
-        assert_eq!(**path[0].name, "file.txt");
-        assert_eq!(**path[1].name, "dir");
+        assert_eq!(path[0], OsString::from("file.txt"));
+        assert_eq!(path[1], OsString::from("dir"));
 
         // Resolve the root inode (should be empty)
-        let root_path = mapper.resolve(&ROOT_INODE).unwrap();
+        let root_path = mapper.resolve_first(&ROOT_INODE).unwrap();
         assert!(root_path.is_empty());
 
         // Try to resolve a non-existent inode
@@ -758,6 +897,29 @@ mod tests {
         assert!(
             result.is_none(),
             "Resolving an invalid inode should return None"
+        );
+    }
+
+    #[test]
+    fn resolve_first_uses_a_path_with_reachable_parents() {
+        let mut mapper = InodeMapper::new(());
+        let old_parent = mapper
+            .insert_child(&ROOT_INODE, OsString::from("old"), |_| ())
+            .unwrap();
+        let new_parent = mapper
+            .insert_child(&ROOT_INODE, OsString::from("new"), |_| ())
+            .unwrap();
+        let file = mapper
+            .insert_child(&old_parent, OsString::from("file"), |_| ())
+            .unwrap();
+        mapper
+            .link(&file, &new_parent, OsString::from("file"))
+            .unwrap();
+        mapper.unlink(&ROOT_INODE, OsStr::new("old"));
+
+        assert_eq!(
+            mapper.resolve_first(&file),
+            Some(vec![OsString::from("file"), OsString::from("new")])
         );
     }
 
@@ -801,9 +963,10 @@ mod tests {
         assert!(mapper.lookup(&parent1, OsStr::new("old_name")).is_none());
 
         // Verify inode data is updated
-        let inode_value = mapper.get(&child).unwrap();
-        assert_eq!(inode_value.parent, &parent2);
-        assert_eq!(inode_value.name.as_os_str(), OsStr::new("new_name"));
+        assert_eq!(
+            mapper.resolve(&child).unwrap(),
+            vec![vec![OsString::from("parent2"), OsString::from("new_name")]]
+        );
     }
 
     #[test]
@@ -839,7 +1002,13 @@ mod tests {
             "first inode should be present"
         );
         assert!(
-            mapper.get(&child1).unwrap().parent == &parent2,
+            mapper
+                .get(&child1)
+                .unwrap()
+                .links
+                .iter()
+                .any(|(parent, name)| **parent == parent2
+                    && name.as_os_str() == OsStr::new("child2")),
             "first inode should point to parent2 as parent"
         );
         assert!(
@@ -891,9 +1060,15 @@ mod tests {
         assert!(mapper.lookup(&root, OsStr::new("test_name")).is_none());
 
         // Verify inode data is updated
-        let inode_value = mapper.get(&child).unwrap();
-        assert_eq!(inode_value.parent, &parent2);
-        assert_eq!(inode_value.name.as_os_str(), OsStr::new("test_name"));
+        assert_eq!(mapper.get(&child).unwrap().links.len(), 1);
+        assert_eq!(
+            mapper.resolve(&child).unwrap(),
+            vec![vec![
+                OsString::from("parent1"),
+                OsString::from("parent2"),
+                OsString::from("test_name")
+            ]]
+        );
 
         // Perform rename back to original path
         let result = mapper.rename(
@@ -914,9 +1089,11 @@ mod tests {
         assert!(mapper.lookup(&parent2, OsStr::new("test_name")).is_none());
 
         // Verify inode data is updated
-        let inode_value = mapper.get(&child).unwrap();
-        assert_eq!(inode_value.parent, &root);
-        assert_eq!(inode_value.name.as_os_str(), OsStr::new("test_name"));
+        assert_eq!(mapper.get(&child).unwrap().links.len(), 1);
+        assert_eq!(
+            mapper.resolve(&child).unwrap(),
+            vec![vec![OsString::from("test_name")]]
+        );
     }
 
     #[test]
@@ -1042,5 +1219,56 @@ mod tests {
 
         // Child should remain because refcount > 0
         assert!(mapper.get(&child_ino).is_some());
+    }
+
+    #[test]
+    fn prune_keeps_referenced_descendants_of_forgotten_directory() {
+        let mut mapper = InodeMapper::new(AtomicU64::new(0));
+        let dir = mapper
+            .insert_child(&ROOT_INODE, "dir".into(), |_| AtomicU64::new(0))
+            .unwrap();
+        let file = mapper
+            .insert_child(&dir, "file".into(), |_| AtomicU64::new(1))
+            .unwrap();
+        mapper.prune(&HashSet::new());
+        assert!(mapper.get(&dir).is_some());
+        assert!(mapper.get(&file).is_some());
+        assert_eq!(
+            mapper.resolve_first(&file),
+            Some(vec![OsString::from("file"), OsString::from("dir")])
+        );
+
+        mapper.get(&file).unwrap().data.store(0, Ordering::SeqCst);
+        mapper.prune(&HashSet::new());
+        assert!(mapper.get(&file).is_none());
+        assert!(mapper.get(&dir).is_none());
+    }
+
+    #[test]
+    fn link_and_exchange_keep_each_inode_links_consistent() {
+        let mut mapper = InodeMapper::new(());
+        let a = mapper
+            .insert_child(&ROOT_INODE, "a".into(), |_| ())
+            .unwrap();
+        let c = mapper
+            .insert_child(&ROOT_INODE, "c".into(), |_| ())
+            .unwrap();
+        mapper.link(&a, &ROOT_INODE, "b".into()).unwrap();
+        assert_eq!(mapper.get(&a).unwrap().links.len(), 2);
+        mapper
+            .exchange(&ROOT_INODE, OsStr::new("b"), &ROOT_INODE, OsStr::new("c"))
+            .unwrap();
+        assert_eq!(
+            mapper.lookup(&ROOT_INODE, OsStr::new("b")).unwrap().inode,
+            &c
+        );
+        assert_eq!(
+            mapper.lookup(&ROOT_INODE, OsStr::new("c")).unwrap().inode,
+            &a
+        );
+        let paths = mapper.resolve(&a).unwrap();
+        assert_eq!(paths.len(), 2);
+        assert!(paths.contains(&vec![OsString::from("a")]));
+        assert!(paths.contains(&vec![OsString::from("c")]));
     }
 }

@@ -1,6 +1,6 @@
 use easy_fuser::fuse_parallel::prelude::*;
-use easy_fuser::fuse_presets::DefaultFuseHandler;
-use io::{Read, Seek, SeekFrom};
+use easy_fuser::fuse_presets::{StatelessHandler, UnimplementedFuseHandler};
+use io::{Cursor, Read, Seek, SeekFrom};
 use std::error;
 use std::ffi::{OsStr, OsString};
 use std::io;
@@ -13,7 +13,8 @@ use crate::{helpers::*, DirectoryDetectionMethod};
 pub struct FtpFs {
     ftp_client: Mutex<FtpStream>,
     detection_method: DirectoryDetectionMethod,
-    inner_fs: DefaultFuseHandler<PathBuf>,
+    inner_fs: UnimplementedFuseHandler<PathBuf>,
+    safe_defaults: StatelessHandler<PathBuf>,
 }
 
 impl FtpFs {
@@ -30,7 +31,8 @@ impl FtpFs {
         Ok(Self {
             ftp_client: Mutex::new(ftp_stream),
             detection_method,
-            inner_fs: DefaultFuseHandler::new(),
+            inner_fs: UnimplementedFuseHandler::new(),
+            safe_defaults: StatelessHandler::new(),
         })
     }
 
@@ -45,16 +47,16 @@ impl FtpFs {
 
 impl FuseHandler for FtpFs {
     type TId = PathBuf;
+    type FileHandle = Cursor<Vec<u8>>;
 
-    easy_fuser::delegate_fs! { inner_fs, [
-        access, bmap, copy_file_range, create, fallocate, flush, forget, fsync, fsyncdir, getlk, getxattr, ioctl, link, listxattr, lseek, mkdir, mknod, open, opendir, readlink, release, releasedir, removexattr, rename, rmdir, setattr, setlk, setxattr, statfs, symlink, write, unlink
-    ] }
+    easy_fuser::delegate_fs! { safe_defaults, [ forget, fsyncdir, opendir, releasedir ] }
+    easy_fuser::delegate_fs! { inner_fs, [ access, bmap, copy_file_range, create, fallocate, flush, fsync, getlk, getxattr, ioctl, link, listxattr, lseek, mkdir, mknod, readlink, removexattr, rename, rmdir, setattr, setlk, setxattr, statfs, symlink, write, unlink ] }
 
     fn getattr(
         &self,
         _req: &RequestInfo,
         file_id: PathBuf,
-        _file_handle: Option<BorrowedFileHandle>,
+        _file_handle: Option<&mut Self::FileHandle>,
     ) -> FuseResult<FileAttribute> {
         if file_id.is_filesystem_root() {
             return Ok(get_root_attribute());
@@ -78,28 +80,40 @@ impl FuseHandler for FtpFs {
         })
     }
 
-    fn read(
+    /// Download each remote file once when it is opened, then serve read chunks from this
+    /// per-open cursor. This trades memory proportional to the open file size for fewer FTP RETR
+    /// transfers; each open sees a snapshot of the remote file from open time.
+    fn open(
         &self,
         _req: &RequestInfo,
         file_id: PathBuf,
-        _file_handle: BorrowedFileHandle,
+        _flags: OpenFlags,
+    ) -> FuseResult<(Self::FileHandle, FopenFlags)> {
+        let file = self
+            .with_ftp(|ftp| {
+                ftp.retr_as_buffer(file_id.to_str().unwrap())
+                    .map_err(|_| PosixError::new(ErrorKind::FileNotFound, "File not found"))
+            })?;
+        Ok((file, FopenFlags::empty()))
+    }
+
+    fn read(
+        &self,
+        _req: &RequestInfo,
+        _file_id: PathBuf,
+        file_handle: Option<&mut Self::FileHandle>,
         offset: SeekFrom,
         size: u32,
         _flags: OpenFlags,
         _lock_owner: Option<u64>,
     ) -> FuseResult<Vec<u8>> {
-        self.with_ftp(|ftp| {
-            let mut cursor = ftp.retr_as_buffer(file_id.to_str().unwrap())?;
-            cursor.seek(offset)?;
-            let mut buffer = vec![0; size as usize];
-            let bytes_read = cursor.read(&mut buffer)?;
-            buffer.truncate(bytes_read);
-            Ok(buffer)
-        })
-        .or(Err(PosixError::new(
-            ErrorKind::FileNotFound,
-            "File not found",
-        )))
+        let file = file_handle
+            .ok_or_else(|| ErrorKind::BadFileDescriptor.to_error("missing open file"))?;
+        file.seek(offset)?;
+        let mut buffer = vec![0; size as usize];
+        let bytes_read = file.read(&mut buffer)?;
+        buffer.truncate(bytes_read);
+        Ok(buffer)
     }
 
     fn readdir(

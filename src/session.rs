@@ -1,6 +1,7 @@
 use crate::core::FileIdResolver;
 use crate::types::FileIdType;
 use fuser::BackgroundSession;
+use log::{error, info};
 use std::collections::HashSet;
 use std::sync::Arc;
 
@@ -38,7 +39,17 @@ impl<T: FileIdType> FuseSession<T> {
     ///
     /// This method blocks until the filesystem is unmounted.
     pub fn join(self) -> std::io::Result<()> {
-        self.session.umount_and_join()
+        info!("Unmounting FUSE session and joining its worker");
+        match self.session.umount_and_join() {
+            Ok(()) => {
+                info!("FUSE session unmounted");
+                Ok(())
+            }
+            Err(err) => {
+                error!("Failed while unmounting the FUSE session: {}", err);
+                Err(err)
+            }
+        }
     }
 }
 
