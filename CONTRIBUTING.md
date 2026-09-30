@@ -61,7 +61,7 @@ If you want a change released, ask for a release in its PR. The `devel` branch h
 
 ### Date Flow
 
-#### How a request moves
+#### How a request moves
 
 The kernel sends a filesystem request. `fuser` passes it to the driver. The driver calls the matching method in your `FuseHandler` implementation. Your method handles the request or delegates it to a preset. The driver sends the result or error back through `fuser` to the kernel.
 
