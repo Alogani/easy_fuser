@@ -47,6 +47,28 @@ jobs:
     - name: Run tests
       run: cargo test --no-default-features --features ${{ matrix.feature }}
 
+  published_macro:
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    name: "Compile with published macro"
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: Setup Rust
+      uses: dtolnay/rust-toolchain@stable
+    - uses: Swatinem/rust-cache@v2
+      with:
+        shared-key: ubuntu-published-macro-stable
+    - name: Resolve easy_fuser_macro from crates.io
+      run: |
+        sed -i '/^easy_fuser_macro = /s/, path = "easy_fuser_macro"//' Cargo.toml
+    - name: Compile all targets against the published macro
+      run: cargo check --all-targets
+    - name: Compile examples against the published macro
+      run: |
+        for manifest in examples/*/Cargo.toml; do
+          cargo check --all-targets --manifest-path "$manifest"
+        done
+
   discover_examples:
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     name: Discover example crates
