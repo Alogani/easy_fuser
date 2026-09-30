@@ -66,5 +66,11 @@ fn main() {
     let memoryfs = create_memory_fs();
 
     println!("Mounting filesystem...");
-    mount(memoryfs, Path::new(&mountpoint), &options, Some(1)).unwrap();
+    mount(
+        memoryfs,
+        Path::new(&mountpoint),
+        &options,
+        Some(MountThreads::same(1)),
+    )
+    .unwrap();
 }

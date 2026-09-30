@@ -253,7 +253,7 @@ fn run_case<TId: BenchmarkId>(
     iterations: usize,
 ) -> Result<Duration, std::io::Error> {
     let mountpoint = TempDir::new().expect("create FUSE mountpoint");
-    let session = spawn_mount_with_threads(
+    let session = spawn(
         ConstantFs::<TId>::new(),
         mountpoint.path(),
         &[],

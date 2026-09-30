@@ -378,7 +378,7 @@ impl FuseHandler for MyAsyncFS {
 The default feature set enables `serial`, `parallel`, and `async`. These expose all three APIs; choose the matching `FuseHandler` prelude in your code. To build only one mode, disable default features and enable the mode you want.
 
 - `serial`: Runs callbacks serially; the thread-count setting is ignored.
-- `parallel`: Runs callbacks on a worker thread pool. Use `mount_with_threads` to configure FUSE reader and handler worker counts independently.
+- `parallel`: Runs callbacks on a worker thread pool. Use `mount` to configure FUSE reader and handler worker counts independently.
 - `async`: Runs callbacks on a Tokio runtime. Async handlers use `easy_fuser::fuse_async::prelude::*` and `#[async_trait]`.
 - `deadlock_detection`: Development aid for parallel mode. It checks for deadlocks periodically and logs detected thread backtraces; enable it while debugging, not as a normal production setting.
 - `io_uring`: Experimental Linux-only option that also enables `async`. It is not recommended: current benchmarks show roughly 3–10× lower throughput than the async syscall implementation. It is disabled by default.
@@ -411,7 +411,7 @@ To properly unmount the filesystem and stop the program (or to resolve a bad sta
   fusermount -u <mountpoint>
   ```
 
-This is the preferred method for both unmounting and resolving any issues with the mountpoint. You will find more information in the documentation of `mount` and `spawn_mount`.
+This is the preferred method for both unmounting and resolving any issues with the mountpoint. You will find more information in the documentation of `mount` and `spawn`.
 
 2. **Modifying the source directory while mounted**: This is not well-supported behavior and can result in unexpected outcomes.
 

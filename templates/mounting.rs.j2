@@ -9,49 +9,6 @@ use crate::FuseSession;
 use super::FuseHandler;
 use super::fuse_driver::FuseDriver;
 
-/// Mounts a FUSE filesystem at the specified mountpoint.
-/// 
-/// # Parameters
-/// 
-/// * `filesystem`: The filesystem implementation.
-/// * `mountpoint`: The path where the filesystem should be mounted.
-/// * `options`: Mount options for the filesystem.
-/// * `num_threads`: Number of threads for handling filesystem operations concurrently. Serial
-///   mode always runs one thread; this value only affects parallel and async modes. `None` uses
-///   the CPU-based thread heuristic.
-/// 
-/// # Type Parameters
-/// 
-/// * `T`: Implements `FileIdType` for file identifier conversion.
-/// * `FS`: Implements `FuseHandler<T>` for filesystem operations.
-/// 
-/// # Unmounting
-/// The FUSE filesystem can only be unmounted using the `fusermount -u` command, executed externally from the program. However, the `fusermount` command will fail if the filesystem is busy.
-/// 
-/// If the program crashes, the mount point may be left in an inconsistent state. To resolve this, you will need to run `fusermount -u` to restore the mount point to a proper state.
-/// 
-/// # Returns
-/// 
-/// `io::Result<()>` indicating success or failure of the mount operation.
-pub fn mount<TId, FS, P>(
-    filesystem: FS,
-    mountpoint: P,
-    options: &[MountOption],
-    num_threads: Option<usize>,
-) -> io::Result<()>
-where
-    TId: FileIdType,
-    FS: FuseHandler<TId = TId>,
-    P: AsRef<Path>,
-{
-    mount_with_threads(
-        filesystem,
-        mountpoint,
-        options,
-        num_threads.map(MountThreads::same),
-    )
-}
-
 /// Mounts a FUSE filesystem with independent request-reader and operation-worker counts.
 ///
 /// `fuser_threads` controls the threads that read requests from the kernel;
@@ -60,10 +17,11 @@ where
 /// Tokio's worker pool in async mode. Passing `None` uses a CPU-based starting
 /// point: one reader and one worker for one CPU, one reader and two workers for
 /// two CPUs, and otherwise one reader per eight CPUs plus half the CPU count in
-/// workers. Multiple readers enable cloned FUSE descriptors by default.
+/// workers. The CPU-based heuristic enables cloned FUSE descriptors when it
+/// selects multiple readers.
 /// On Linux, [`MountThreads::with_fuser_fd_cloning`] can give each reader an
 /// independent `/dev/fuse` descriptor when multiple readers are used.
-pub fn mount_with_threads<TId, FS, P>(
+pub fn mount<TId, FS, P>(
     filesystem: FS,
     mountpoint: P,
     options: &[MountOption],
@@ -98,61 +56,10 @@ where
     }
 }
 
-/// Spawns a FUSE filesystem in the background at the specified mountpoint.
-/// 
-/// This function mounts a FUSE filesystem and returns a `BackgroundSession` that can be used
-/// to manage the mounted filesystem.
-/// 
-/// # Parameters
-/// 
-/// * `filesystem`: The filesystem implementation that handles FUSE operations.
-/// * `mountpoint`: The path where the filesystem should be mounted.
-/// * `options`: A slice of mount options for configuring the filesystem mount.
-/// * `num_threads`: Number of threads for handling filesystem operations concurrently. Serial
-///   mode always runs one thread; this value only affects parallel and async modes.
-/// 
-/// # Type Parameters
-/// 
-/// * `T`: Implements `FileIdType` for file identifier conversion.
-/// * `FS`: Implements `FuseHandler<T>` for filesystem operations.
-///   FS must implement the `Send`, which is not the case by defualt in serial mode.
-///   In that case, it is advised to create the filesystem in the same dedicated thread and use mount function.
-/// 
-/// # Unmounting
-/// Using spawn_mount, the FUSE filesystem can be unmounted using two methods:  
-/// 1. **Programmatically**: By calling the `join` method on the `BackgroundSession` returned during mounting. This will stop the filesystem and unmount it.  
-/// 2. **Manually**: Using the `fusermount -u` command, executed externally. Note that `fusermount` will fail if the filesystem is busy.
-/// 
-/// If the program crashes, the mount point may be left in an inconsistent state. To resolve this, you must manually unmount the filesystem using `fusermount -u`.
-/// 
-/// # Returns
-/// 
-/// Returns `io::Result<BackgroundSession>`, which is:
-/// * `Ok(BackgroundSession)` on successful mount, providing a handle to manage the mounted filesystem.
-/// * `Err(io::Error)` if the mount operation fails.
-pub fn spawn_mount<TId, FS, P>(
-    filesystem: FS,
-    mountpoint: P,
-    options: &[MountOption],
-    num_threads: Option<usize>,
-) -> io::Result<FuseSession<TId>>
-where
-    TId: FileIdType,
-    FS: FuseHandler<TId = TId> + Send,
-    P: AsRef<Path>,
-{
-    spawn_mount_with_threads(
-        filesystem,
-        mountpoint,
-        options,
-        num_threads.map(MountThreads::same),
-    )
-}
-
 /// Spawns a FUSE filesystem with independent request-reader and operation-worker counts.
 ///
-/// See [`mount_with_threads`] for the meaning and defaults of each count.
-pub fn spawn_mount_with_threads<TId, FS, P>(
+/// See [`mount`] for the meaning and defaults of each count.
+pub fn spawn<TId, FS, P>(
     filesystem: FS,
     mountpoint: P,
     options: &[MountOption],

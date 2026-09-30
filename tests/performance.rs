@@ -3,6 +3,8 @@
 
 #![cfg(feature = "parallel")]
 
+mod common;
+
 use easy_fuser::fuse_parallel::prelude::*;
 use easy_fuser::fuse_presets::{StatelessHandler, UnimplementedFuseHandler, mirror_fs::*};
 use easy_fuser::unix_fs;
@@ -193,7 +195,7 @@ fn benchmark_parallel_getattr() {
     let create_calls = Arc::new(AtomicUsize::new(0));
     let unlink_calls = Arc::new(AtomicUsize::new(0));
     let forget_calls = Arc::new(AtomicUsize::new(0));
-    let session = spawn_mount(
+    let session = spawn(
         MeasuredFs {
             mirror: MirrorFs::new(source.path().to_path_buf()),
             defaults: UnimplementedFuseHandler::new(),
@@ -210,7 +212,7 @@ fn benchmark_parallel_getattr() {
         },
         mountpoint.path(),
         &[],
-        Some(8),
+        Some(common::MOUNT_THREADS),
     )
     .unwrap();
     let path = mountpoint.path().join("file");

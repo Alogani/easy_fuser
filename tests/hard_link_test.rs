@@ -1,5 +1,7 @@
 #![cfg(any(feature = "serial", feature = "parallel"))]
 
+mod common;
+
 #[cfg(all(feature = "parallel", not(feature = "serial")))]
 use easy_fuser::fuse_parallel::prelude::*;
 #[cfg(feature = "serial")]
@@ -96,7 +98,7 @@ fn mounted_hard_links_share_one_inode() {
     let source = TempDir::new().unwrap();
     let mountpoint = TempDir::new().unwrap();
     fs::write(source.path().join("a"), b"shared").unwrap();
-    let session = spawn_mount(
+    let session = spawn(
         LinkedFs {
             source: source.path().to_path_buf(),
             defaults: UnimplementedFuseHandler::new(),
@@ -104,7 +106,7 @@ fn mounted_hard_links_share_one_inode() {
         },
         Path::new(mountpoint.path()),
         &[],
-        Some(2),
+        Some(common::MOUNT_THREADS),
     )
     .unwrap();
 

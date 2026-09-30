@@ -177,13 +177,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("Mounting mirror filesystem in READ-ONLY mode...");
         println!("Mount point: {:?}", &mntpoint);
         println!("Source directory: {:?}", fs.source_dir());
-        mount(fs, &mntpoint, &[], Some(1))?;
+        mount(fs, &mntpoint, &[], Some(MountThreads::same(1)))?;
     } else {
         let fs = MyMirrorFs::new(source_dir);
         println!("Mounting mirror filesystem in READ-WRITE mode...");
         println!("Mount point: {:?}", &mntpoint);
         println!("Source directory: {:?}", fs.source_dir());
-        mount(fs, &mntpoint, &[], Some(1))?;
+        mount(fs, &mntpoint, &[], Some(MountThreads::same(1)))?;
     }
 
     // If we reach here, the filesystem has been unmounted normally

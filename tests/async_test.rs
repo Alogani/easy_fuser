@@ -1,5 +1,7 @@
 #![cfg(feature = "async")]
 
+mod common;
+
 use easy_fuser::fuse_async::prelude::*;
 use easy_fuser::fuse_presets::mirror_fs::*;
 use easy_fuser::fuse_presets::{StatelessHandler, UnimplementedFuseHandler};
@@ -67,7 +69,7 @@ fn test_async_mirror_fs() {
             unimplemented: UnimplementedFuseHandler::new(),
             safe_defaults: StatelessHandler::new(),
         };
-        mount(fs, &mntpoint_clone, &[], Some(4)).unwrap();
+        mount(fs, &mntpoint_clone, &[], Some(common::MOUNT_THREADS)).unwrap();
     });
     // Wait for the mount to finish
     let mnt_file = mntpoint.join("test_async.txt");
