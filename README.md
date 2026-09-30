@@ -7,9 +7,9 @@
 [![dependency status](https://deps.rs/repo/github/Alogani/easy_fuser/status.svg)](https://deps.rs/repo/github/Alogani/easy_fuser)
 
 > [!IMPORTANT]
-> The API is not stabilized, some breaking changes can still happen.
-> See CHANGELOG.md to see it.
-> This crate shall still be considered experimental and not production ready.
+> The API is entering a stabilization phase. Breaking changes are still possible, though they’re expected to become less frequent and more limited in scope. See [CHANGELOG.md](CHANGELOG.md) for API changes.
+>
+> The crate is maintained on a best-effort basis. The maintainer has limited capacity to provide user support or timely fixes.
 
 ## About
 
