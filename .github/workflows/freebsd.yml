@@ -1,0 +1,24 @@
+name: CI FreeBSD
+
+on:
+  pull_request:
+    branches: [main, devel]
+
+jobs:
+  integration-tests:
+    name: FreeBSD integration tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run FreeBSD tests
+        uses: cross-platform-actions/action@v1.0.0
+        with:
+          operating_system: freebsd
+          version: '14.3'
+          shell: bash
+          run: |
+            trap 'sudo rm -rf "$GITHUB_WORKSPACE/target"' EXIT
+            sudo kldload fusefs
+            sudo pkg install -y rust bash pkgconf fusefs-libs fusefs-libs3
+            sudo cargo test --all-targets --no-default-features --features "parallel async libfuse"

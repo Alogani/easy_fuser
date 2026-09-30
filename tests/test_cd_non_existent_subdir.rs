@@ -1,5 +1,7 @@
 #![cfg(any(feature = "serial", feature = "parallel"))]
 
+mod common;
+
 #[cfg(all(feature = "parallel", not(feature = "serial")))]
 use easy_fuser::fuse_parallel::prelude::*;
 use easy_fuser::fuse_presets::mirror_fs::*;
@@ -66,7 +68,7 @@ fn test_cd_non_existing_subdir_io_error() {
             unimplemented: UnimplementedFuseHandler::new(),
             safe_defaults: StatelessHandler::new(),
         };
-        mount(fs, &mntpoint_clone, &[], Some(4)).unwrap();
+        mount(fs, &mntpoint_clone, &[], Some(common::MOUNT_THREADS)).unwrap();
     });
 
     let mnt_debug = mntpoint.join("debug");

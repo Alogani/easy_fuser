@@ -6,8 +6,8 @@
 /// These counts are independent because increasing either can add scheduling
 /// and synchronization overhead.
 ///
-/// Passing `None` instead of a `MountThreads` value to `mount_with_threads` or
-/// `spawn_mount_with_threads` selects this type's CPU-based default heuristic.
+/// Passing `None` instead of a `MountThreads` value to `mount` or `spawn_mount`
+/// selects this type's CPU-based default heuristic.
 ///
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct MountThreads {
@@ -18,9 +18,8 @@ pub struct MountThreads {
     /// Give each fuser reader its own `/dev/fuse` descriptor on Linux.
     ///
     /// This can reduce contention when `fuser_threads` is greater than one.
-    /// It requires Linux 4.5 or newer. `MountThreads::new` leaves this `false`;
-    /// the automatic CPU-based preset enables it when selecting multiple
-    /// readers. The existing `mount` and `spawn_mount` functions leave it off.
+    /// It requires Linux 4.5 or newer. `MountThreads::new` leaves this disabled;
+    /// the CPU-based preset enables it when selecting multiple readers.
     pub clone_fuser_fd: bool,
 }
 
@@ -40,7 +39,7 @@ impl MountThreads {
         self
     }
 
-    /// Use the same explicit count for both sides, preserving `mount` behavior.
+    /// Use the same count for fuser readers and easy_fuser handler workers.
     pub const fn same(count: usize) -> Self {
         Self::new(count, count)
     }

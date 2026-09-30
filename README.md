@@ -99,6 +99,8 @@ sudo pkg install fusefs-libs
 sudo kldload fusefs
 ```
 
+FreeBSD supports only one fuser reader thread for now.
+
 The second command loads the module for the current boot. FreeBSD's
 [Handbook](https://docs.freebsd.org/en/books/handbook/filesystems/) documents
 the module and how to load it at startup. Ensure your account and system policy
@@ -378,7 +380,7 @@ impl FuseHandler for MyAsyncFS {
 The default feature set enables `serial`, `parallel`, and `async`. These expose all three APIs; choose the matching `FuseHandler` prelude in your code. To build only one mode, disable default features and enable the mode you want.
 
 - `serial`: Runs callbacks serially; the thread-count setting is ignored.
-- `parallel`: Runs callbacks on a worker thread pool. Use `mount_with_threads` to configure FUSE reader and handler worker counts independently.
+- `parallel`: Runs callbacks on a worker thread pool. Use `mount` to configure FUSE reader and handler worker counts independently.
 - `async`: Runs callbacks on a Tokio runtime. Async handlers use `easy_fuser::fuse_async::prelude::*` and `#[async_trait]`.
 - `deadlock_detection`: Development aid for parallel mode. It checks for deadlocks periodically and logs detected thread backtraces; enable it while debugging, not as a normal production setting.
 - `io_uring`: Experimental Linux-only option that also enables `async`. It is not recommended: current benchmarks show roughly 3–10× lower throughput than the async syscall implementation. It is disabled by default.

@@ -253,5 +253,11 @@ fn main() {
     let fs = RandomFS::new();
 
     println!("Mounting filesystem...");
-    mount(fs, Path::new(&mountpoint), &options, Some(1)).unwrap();
+    mount(
+        fs,
+        Path::new(&mountpoint),
+        &options,
+        Some(MountThreads::same(1)),
+    )
+    .unwrap();
 }

@@ -2,6 +2,8 @@
 // Async mode is covered by tests/async_test.rs instead.
 #![cfg(any(feature = "serial", feature = "parallel"))]
 
+mod common;
+
 #[cfg(all(feature = "parallel", not(feature = "serial")))]
 use easy_fuser::fuse_parallel::prelude::*;
 #[cfg(feature = "serial")]
@@ -47,7 +49,7 @@ fn test_mirror_fs_file_offsets() {
     let mntpoint = mount_dir.path().to_path_buf();
     let source_path = source_dir.path().to_path_buf();
 
-    // We won't use spawn_mount because it MirrorFs doesn't implement Send in serial mode
+    // We won't use spawn_mount because MirrorFs doesn't implement Send in serial mode
     let mntpoint_clone = mntpoint.clone();
     let source_path_clone = source_path.clone();
     let sentinel = source_path.join("sentinel.txt");
@@ -59,7 +61,7 @@ fn test_mirror_fs_file_offsets() {
             unimplemented: UnimplementedFuseHandler::new(),
             safe_defaults: StatelessHandler::new(),
         };
-        mount(fs, &mntpoint_clone, &[], Some(4)).unwrap();
+        mount(fs, &mntpoint_clone, &[], Some(common::MOUNT_THREADS)).unwrap();
     });
 
     let mnt_sentinel = mntpoint.join("sentinel.txt");
@@ -73,7 +75,7 @@ fn test_mirror_fs_file_offsets() {
     }
     assert!(mounted, "Mount timed out");
 
-    // Contrary to using spawn, which will force unmount even if resource is busy,
+    // Unlike spawn_mount, this avoids forcing an unmount while a resource is busy,
     // Here we must clean it before
     {
         // Create a test file

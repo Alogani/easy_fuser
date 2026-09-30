@@ -3,6 +3,8 @@
 
 #![cfg(feature = "parallel")]
 
+mod common;
+
 use easy_fuser::fuse_parallel::prelude::*;
 use easy_fuser::fuse_presets::{StatelessHandler, UnimplementedFuseHandler, mirror_fs::*};
 use easy_fuser::unix_fs;
@@ -210,7 +212,7 @@ fn benchmark_parallel_getattr() {
         },
         mountpoint.path(),
         &[],
-        Some(8),
+        Some(common::MOUNT_THREADS),
     )
     .unwrap();
     let path = mountpoint.path().join("file");

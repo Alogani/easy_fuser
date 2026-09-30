@@ -590,6 +590,8 @@ fn lock_info_to_flock(info: LockInfo) -> Result<libc::flock, PosixError> {
         l_start: start,
         l_len: len,
         l_pid: info.pid as libc::pid_t,
+        #[cfg(target_os = "freebsd")]
+        l_sysid: 0,
     })
 }
 
