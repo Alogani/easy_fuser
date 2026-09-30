@@ -1,163 +1,112 @@
 # Changelog
 
-All notable changes to this project will be documented in this file.
+This changelog records notable public API changes to help users upgrade between
+versions. Breaking changes and required migration steps are called out explicitly;
+internal implementation changes and routine fixes are omitted.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.7.0] - 2026-09-30
+
+### Breaking changes
+
+- `FuseHandler` now requires the associated type `FileHandle`. File operations
+  use this type for per-open resources: `open` and `create` return it, and
+  callbacks such as `read` receive it through `Option<&mut Self::FileHandle>`.
+  Choose `()` for stateless I/O, `std::os::fd::OwnedFd` with
+  `FileDescriptorHandler`, or a custom type for per-open state. Update handler
+  implementations and delegated presets to use the new signatures.
+- `SetAttrRequest` no longer has a lifetime parameter or a `file_handle` field
+  or builder method. Remove lifetime arguments and `.file_handle(...)` calls.
+- `DeviceType::from_rdev` was replaced by
+  `DeviceType::from_file_type_and_rdev(FileType, libc::dev_t)`. File kind is
+  now supplied separately from device numbers; `to_rdev` returns only the
+  device number.
+- `DefaultFuseHandler` was replaced by `StatelessHandler` for stateless
+  directory callbacks and `UnimplementedFuseHandler` for unsupported
+  operations. The former name has no compatibility alias.
+- `FdHandlerHelper` and `FdHandlerHelperReadOnly` were renamed to
+  `FileDescriptorHandler` and `FileDescriptorHandlerReadOnly`, and the module
+  `fd_handler_helper` was renamed to `file_descriptor_handler`. The old type
+  names remain deprecated aliases; update module paths and type names.
+- Public `fuser` types now come from 0.18.0. If your project also depends
+  directly on `fuser`, align it to 0.18.0 to avoid incompatible duplicate types.
+- Removed `InodeMultiMapper` and `HybridId<BackingId>`. Use `InodeMapper` and
+  `MappedInode`; create hard links through `FuseHandler::link` to share an
+  automatically assigned FUSE inode.
+- Moved mapper and resolver types under `easy_fuser::inode_mapping`. The old
+  `inode_mapper` module path remains as a deprecated re-export.
+- Deprecated the `FileIdType` implementation for `Vec<OsString>` in favor of
+  `MappedInode`.
 
 ### Added
 
-- Added an `OverlayFs` preset with ordered lower layers, merged directories,
+- Added `OverlayFs`, a preset with ordered lower layers, merged directories,
   copy-up for writes, and persistent whiteouts in the upper layer.
+- Added async-compatible `MirrorFs` and file-descriptor presets. On Linux, the
+  optional `io_uring` feature enables io_uring for selected descriptor-backed
+  operations in these presets.
+- `FileDescriptorHandler` now provides `getlk` and `setlk` for open file
+  descriptors. `MirrorFs` and its read-only and async variants provide `bmap`
+  and `readdirplus`.
 - Re-exported `fuser::BsdFileFlags` through `easy_fuser::types` and the
   mode-specific preludes for use with `SetAttrRequest`.
+- Added `check_mode_access` to check access against Unix mode bits.
 
-### Breaking changes
-
-- Renamed `DefaultFuseHandler` to `StatelessHandler` without a compatibility
-  alias. Update imports and delegation fields to use the new name.
-- Renamed `FdHandlerHelper` and `FdHandlerHelperReadOnly` to
-  `FileDescriptorHandler` and `FileDescriptorHandlerReadOnly`, and renamed the
-  `fd_handler_helper` module to `file_descriptor_handler`. The old type names
-  remain deprecated aliases for this release.
-- Public `fuser` types now come from 0.18.0. Projects that also depend directly
-  on `fuser` should align that dependency to 0.18.0 to avoid mismatched types.
-
-### Changed
-
-- Updated `fuser` to 0.18.0 and adapted the mount wrappers to its renamed
-  `mount` and `spawn_mount` APIs. Mount option conflicts are now reported when
-  `fuser` creates the session.
-
-### Fixed
-
-- On FreeBSD, `MountOption::AllowOther` is now passed correctly, allowing
-  non-owner users to access the mount when that option is enabled.
-
-## [0.7.0] - 2026-09-28
-
-### Changed
-
-- `InodeMapper` records multiple directory entries for one inode. Its `link`
-  method registers an additional name after a handler successfully creates a
-  hard link. A central link index stores the names; `get` exposes all current
-  links, and `resolve` reconstructs their paths.
-- New `MappedInode` handler ID exposes `inode()`, `paths()`, and
-  `parts_paths()`. It uses ordinary `FileAttribute` and `FileKind` return values.
+- `InodeMapper` now tracks multiple directory entries for one inode. Its
+  `link` method registers an additional name after a successful hard link;
+  `get` exposes current links and `resolve` reconstructs their paths.
+- Added the `MappedInode` handler ID, with `inode()`, `paths()`, and
+  `parts_paths()` accessors. It uses ordinary `FileAttribute` and `FileKind`
+  metadata values.
 - Successful `link`, `unlink`, and `rename` calls update the mapper. Explicitly
   registered hard links remain associated after FUSE forgets lookup references.
-  The `MappedInode` resolver retains known names during a mount until namespace
-  operations remove them, including names of parent directories.
-
-### Breaking changes
-
-- Removed `InodeMultiMapper` and `HybridId<BackingId>`. Use `InodeMapper` and
-  `MappedInode` instead. Hard links must be created through `FuseHandler::link`
-  to share an automatically assigned FUSE inode.
-- Moved the mapper and resolver into `src/inode_mapping/`, with public mapper
-  types under `easy_fuser::inode_mapping`. The old `inode_mapper` module path
-  remains as a deprecated re-export.
-- Deprecated the `FileIdType` implementation for `Vec<OsString>` in favor of
-  `MappedInode`. Rust does not issue a warning when a standard-library type
-  implements a deprecated trait implementation, so migration is documented here.
 
 ## [0.6.0] - 2026-09-28
 
-### ⚠️ Breaking Changes
+### Breaking changes
 
-- **`fuser` 0.17 API adoption**: `FuseHandler` and related public APIs now use the types exposed by `fuser` 0.17. Inode values use `fuser::INodeNo` (re-exported as `Inode`) instead of `u64` or the crate's former `Inode` wrapper. `FileIdResolver` methods now take and return `Inode`; code that constructs or inspects inode numbers should use `INodeNo(value)` and `.0` as needed.
-- **Updated handler argument types**: access masks and open, rename, ioctl, write, and copy-file-range flags now use the corresponding `fuser` flag types (`AccessFlags`, `OpenFlags`, `RenameFlags`, `IoctlFlags`, `WriteFlags`, `CopyFileRangeFlags`, and `FopenFlags`). Several crate-defined flag types were renamed or removed; update `FuseHandler` implementations and imports to match the new signatures. Copy-file-range offsets are now `u64`.
-- **Request and setattr types**: `RequestInfo.id` is now `fuser::RequestId`, and `SetAttrRequest::flags` now accepts `fuser::BsdFileFlags` instead of `()`.
-- **Error API**: `PosixError::raw_error()` was replaced by `PosixError::io_error()`, which returns `std::io::Error`.
-
-### Fixed
-
-- Corrected TTL generation handling for filesystem entries.
-- Fixed a hang when unmounting and joining a mounted filesystem session.
-
-### Changed
-
-- Updated `fuser` to 0.17.0 and refreshed project dependencies.
+- Adopted the `fuser` 0.17 API. `FuseHandler` and related public APIs now use
+  `fuser::INodeNo` (re-exported as `Inode`) instead of `u64` or the former
+  crate-defined `Inode` wrapper. `FileIdResolver` methods also use `Inode`;
+  construct values with `INodeNo(value)` and access the number with `.0`.
+- Updated handler argument types to the corresponding `fuser` flag types:
+  `AccessFlags`, `OpenFlags`, `RenameFlags`, `IoctlFlags`, `WriteFlags`,
+  `CopyFileRangeFlags`, and `FopenFlags`. Several crate-defined flag types
+  were renamed or removed. Copy-file-range offsets are now `u64`.
+- `RequestInfo.id` is now `fuser::RequestId`, and `SetAttrRequest::flags`
+  accepts `fuser::BsdFileFlags` instead of `()`.
+- Replaced `PosixError::raw_error()` with `PosixError::io_error()`, returning
+  `std::io::Error`.
+- `FuseSession::join` now returns `std::io::Result<()>`; handle the result when
+  joining a background-mounted session.
 
 ## [0.5.0] - 2026-06-25
 
-### ⚠️ Breaking Changes
+### Breaking changes
 
-- **Prelude reorganization**: The single `easy_fuser::prelude` has been replaced by mode-specific preludes:
-  - `easy_fuser::fuse_serial::prelude::*`
-  - `easy_fuser::fuse_parallel::prelude::*`
-  - `easy_fuser::fuse_async::prelude::*`
-- **Module rename**: Template/preset implementations moved from `easy_fuser::templates` to `easy_fuser::fuse_presets`.
-- **Preset design change**: Presets (`DefaultFuseHandler`, `MirrorFs`) no longer implement `FuseHandler` directly. Users now implement `FuseHandler` on their own struct and use the `delegate_fs!` macro to delegate operations.
-
-### Migration Guide
-
-```rust
-// Before (v0.4.x)
-use easy_fuser::prelude::*;
-use easy_fuser::templates::DefaultFuseHandler;
-
-struct MyFs;
-impl FuseHandler for MyFs { /* ... */ }
-
-// After (v0.5.0)
-use easy_fuser::fuse_parallel::prelude::*; // or fuse_serial / fuse_async
-use easy_fuser::fuse_presets::DefaultFuseHandler;
-use easy_fuser_macro::delegate_fs;
-
-struct MyFs {
-    default_fs: DefaultFuseHandler<PathBuf>,
-}
-
-impl FuseHandler for MyFs {
-    type TId = PathBuf;
-    delegate_fs! { default_fs, [ access, getattr, read, /* ... */ ] }
-}
-```
+- Replaced `easy_fuser::prelude` with mode-specific preludes:
+  `easy_fuser::fuse_serial::prelude`,
+  `easy_fuser::fuse_parallel::prelude`, and
+  `easy_fuser::fuse_async::prelude`.
+- Moved preset implementations from `easy_fuser::templates` to
+  `easy_fuser::fuse_presets`.
+- Presets such as `DefaultFuseHandler` and `MirrorFs` no longer implement
+  `FuseHandler` directly. Implement the trait on your own type and use the
+  delegation macros to select the operations supplied by each preset.
 
 ### Added
 
-- **Async concurrency model** (`fuse_async` feature): Full `async`/`await` support via `tokio` with `#[async_trait]`.
-- **`delegate_fs!` macro**: Synchronously delegates `FuseHandler` methods to a named field (serial/parallel modes).
-- **`delegate_fs_async!` macro**: Delegates to an async target field (async mode).
-- **`delegate_fs_sync_to_async!` macro**: Wraps synchronous method calls in a pinned async block for use in async mode.
-- **`easy_fuser_macro` proc-macro crate**: Houses all delegation macros and the `fuse_handler_fnsig!` DSL used internally.
-- **`FuseSession` and `FusePruner`**: Public API for managing a background-mounted filesystem session and pruning unreferenced inodes.
-- **macOS and BSD support** (#92, #93): Platform-specific filesystem implementations and CI workflows.
-- **Templated code generation**: `fuse_driver`, `fuse_handler`, `mounting`, and `fuse_lib` modules are now generated at build time from Askama (Jinja2) templates per concurrency mode, eliminating duplicate code.
-- **`readdirplus` default implementation**: Default impl combining `readdir` + `lookup` provided on `FuseHandler`.
-- **Default `forget` implementation**: No-op default provided; users can override for manual inode management.
-- **macOS CI** (`.github/workflows/macos.yml`): Automated testing on macOS runners.
-- **Async integration test** (`tests/async_test.rs`): End-to-end test for the async concurrency mode.
-
-### Changed
-
-- `MirrorFs` and `DefaultFuseHandler` are now composable building blocks meant to be used via `delegate_fs!`, not subclassed.
-- `inode_mapper` and `inode_multi_mapper` stabilized backing ID implementation (#90).
-- Integration test suite significantly expanded with read-only and read-write scenarios.
-- `spawn_mount` and `mount` documentation consolidated into the generated `mounting.rs` module.
-
-### Removed
-
-- `easy_fuser::prelude` (replaced by mode-specific preludes).
-- `easy_fuser::templates` module (replaced by `easy_fuser::fuse_presets`).
-- `src/core/fuse_driver.rs`, `src/core/fuse_driver_types.rs`, `src/core/macros.rs`, `src/core/thread_mode.rs` (replaced by Askama-generated equivalents).
-- `docs/mount.md`, `docs/spawn_mount.md` (documentation now lives in generated `mounting.rs`).
-- `tests/mount_mirror_fs.rs` (superseded by the expanded `integration_test.rs`).
-
----
-
-## [0.4.5]
-
-### Fixed
-- `getattr` IO error handling (#83, issue #55).
-
-### Changed
-- Internal `if-let`-chains stabilized using `if let Some(...) && ...` pattern (#85).
-
----
+- Added async/await support through the `fuse_async` feature and
+  `delegate_fs_async!` and `delegate_fs_sync_to_async!` macros. Added the
+  synchronous `delegate_fs!` macro for serial and parallel handlers.
+- Added the `easy_fuser_macro` crate, which provides these delegation macros
+  and the `fuse_handler_fnsig!` macro.
+- Added the public `FuseSession` and `FusePruner` APIs for managing a
+  background-mounted session and pruning unreferenced inodes.
+- Added default `readdirplus` behavior that combines `readdir` and `lookup`,
+  and a no-op default implementation of `forget`.
 
 ## [0.4.4] and earlier
 
@@ -165,8 +114,6 @@ Please refer to the [GitHub releases page](https://github.com/Alogani/easy_fuser
 
 ---
 
-[Unreleased]: https://github.com/Alogani/easy_fuser/compare/v0.7.0...HEAD
 [0.7.0]: https://github.com/Alogani/easy_fuser/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/Alogani/easy_fuser/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/Alogani/easy_fuser/compare/v0.4.5...v0.5.0
-[0.4.5]: https://github.com/Alogani/easy_fuser/compare/v0.4.4...v0.4.5
