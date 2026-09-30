@@ -47,13 +47,29 @@ jobs:
     - name: Run tests
       run: cargo test --no-default-features --features ${{ matrix.feature }}
 
-  test_examples:
+  discover_examples:
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
-    name: "Examples crates"
+    name: Discover example crates
+    runs-on: ubuntu-latest
+    outputs:
+      examples: ${{ steps.set-matrix.outputs.examples }}
+    steps:
+    - uses: actions/checkout@v4
+    - id: set-matrix
+      run: |
+        examples=$(find examples -mindepth 2 -maxdepth 2 -name Cargo.toml -printf '%h\n' \
+          | sed 's#^examples/##' \
+          | jq -R -s -c 'split("\n") | map(select(length > 0))')
+        echo "examples=$examples" >> "$GITHUB_OUTPUT"
+
+  test_examples:
+    needs: discover_examples
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    name: "Example ${{ matrix.example }}"
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        example: [ftp_fs, hello_fs, in_memory_fs, passthrough_fs, random_fs, zip_fs]
+        example: ${{ fromJSON(needs.discover_examples.outputs.examples) }}
     steps:
     - uses: actions/checkout@v4
     - name: Setup Rust
