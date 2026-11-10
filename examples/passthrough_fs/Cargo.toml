@@ -9,4 +9,4 @@ easy_fuser = { path = "../..", features = ["parallel"] }
 clap = { version = "^4.6.7", features = ["derive"] }
 ctrlc = "^3.5.2"
 env_logger = "^0.11.11"
-log = "^0.4.34"
+log = "^0.4.35"
