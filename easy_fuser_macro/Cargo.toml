@@ -10,7 +10,7 @@ repository = "https://github.com/Alogani/easy_fuser"
 proc-macro = true
 
 [dependencies]
-syn =  {version = "^3.0.6", features = [ "full" ] }
+syn =  {version = "^3.0.10", features = [ "full" ] }
 quote = "^1.0.47"
 proc-macro2 = "^1.0.107"
-either = "^1.18.0"
+either = "^1.19.0"
