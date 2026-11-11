@@ -12,6 +12,9 @@
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct MountThreads {
     /// Number of fuser threads reading and dispatching kernel requests.
+    ///
+    /// fuser supports more than one reader on Linux only; on other platforms
+    /// `mount` and `spawn_mount` use a single reader whatever this value is.
     pub fuser_threads: usize,
     /// Number of easy_fuser callback workers (or async runtime workers).
     pub handler_threads: usize,
@@ -53,6 +56,8 @@ impl Default for MountThreads {
     /// Callback workers use one thread on a single-CPU machine, otherwise
     /// roughly half the available CPUs. Independent FUSE descriptors are
     /// enabled only when the heuristic selects multiple readers.
+    /// Outside Linux the heuristic always selects one reader, because fuser
+    /// supports multiple readers on Linux only.
     fn default() -> Self {
         let cpus = std::thread::available_parallelism()
             .map(std::num::NonZeroUsize::get)
@@ -70,7 +75,11 @@ impl Default for MountThreads {
                 clone_fuser_fd: false,
             },
             n => {
-                let fuser_threads = (n / 8).max(1);
+                let fuser_threads = if cfg!(target_os = "linux") {
+                    (n / 8).max(1)
+                } else {
+                    1
+                };
                 Self {
                     fuser_threads,
                     handler_threads: n.div_ceil(2),
