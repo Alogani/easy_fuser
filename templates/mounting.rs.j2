@@ -2,13 +2,30 @@ use std::io;
 use std::path::Path;
 
 use fuser::{mount as fuser_mount, spawn_mount as fuser_spawn_mount, Config, MountOption};
-use log::{error, info};
+use log::{error, info{% if mode != "serial" %}, warn{% endif %}};
 
 use crate::types::*;
 use crate::FuseSession;
 use super::FuseHandler;
 use super::fuse_driver::FuseDriver;
 
+{% if mode != "serial" %}
+/// Returns the reader count and descriptor-cloning setting to hand to fuser.
+///
+/// fuser 0.18.0 fails the session with "n_threads != 1 is only supported on
+/// Linux" on every other platform, after the filesystem is already mounted.
+fn fuser_reader_config(threads: &MountThreads) -> (Option<usize>, bool) {
+    if cfg!(target_os = "linux") || threads.fuser_threads <= 1 {
+        return (Some(threads.fuser_threads), threads.clone_fuser_fd);
+    }
+    warn!(
+        "{} FUSE reader threads requested, but fuser supports several readers on Linux only; using one",
+        threads.fuser_threads
+    );
+    (Some(1), false)
+}
+
+{% endif %}
 /// Mounts a FUSE filesystem with independent request-reader and operation-worker counts.
 ///
 /// `fuser_threads` controls the threads that read requests from the kernel;
@@ -19,8 +36,9 @@ use super::fuse_driver::FuseDriver;
 /// two CPUs, and otherwise one reader per eight CPUs plus half the CPU count in
 /// workers. The CPU-based heuristic enables cloned FUSE descriptors when it
 /// selects multiple readers.
-/// On FreeBSD, fuser 0.18.0 does not yet support multiple request-reader
-/// threads.
+/// fuser 0.18.0 supports multiple request-reader threads on Linux only. On
+/// macOS and the BSDs a larger `fuser_threads` is reduced to one reader, with a
+/// warning, instead of failing the mount; `handler_threads` is unaffected.
 /// On Linux, [`MountThreads::with_fuser_fd_cloning`] can give each reader an
 /// independent `/dev/fuse` descriptor when multiple readers are used.
 pub fn mount<TId, FS, P>(
@@ -39,8 +57,11 @@ where
     let mountpoint = mountpoint.as_ref();
     let mut config = Config::default();
     config.mount_options = options.to_vec();
-    config.n_threads = {% if mode == "serial" %}Some(1){% else %}Some(threads.fuser_threads){% endif %};
-    config.clone_fd = threads.clone_fuser_fd;
+{% if mode == "serial" %}
+    config.n_threads = Some(1);
+{% else %}
+    (config.n_threads, config.clone_fd) = fuser_reader_config(&threads);
+{% endif %}
     info!("Mounting FUSE filesystem at {}", mountpoint.display());
     match fuser_mount(driver, mountpoint, &config) {
         Ok(()) => {
@@ -78,8 +99,11 @@ where
     let mountpoint = mountpoint.as_ref();
     let mut config = Config::default();
     config.mount_options = options.to_vec();
-    config.n_threads = {% if mode == "serial" %}Some(1){% else %}Some(threads.fuser_threads){% endif %};
-    config.clone_fd = threads.clone_fuser_fd;
+{% if mode == "serial" %}
+    config.n_threads = Some(1);
+{% else %}
+    (config.n_threads, config.clone_fd) = fuser_reader_config(&threads);
+{% endif %}
     info!("Mounting FUSE filesystem at {} in the background", mountpoint.display());
     let session = match fuser_spawn_mount(driver, mountpoint, &config) {
         Ok(session) => session,
