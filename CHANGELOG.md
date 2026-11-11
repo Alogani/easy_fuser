@@ -7,6 +7,18 @@ internal implementation changes and routine fixes are omitted.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- Outside Linux, `mount` and `spawn_mount` now use a single FUSE reader thread
+  instead of failing with `n_threads != 1 is only supported on Linux` when
+  `MountThreads::fuser_threads` is greater than one, and the CPU-based default
+  no longer selects several readers there. A warning is logged when an explicit
+  count is reduced.
+- On macOS, a mount that macFUSE refuses without an error code now returns an
+  error that names the likely cause instead of the bare `Unspecified Error`.
+
 ## [0.7.0] - 2026-09-30
 
 ### Breaking changes

@@ -9,6 +9,30 @@ use crate::FuseSession;
 use super::FuseHandler;
 use super::fuse_driver::FuseDriver;
 
+/// Logs a mount failure and returns the error to hand back to the caller.
+fn mount_error(mountpoint: &Path, err: io::Error) -> io::Error {
+    // macFUSE's libfuse reports a refused mount without setting errno, which
+    // fuser can only surface as "Unspecified Error". This is what a mount
+    // looks like when macFUSE is installed but its kernel extension is not
+    // loaded, so say so instead of passing the bare message on.
+    #[cfg(target_os = "macos")]
+    let err = if err.raw_os_error().is_none() && err.kind() == io::ErrorKind::Other {
+        io::Error::other(format!(
+            "{err}: macFUSE refused the mount without an error code. Check that macFUSE is \
+             installed and that its system extension is allowed in System Settings > Privacy & \
+             Security (a restart may be required)"
+        ))
+    } else {
+        err
+    };
+    error!(
+        "Failed to mount FUSE filesystem at {}: {}",
+        mountpoint.display(),
+        err
+    );
+    err
+}
+
 {% if mode != "serial" %}
 /// Returns the reader count and descriptor-cloning setting to hand to fuser.
 ///
@@ -68,14 +92,7 @@ where
             info!("FUSE filesystem at {} stopped", mountpoint.display());
             Ok(())
         }
-        Err(err) => {
-            error!(
-                "Failed to mount FUSE filesystem at {}: {}",
-                mountpoint.display(),
-                err
-            );
-            Err(err)
-        }
+        Err(err) => Err(mount_error(mountpoint, err)),
     }
 }
 
@@ -107,14 +124,7 @@ where
     info!("Mounting FUSE filesystem at {} in the background", mountpoint.display());
     let session = match fuser_spawn_mount(driver, mountpoint, &config) {
         Ok(session) => session,
-        Err(err) => {
-            error!(
-                "Failed to mount FUSE filesystem at {}: {}",
-                mountpoint.display(),
-                err
-            );
-            return Err(err);
-        }
+        Err(err) => return Err(mount_error(mountpoint, err)),
     };
     info!("FUSE filesystem mounted at {}", mountpoint.display());
     Ok(FuseSession::new(session, resolver))

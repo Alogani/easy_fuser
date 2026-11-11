@@ -116,6 +116,18 @@ complete any system approval or security prompts it presents. Ensure your user
 is permitted to mount a filesystem. macOS support in `easy_fuser` is best-effort
 and has not been well tested.
 
+If a mount fails with `Unspecified Error`, macFUSE refused it without reporting
+an error code. This is what happens when macFUSE is installed but its kernel
+extension is not loaded, for example after a macFUSE or macOS update until the
+extension is allowed again under System Settings > Privacy & Security and the
+machine is restarted. Check that another macFUSE filesystem can be mounted
+before looking for a problem in your handler.
+
+`fuser` reads kernel requests with a single thread on macOS, so `easy_fuser`
+uses one FUSE reader there whatever `MountThreads::fuser_threads` asks for.
+Handler workers are not affected. [FUSE-T](https://www.fuse-t.org/) is not
+supported: `fuser` rejects its requests.
+
 #### Unmounting
 
 Unmount with the utility provided by the host system. On Linux this is commonly
